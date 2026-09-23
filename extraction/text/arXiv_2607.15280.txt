@@ -1,0 +1,999 @@
+                                        GraphDx: A Cost-Aware Knowledge-Enhanced Multi-Agent Framework
+                                                            for Sequential Diagnosis
+                                                                Shaoting Tan1 , Ning Liu1 , Yuntao Du1 , Shuyue Wei1 ,
+                                                                  Wu Shuai2 , Qian Li1 , Yanyu Xu1 , Wei Zhang3 ,
+                                                                           Lizhen Cui1 , Haitao Yuan4 ,
+                 1
+                          Shandong University, 2 Nankai University, 3 East China Normal University, 4 National Technological University,
+                                                                                Correspondence: liun21cs@sdu.edu.cn
+
+
+                                                              Abstract                             cians iteratively gather information through symp-
+                                                                                                   tom inquiries and diagnostic tests, making deci-
+                                            Sequential diagnosis requires balancing diag-          sions under uncertainty while balancing diagnostic
+                                            nostic accuracy against resource costs through         accuracy against resource costs including monetary
+                                            iterative information gathering. Existing Large
+                                            Language Model (LLM) approaches exhibit
+                                                                                                   expense, patient discomfort, and time. This multi-
+                                            a critical knowledge-reasoning gap: despite            turn process requires not merely knowledge recall,
+                                            encoding extensive medical knowledge, they             but systematic reasoning that coordinates informa-
+                                            struggle to reason systematically under cost           tion acquisition with hypothesis refinement.
+
+
+
+
+arXiv:2607.15280v1 [cs.AI] 8 Apr 2026
+                                            constraints, often resorting to excessive testing.        Current LLM-based approaches exhibit a critical
+                                            We propose GraphDx, a knowledge-enhanced               limitation we term the knowledge-reasoning gap:
+                                            framework with two core innovations. First,            despite possessing substantial medical knowledge,
+                                            we design an automated pipeline that leverages
+                                                                                                   LLMs struggle to reason systematically under cost
+                                            LLMs to construct Medical Diagnosis Knowl-
+                                            edge Graphs (MDKGs) with quantized typical-            constraints. Recent studies (Nori et al., 2025; Jia
+                                            ity, action-centric topology, and dual-objective       et al., 2025) reveal that LLM agents tend toward
+                                            attributes for both diagnostic relevance and           “defensive medicine,” ordering excessive tests to
+                                            cost-sensitivity. Second, we introduce three           compensate for reasoning uncertainty while fail-
+                                            collaborative agents (Perception, Reasoning,           ing to leverage discriminative features for efficient
+                                            and Decision) where the Perception and De-             differential diagnosis. This behavior stems from
+                                            cision Agents handle language understanding            the implicit, unstructured nature of LLM reason-
+                                            and generation, while the Reasoning Agent per-
+                                            forms deterministic evidence scoring and cost-
+                                                                                                   ing, which lacks explicit domain models enabling
+                                            aware planning on the MDKG. Experiments                systematic hypothesis testing. We identify two key
+                                            on MedQA and MIMIC-IV across three LLM                 challenges underlying this gap:
+                                            backbones (DeepSeek-V3, Kimi-k2, Llama-
+                                                                                                   Challenge 1: Diagnosis-Ready Knowledge
+                                            3.3) show that GraphDx improves diagnostic
+                                            success rates from 50–68% to 79–93% while              Graph Construction. Sequential diagnosis re-
+                                            reducing test costs by 20–54%, providing a ro-         quires quantitative attributes beyond semantic rela-
+                                            bust, economical, and interpretable solution for       tions, including symptom typicality and test utili-
+                                            automated clinical diagnosis.                          ties. Existing knowledge graphs like UMLS lack
+                                                                                                   these attributes, while current automated meth-
+                                        1   Introduction                                           ods (Chen and Bertozzi, 2023; Anuyah et al., 2025)
+                                                                                                   extract only semantic triples. Moreover, medical
+                                        Large Language Models (LLMs) have achieved re-
+                                                                                                   concepts exhibit context-dependent semantics (e.g.,
+                                        markable success on medical examinations, with
+                                                                                                   “heart failure” as diagnosis vs. complication), re-
+                                        models like GPT-4 surpassing human performance
+                                                                                                   quiring dynamic role modeling that static ontolo-
+                                        on USMLE (Nori et al., 2023; Singhal et al., 2023),
+                                                                                                   gies cannot provide.
+                                        demonstrating that LLMs encode extensive medi-
+                                        cal knowledge within their parameters. However,            Challenge 2: Effective Multi-Agent Collabo-
+                                        translating this success to real clinical practice, par-   ration. Bridging neural language understanding
+                                        ticularly sequential diagnosis, remains a signifi-         with symbolic graph reasoning requires orchestrat-
+                                        cant challenge.                                            ing observation extraction, graph grounding, evi-
+                                           Unlike static question answering, sequential di-        dence scoring, and response generation. Recent
+                                        agnosis mirrors actual clinical workflows: physi-          approaches like MAI-DxO (Nori et al., 2025) rely
+on prompt-based coordination, but their complex-       Table 1: Comparison of Recent Works and Ours.
+ity demands strong instruction-following from base     ✓=Yes, ✗=No, △=Weak/partial, —=Not applicable.
+models, causing performance degradation on less                                     Explicit      Auto        Sequential    Cost-
+                                                        Method
+capable LLMs.                                                                         KG       Construction   Diagnosis    Sensitive
+                                                           End-to-End LLM
+   To address these challenges, we propose                (Singhal et al., 2023)
+                                                                                       ✗            –            △            ✗
+
+GraphDx, a knowledge-enhanced framework com-               Multi-Agent LLM
+                                                                                       ✗            –             ✓           △
+                                                            (Nori et al., 2025)
+prising two integrated components (Figure 1):             KG-Enhanced LLM
+                                                                                       ✓            ✗            △            ✗
+                                                            (Gao et al., 2025)
+(1) Automated MDKG Construction (§3.2) ad-                      AutoKG
+                                                                                       ✓            ✓             ✗           ✗
+dresses Challenge 1. We design an automated             (Chen and Bertozzi, 2023)
+                                                             GraphDx (Ours)            ✓            ✓             ✓           ✓
+pipeline where specialized agents collaborate to
+construct MDKGs enriched with quantitative di-
+agnostic attributes including typicality weights       Bench and MAI-DxO, achieving diagnostic accu-
+and test cost-effectiveness metrics that existing      racy and cost control surpassing human doctors
+knowledge graphs lack. The pipeline employs a          through multi-agent orchestration. Jia et al. (2025)
+three-stage process: parallel knowledge extraction     proposed the DDO framework, using Reinforce-
+with quantized typicality, hybrid entity alignment     ment Learning (RL) to optimize symptom inquiry
+with dynamic node upgrade for handling semantic        strategies. Schmidgall et al. (2025) and Qiu et al.
+role transitions, and attribute enrichment for cost-   (2025) built AgentClinic and DiagGym simulation
+sensitive planning. This enables complex causal        environments respectively for training and evalu-
+chains to emerge automatically without manual an-      ating multimodal diagnostic agents. Additionally,
+notation.                                              ACTMED proposed by Estévez et al. (2025) com-
+(2) Collaborative Diagnostic Agents (§3.3) ad-         bines Bayesian experimental design with LLMs
+dresses Challenge 2. We introduce three special-       to actively select tests. However, most of these
+ized agents: a Perception Agent that extracts obser-   methods rely on the implicit reasoning of LLMs or
+vations from patient responses and grounds them        RL with low sample efficiency, lacking an explicit,
+to graph nodes, a Reasoning Agent that performs        interpretable structured domain model to guide de-
+deterministic evidence scoring and cost-sensitive      cisions.
+planning on the MDKG, and a Decision Agent that        Automated Medical Knowledge Graph Con-
+generates clinically appropriate responses. This ar-   struction. Traditional MKG construction relies
+chitecture offloads complex reasoning to the graph,    on expert annotation and is costly. Recent research
+reducing dependence on base model capabilities.        has begun to explore using LLMs for automated
+   We evaluate GraphDx on MedQA-Extended and           graph construction. Chen and Bertozzi (2023) pro-
+MIMIC-IV datasets across three LLM backbones.          posed AutoKG, using LLMs to extract keywords
+Results demonstrate that GraphDx improves diag-        and calculate graph Laplacian weights. CoDe-KG
+nostic success rates from 50% to over 88% while        by Anuyah et al. (2025) uses sentence complexity
+reducing test costs by 20% to 50%, with consistent     modeling to extract triples. Sarabadani et al. (2025)
+gains across all tested models, including scenar-      proposed DKG-LLM, integrating dynamic knowl-
+ios where sophisticated multi-agent baselines fail.    edge graphs with the Grok 3 model. Although these
+To support reproducibility and further research,       works achieve automation, the constructed graphs
+we open-source our implementation, including the       are mostly used for semantic retrieval and lack the
+automated graph construction pipeline and the          fine-grained typicality parameters (e.g., symptom
+ClinicSim environment at https://anonymous.            weights) and decision utility attributes (e.g., test
+4open.science/r/GraphDx-BB8B.                          cost, invasiveness) required for diagnostic reason-
+                                                       ing.
+2   Related Work                                       Knowledge-Enhanced            Clinical     Decision.
+                                                       Knowledge-Enhanced AI aims to combine the
+As shown in Table 1, we categorize related work        perceptual capabilities of neural networks with
+into three categories and compare them in Table 1.     the logical capabilities of symbolic systems. Gao
+Sequential Diagnosis Agents. Sequential diagno-        et al. (2025) explored integrating MKG into
+sis requires agents to balance information acqui-      LLMs for diagnostic prediction. Our method
+sition and diagnostic costs over multiple interac-     goes a step further, not only achieving automated
+tions. Recently, Nori et al. (2025) proposed SD-       graph construction but also designing an explicit
+Figure 1: Overview of the GraphDx framework. Left: Automated MDKG Construction Pipeline (Algorithm 1),
+utilizing parallel extraction and hybrid alignment to build the graph. Right: Graph-Augmented Diagnostic Agent
+(Algorithm 2), employing a knowledge-enhanced loop of observation extraction, graph grounding, evidence scoring,
+and utility-based action planning.
+
+evidence scoring engine based on the graph,              directed graph G = (V, E, W, A) where:
+realizing true "knowledge-guided reasoning."             • V = Vd ∪ Vf ∪ Vt : nodes for diseases, features
+   In summary, our method GraphDx is the only              (symptoms/signs), and tests.
+framework that simultaneously possesses auto-            • E ⊆ (Vd × Vf ) ∪ (Vf × Vt ): edges connecting
+mated graph construction capabilities, supports se-        diseases to features and features to tests.
+quential diagnosis, and explicitly models test costs.    • W : E → R: edge weights encoding association
+                                                           strength.
+3     Methodology                                        • A : Vt → R2 : test attributes (cost, invasiveness).
+3.1    Problem Formulation                                  We implement a fully automated pipeline to con-
+                                                         struct G from a disease list Dlist without manual
+We formulate sequential diagnosis as a partially
+                                                         annotation. The process proceeds in three stages,
+observable decision process. Let D be the set of
+                                                         designed to ensure the graph serves as a robust com-
+possible diseases. At turn t, the agent observes
+                                                         putational substrate for evidence-based reasoning.
+dialogue history Ht and maintains a belief state
+over D. The agent selects an action at ∈ Aaction :       Stage 1: Parallel Knowledge Extraction. The
+• Inquire(f ): Ask about symptom or feature f .          system processes each disease d ∈ Dlist in parallel.
+• Test(τ ): Order diagnostic test τ .                    For each disease, it prompts the LLM to extract a
+• Diagnose(d): Provide final diagnosis d.                set of tuples {(f, wdf , Tf )}, where f is a feature,
+The objective is to minimize the expected total cost:    wdf is its typicality, and Tf is a list of verifying
+             " T                                #        tests. To mitigate the noise from poorly calibrated
+               X
+                                             ∗           continuous probability estimates in LLMs, we em-
+      min E         c(at ) + λmis · I[dˆ ̸= d ]   (1)
+        π                                                ploy a Quantized Typicality strategy. We map
+               t=1
+                                                         linguistic typicality descriptions to discrete weight
+where c(at ) is the cost of action at (including mon-    buckets W : Edf → R:
+etary cost, invasiveness, and time), λmis is the                        
+penalty for misdiagnosis, dˆ is the predicted diagno-                   
+                                                                        
+                                                                         w++ if f is Hallmark (++)
+sis, and d∗ is the ground truth.
+                                                                        
+                                                                        w
+                                                                             +    if f is Common (+)
+                                                            w(d, f ) =                                     (2)
+                                                                         w−      if f is Rare (-)
+3.2    Automated Construction of Medical                                
+                                                                        
+                                                                        
+                                                                        w
+       Diagnosis Knowledge Graph                                             −− if f is Impossible (–)
+
+The core of GraphDx is the Medical Diagnosis             This quantization acts as a low-pass filter, stabiliz-
+Knowledge Graph (MDKG), formally defined as a            ing the reasoning process against minor probability
+fluctuations in LLM generation.                          raw extractions. The Metadata Enrichment Mod-
+Additionally, to ensure the graph directly supports      ule infers these attributes for new test nodes. Each
+diagnostic planning, we enforce an Action-Centric        test node τ ∈ Vt is associated with attributes
+Topology. Instead of just declarative knowledge          A(τ ) = (cτ , ιτ ), where cτ represents the mone-
+(“Pneumonia causes cough”), the extraction explic-       tary cost level and ιτ represents the invasiveness
+itly models verification edges (f, τ ) ∈ Ef τ con-       multiplier. This ensures the graph is fully populated
+necting features to the tests that can confirm or rule   with the quantitative data required for downstream
+them out. This transforms the graph into a naviga-       planning.
+tion structure: given an uncertain feature, the agent
+can directly traverse to relevant diagnostic actions.    3.3     Graph-Augmented Diagnostic Agent
+                                                         To bridge the gap between unstructured patient
+Stage 2: Hybrid Entity Alignment & Dynamic               interaction and structured medical reasoning, we
+Upgrade. Medical concepts often suffer from se-          design a Graph-Augmented Diagnostic Agent.
+mantic ambiguity and role shifts (e.g., a disease        This agent operates through a "Think-then-Act"
+in one context is a symptom in another). To re-          loop (Algorithm 2), where a neural component han-
+solve synonymy, we employ a Hybrid Alignment             dles perception and a symbolic component handles
+Mechanism to align a new term u to the existing          reasoning.
+node set V. We retrieve a candidate set Cu using a
+hybrid retrieval strategy that combines lexical and      3.3.1    Perception Agent
+semantic matching:                                       Since patient inputs are unstructured and diverse
+                                                         (ranging from verbal descriptions to medical re-
+  Cu = TopKoverlap (u, V) ∪ TopKembed (u, V) (3)
+                                                         ports), the system must first normalize them into a
+where TopKoverlap selects candidates based on the        structured format. The Perception Module acts as
+Overlap Coefficient (intersection over minimum set       this interface. At turn t, it employs an extraction
+size) to capture partial matches (e.g., "Diabetes" ⊆     function fext to parse the input rt (which may be a
+"Type 2 Diabetes"), and TopKembed selects candi-         patient’s verbal response or a returned medical test
+dates based on cosine similarity of dense embed-         report) into structured observations:
+dings ϕ(·) to capture semantic synonyms. An LLM
+then acts as a discriminator D(u, Cu ) to determine              Ot = fext (rt |Ht−1 ) = {(mi , si )}K
+                                                                                                     i=1   (4)
+if u should merge with v ∗ ∈ Cu or form a new
+node.                                                    where mi is the mention text (e.g., "fever" or "WBC
+                                                         count elevated") and si ∈ {Present, Absent} is the
+Furthermore, to handle role shifts without manual        status. Crucially, this unified extraction handles
+intervention, we introduce a Dynamic Node Up-            both subjective symptoms and objective test find-
+grade strategy. When a node initially added as           ings identically. Subsequently, a grounding func-
+a feature (e.g., “Heart Failure” as a symptom of         tion g : M → Vf maps each mention mi to a
+renal disease) is later identified as an independent     canonical graph node fi∗ using the alignment mech-
+disease, the system:                                     anism from Sec. 3.2. The symbolic state is updated
+  1. Promotes the node from Vf to Vd : Vd ← Vd ∪         as St = St−1 ∪ {(g(mi ), si )}Ki=1 .
+     {v}, Vf ← Vf \ {v}
+                                                         3.3.2    Reasoning Agent
+  2. Preserves all existing incoming edges (d′ , v)
+     (its role as a feature)                             Once observations are grounded, the core chal-
+                                                         lenge is to make deterministic and cost-effective
+  3. Enables new outgoing edges (v, f ′ )(its fea-
+                                                         decisions. The Reasoning Engine addresses this
+     tures as a disease)
+                                                         through two key mechanisms:
+This allows complex causal chains (e.g., Renal Dis-
+ease → Heart Failure → Dyspnea) to emerge auto-          Evidence Scoring. To avoid the instability of
+matically without manual ontology restructuring.         black-box neural reasoning, we implement an ex-
+                                                         plicit Evidence Scoring mechanism. It computes
+Stage 3: Attribute Enrichment. Finally, to sup-          a confidence score S(d) for each disease d based
+port cost-sensitive decision making, the graph re-       on the alignment between the graph knowledge
+quires quantitative metadata often missing from          and the observed state St . The scoring function
+explicitly handles positive and negative evidence:            3.3.3 Decision Agent
+                        X                                     Acting as the "right brain," this agent generates
+            S(d) =               Score(f, d, s)        (5)    the final action at and natural language response
+                      (f,s)∈St                                respt by conditioning on the structured reasoning
+                                                              summary Σt :
+where the component score is defined as:
+                   (                                                      (at , respt ) ∼ πθ (· | Ht , Σt )    (9)
+                     w(d, f )         if s = Present
+ Score(f, d, s) =                                             where Σt aggregates the symbolic outputs:
+                     −λ · w(d, f ) if s = Absent
+                                                    (6)
+                                                                    Σt = Rank(D), TopVK (f ), TopU
+                                                                                                 K (τ )       (10)
+Here, λ is a penalty factor. Note that if w(d, f ) < 0
+(the disease typically lacks the feature) and s =             This injection of Σt constrains the LLM’s gener-
+Present, the term w(d, f ) naturally reduces the              ation space to medically valid paths derived from
+score. Conversely, if s = Absent and w(d, f ) > 0             the MDKG.
+(expected feature missing), the term −λ · w(d, f )
+penalizes the disease.                                        3.4    Design Rationale
+                                                              The GraphDx architecture embodies a key insight:
+Cost-Sensitive Action Planning. To balance di-
+                                                              neural and symbolic components excel at com-
+agnostic accuracy with cost (mitigating "defensive
+                                                              plementary tasks. LLMs handle the “soft” as-
+medicine"), we employ a Cost-Sensitive Action
+                                                              pects of diagnosis—understanding colloquial lan-
+Planning module. While full Bayesian Value of
+                                                              guage, maintaining conversational flow, and exer-
+Information (VoI) calculation is computationally
+                                                              cising clinical judgment in ambiguous situations.
+prohibitive for real-time interaction, we implement
+                                                              The symbolic engine handles the “hard” aspects—
+a heuristic utility function that approximates infor-
+                                                              deterministic state tracking, systematic hypothesis
+mation gain via feature variance and relevance:
+                                                              scoring, and principled cost-benefit analysis. This
+• Feature Selection. We identify unobserved fea-              separation provides several advantages: (1) Inter-
+  tures that maximize discriminative power among              pretability: Every diagnostic conclusion traces to
+  the top-K candidate diseases Dtop . The discrim-            explicit evidence scores; (2) Consistency: Deter-
+  inative score V (f ) serves as a lightweight proxy          ministic state tracking prevents contradictory rea-
+  for information gain:                                       soning; (3) Efficiency: Symbolic utility computa-
+                                                              tion is faster than LLM deliberation; (4) Robust-
+                                                              ness: Graph structure constrains LLM outputs to
+                      X
+          V (f ) =            |S(d)| · |w(d, f )|
+                     d∈Dtop                            (7)    valid medical reasoning.
+                     + α · Vard∈Dtop (w(d, f ))               4     Experiments
+  The first term prioritizes features relevant to high-       We conduct extensive experiments to address the
+  confidence diseases, while the second term (vari-           following research questions: Q1: Can GraphDx
+  ance) favors features that can differentiate be-            achieve superior diagnostic accuracy and cost-
+  tween them.                                                 efficiency compared to current SOTA LLM frame-
+                                                              works? Q2: How robust is our method when trans-
+• Test Selection. For each candidate test τ , we              ferring to real-world, noisy clinical scenarios? Q3:
+  calculate its utility U (τ ) by aggregating the value       What are the individual contributions of the struc-
+  of the features it can verify:                              tured MDKG and the explicit inference engine?
+                  P
+                      f ∈Verifies(τ ) V (f ) · η(f, τ )       Implementation Details. We evaluate GraphDx
+        U (τ ) =                                        (8)   on two datasets: MedQA (200 cases) and MIMIC-
+                              1 + c τ · ιτ
+                                                              IV (200 real-world cases). We employ ClinicSim,
+  where η(f, τ ) ∈ {ηlow , ηhigh } denotes the effec-         a modular simulation environment, to conduct
+  tiveness of test τ for feature f . The denominator          multi-turn diagnostic dialogues. We compare our
+  penalizes expensive and invasive tests, ensuring            method against Standard LLM prompting and
+  the selected actions maximize the information-              the multi-agent MAI-DxO framework (Nori et al.,
+  to-cost ratio.                                              2025) across three LLM backbones: DeepSeek-V3,
+Kimi-k2, and Llama-3.3. Performance is measured        $537. This is attributed to the utility-based active
+by Diagnostic Score (0-10), Total Cost ($), and        planning module, which effectively suppresses the
+Dialogue Turns. For detailed descriptions of the       "defensive medicine" behavior—blindly ordering
+datasets, baseline settings, hyperparameter config-    expensive tests (e.g., full-body CT) to compensate
+urations, and the simulation environment, please       for uncertainty—observed in baselines. Notably,
+refer to Appendix D.                                   on MIMIC-IV, MAI-DxO incurs extremely high
+                                                       costs (e.g., $1497 for DeepSeek-V3) due to uncon-
+4.1     Experimental Results                           trolled exploration, whereas GraphDx maintains
+4.1.1    Main Results                                  low costs ($340) by precisely targeting relevant
+                                                       tests. Figure 2 illustrates this advantage: while
+Table 2 and Table 3 present the performance com-
+                                                       Baseline results (purple) are scattered with many
+parison between GraphDx and baselines on MedQA
+                                                       high-cost, low-score samples, GraphDx (green) is
+and MIMIC-IV datasets, respectively. The results
+                                                       tightly clustered in the "high score-low cost" region.
+demonstrate that our method achieves consistent
+                                                       Regarding interaction efficiency, GraphDx incurs
+and significant improvements across all metrics and
+                                                       slightly more turns than the Standard LLM (e.g.,
+base models.
+                                                       5.06 vs. 3.80 for Llama-3.3). This is deliberate: the
+Diagnostic Accuracy. On the MedQA dataset,             graph agent performs more thorough differential
+GraphDx significantly outperforms the Standard         diagnosis, excluding distractors through multi-turn
+LLM baseline. For instance, with DeepSeek-V3,          inquiries rather than jumping to premature conclu-
+the success rate (Score ≥ 8) jumps from 67.8% to       sions. Given the substantial gains in diagnostic
+88.7%, and Kimi-k2 achieves a remarkable 93.2%         quality, this trade-off is clinically justified.
+success rate (assessment details in Appendix G.3).
+                                                       Robustness and Failure Analysis. On the chal-
+We also compared our method with the SOTA
+                                                       lenging MIMIC-IV dataset, we observed that base-
+multi-agent framework MAI-DxO (Nori et al.,
+                                                       lines often fail due to (1) Noise Interference, being
+2025). While MAI-DxO improves accuracy on
+                                                       misled by irrelevant details in past medical history
+DeepSeek-V3 (8.05), it incurs extremely high costs
+                                                       (e.g., old fractures), and (2) Defensive Medicine,
+($2460) and interaction turns (9.51). On the smaller
+                                                       leading to soaring costs (e.g., Scenario 66 incurred
+Llama-3.3 model, MAI-DxO suffers from perfor-
+                                                       $1825 in costs yet still resulted in misdiagnosis).
+mance collapse (Score 5.38), indicating its high
+                                                       GraphDx mitigates these issues by filtering noise
+dependency on the base model’s capability. In con-
+                                                       through the MDKG’s prior knowledge, focusing
+trast, GraphDx achieves Pareto optimality across
+                                                       reasoning on core pathological features and avoid-
+all models by offloading reasoning to the graph.
+                                                       ing unnecessary expensive testing.
+This advantage generalizes well to the real-world
+MIMIC-IV dataset. Despite the increased clinical       4.1.2   Performance on Unseen Diseases
+noise, GraphDx improves the average diagnostic                 (Open-Set Evaluation)
+score by approximately 2.0 points (e.g., DeepSeek-
+V3: 6.60 → 8.27) and increases the success rate        To further address the concern regarding the closed-
+by 25%–30%. In contrast, the MAI-DxO baseline          set nature of the MDKG, we conducted an "Open-
+struggles significantly on this real-world dataset,    Set" evaluation using a subset of MIMIC-IV cases
+showing lower scores and high variance, likely due     where the ground truth disease was explicitly ex-
+to the complexity of real clinical notes confusing     cluded from our constructed graph. This setting
+the multi-agent debate mechanism. This proves          tests the system’s ability to handle "unknown"
+that structured knowledge effectively guides the       conditions by relying on the hybrid knowledge-
+model to grasp key features even in noisy environ-     enhanced architecture.
+ments.                                                    Results on the DeepSeek-V3 backbone show that
+                                                       even without specific disease nodes, GraphDx out-
+Cost-Effectiveness and Efficiency. GraphDx             performs the Standard LLM baseline. GraphDx
+consistently reduces test costs by 20%–54% across      achieved a mean score of 7.65 compared to the
+both datasets while improving accuracy (see Ap-        baseline’s 6.66, a significant improvement of +1.0
+pendix G.3.2 for details on the US-based cost          point. The average test cost was reduced from
+estimation methodology). For DeepSeek-V3 on            $743.48 (Baseline) to $574.88 (GraphDx), a saving
+MedQA, the average cost drops from $1062 to            of ∼23%.
+                          Table 2: Diagnostic Performance Comparison on MedQA Dataset
+
+ Base Model      Method           Score (0-10) ↑       Cost ($) ↓         Turns       Success Rate ↑   Harmful Rate ↓
+                 Standard LLM      7.25 ± 1.34      1062.69 ± 655.20    4.66 ± 0.77       67.8%            22.5%
+ DeepSeek-V3     MAI-DxO           8.05 ± 0.98     2460.20 ± 1114.69    9.51 ± 2.74       75.0%            13.2%
+                 GraphDx (Ours)    9.05 ± 0.47       537.13 ± 221.24    4.76 ± 0.94       88.7%            7.7%
+                 Standard LLM      7.66 ± 1.24      1456.88 ± 575.35    3.62 ± 0.51       66.8%            12.2%
+ Kimi-k2         MAI-DxO           6.92 ± 1.61     2220.57 ± 1026.20   11.99 ± 3.54       64.0%            24.5%
+                 GraphDx (Ours)    9.50 ± 0.29      1156.02 ± 407.83    4.17 ± 0.73       93.2%            1.3%
+                 Standard LLM      7.51 ± 1.30      1857.47 ± 773.05    3.80 ± 0.68       65.7%            12.5%
+ Llama-3.3       MAI-DxO           5.38 ± 2.06     3029.19 ± 1236.24   16.86 ± 2.01       50.3%            42.3%
+                 GraphDx (Ours)    9.24 ± 0.57      1065.78 ± 469.34    5.06 ± 1.51       88.3%            4.3%
+
+                       Table 3: Diagnostic Performance Comparison on MIMIC-IV Dataset
+
+ Base Model      Method           Score (0-10) ↑      Cost ($) ↓          Turns       Success Rate ↑   Harmful Rate ↓
+                 Standard LLM       6.60 ± 0.93     737.43 ± 267.38    5.41 ± 0.87       56.8%             18.8%
+ DeepSeek-V3     MAI-DxO            5.57 ± 1.43    1497.13 ± 844.00    11.28 ± 3.53      45.0%             30.5%
+                 GraphDx (Ours)     8.27 ± 0.51     340.98 ± 129.84     5.19 ± 0.93      83.0%             5.7%
+                 Standard LLM       6.24 ± 1.08    1040.60 ± 539.29     4.02 ± 0.57      54.2%             23.2%
+ Kimi-k2         MAI-DxO            5.19 ± 1.45     956.93 ± 559.68    11.97 ± 3.71      45.0%             36.5%
+                 GraphDx (Ours)     8.06 ± 0.65     658.48 ± 246.00     5.30 ± 1.26      79.3%             7.5%
+                 Standard LLM       6.14 ± 1.00    1164.27 ± 521.71     4.34 ± 0.66      50.3%             22.0%
+ Llama-3.3       MAI-DxO            3.56 ± 1.43    1820.21 ± 803.68    17.53 ± 1.65      30.8%             57.2%
+                 GraphDx (Ours)     8.55 ± 0.67     711.93 ± 331.54     6.60 ± 1.85      82.2%             5.7%
+
+
+
+                                                              pathology), allowing the agent to conduct efficient
+                                                              workups before falling back on the LLM’s paramet-
+                                                              ric knowledge for the final diagnosis.
+
+                                                              4.1.3    Human Evaluation of Simulation
+                                                                       Quality
+                                                              To address concerns regarding the reliance on sim-
+                                                              ulation and LLM-based evaluation, we conducted
+                                                              a rigorous validation study to ensure clinical va-
+                                                              lidity. Medical experts reviewed 365 diagnostic
+                                                              scenarios and 143 medical test cost estimates gen-
+                                                              erated by our system. We analyzed the consistency
+                                                              between human experts and our automated LLM
+                                                              judge. The Pearson correlation coefficient for Di-
+                                                              agnostic Score was 0.89 (n=365), with a Mean Ab-
+                                                              solute Error (MAE) of 0.58 (on a 0-10 scale) and
+                                                              a 94.8% agreement rate on success/failure classifi-
+Figure 2: Joint distribution of Cost vs. Diagnostic Score     cation (Score ≥ 8). For Test Cost, the correlation
+for DeepSeek-V3 model.                                        was 0.89 (n=143) with an MAE of $226.14. These
+                                                              results provide strong empirical evidence that our
+   These findings confirm the robustness of our hy-           automated evaluation pipeline is a reliable proxy
+brid design. Although the specific disease node               for human expert judgment.
+is missing, the "Unaligned Features" mechanism
+(Algorithm 2) ensures that clinical observations              4.1.4    Visualization of Reasoning Process
+are still captured and passed to the LLM. Further-            Figure 3 illustrates the evolution of the Ground
+more, the graph’s general structure of feature-test           Truth (GT) disease rank and Top-k hit rate over
+relationships remains valid (e.g., "Chest Pain" sug-          dialogue turns using DeepSeek-V3. We observe
+gests "ECG" regardless of the specific underlying             two key trends: (1) Rapid Convergence: In early
+turns (1-3), the GT rank drops sharply and Top-5                         dicating that even a hallucinated structured sum-
+hit rate exceeds 50%, showing the graph’s ability to                     mary helps the LLM organize its thoughts. How-
+quickly lock onto relevant diseases. (2) Effective                       ever, w/o Inference (using the real graph) fur-
+Differential Diagnosis: In later turns (4-8), the                        ther improves performance (Score → 8.39, Cost
+Top-1 hit rate rises above 40%, confirming that                          ↓ 25%), proving that accurate domain knowl-
+our utility-based strategy effectively pinpoints the                     edge (MDKG) is far superior to the LLM’s para-
+correct diagnosis through discriminative feature                         metric memory.
+collection.
+                                                                     2. Critical Role of Explicit Reasoning: The full
+                                                                        GraphDx achieves the largest performance leap
+                                                                        compared to w/o Inference (Score → 9.24,
+                                                                        Cost ↓ 17%). This demonstrates that knowl-
+                                                                        edge alone is not enough; the explicit inference
+                                                                        engine based on evidence scoring and utility
+                                                                        effectively guides the agent to make optimal
+                                                                        decisions in complex uncertain environments,
+                                                                        avoiding the LLM’s blind trial-and-error.
+                                                                     4.1.6 Parameter Sensitivity Analysis
+Figure 3: Evolution of GT Disease Rank and Top-k Hit
+                                                                     To assess the robustness of our mechanism, we
+Rate. The blue line (left) shows the decline in average              conducted an offline sensitivity analysis on the in-
+rank, while bars (right) show the increasing probability             teraction logs. We re-evaluated the disease ranking
+of GT entering the Top-1/3/5 list.                                   logic by varying key hyperparameters. The results,
+                                                                     detailed in Appendix H.2, show that the system
+4.1.5     Ablation Study                                             maintains stable performance across a wide range
+To quantify the contribution of each component                       of parameters, demonstrating robustness.
+(MDKG knowledge base and inference engine)
+                                                                     4.1.7 Case Study
+in GraphDx, we conducted an ablation study on
+the Llama-3.3 model using the MedQA-Extended                         To deeply understand the decision-making advan-
+dataset. We designed two variants:                                   tages of GraphDx in different clinical contexts, we
+• w/o Graph: Removes the real MDKG and in-                           selected representative cases for detailed compar-
+  stead uses the LLM to "hallucinate" a graph sum-                   ative analysis. These cases reveal typical failure
+  mary based on dialogue history. This tests the                     modes of baseline models in rare disease reason-
+  value of structured knowledge itself.                              ing, anatomical logic, and cost-effective diagno-
+• w/o Inference: Retains the real MDKG for re-                       sis, while GraphDx successfully avoids these pit-
+  trieving neighbor nodes but removes evidence                       falls through structured knowledge. Detailed analy-
+  scoring and utility-based planning, relying en-                    sis and visualization are provided in Appendix H.3.
+  tirely on the LLM for decision-making. This                        5    Conclusion
+  tests the value of the explicit inference engine.
+   The experimental results are shown in Table 4.                    This paper proposes GraphDx, which effectively
+                                                                     solves the "Knowledge-Reasoning Mismatch"
+Table 4: Detailed Ablation Study Results on Llama-3.3                problem of LLMs in sequential diagnosis by auto-
+                                                                     matically constructing a medical knowledge graph
+                                             Success     Harmful
+ Method            Score ↑      Cost ($) ↓
+                                              Rate
+                                                     ↑
+                                                          Rate
+                                                                 ↓   and combining it with knowledge-enhanced rea-
+ Baseline         7.51 ± 1.30   1857 ± 773    65.7%       12.5%      soning. Experiments demonstrate that this method
+ w/o Graph        8.00 ± 1.21   1710 ± 739    71.5%       10.5%      not only significantly improves the accuracy and
+ w/o Inference    8.39 ± 1.08   1286 ± 642    77.5%       11.2%
+ GraphDx (Full)   9.24 ± 0.57   1066 ± 469    88.3%       4.3%       economy of diagnosis on standard medical exam
+                                                                     datasets but also exhibits excellent generalization
+  The analysis is as follows:                                        and robustness on real-world MIMIC-IV clinical
+                                                                     data, providing a feasible path for the interpretabil-
+1. Necessity of Structured Knowledge: Com-                           ity of medical AI. Future work will focus on ex-
+   pared to Baseline, w/o Graph shows a slight per-                  tending this framework to multi-modal data fusion
+   formance improvement (Score 7.51 → 8.00), in-                     and larger-scale clinical deployment validation.
+Limitations                                                References
+Despite the excellent performance of GraphDx in            Sydney Anuyah, Mehedi Mahmud Kaushik, Sri Rama
+                                                             Krishna Reddy Dwarampudi, Rakesh Shiradkar, Ar-
+experiments, there are still some limitations: (1)           jan Durresi, and Sunandan Chakraborty. 2025. Au-
+Graph Construction Depends on Base Model                     tomated knowledge graph construction using large
+Capability: The quality of MDKG is limited by                language models and sentence complexity modelling.
+the medical knowledge reserve of the LLM used                In Proceedings of the 2025 Conference on Empiri-
+                                                             cal Methods in Natural Language Processing, pages
+for graph construction (DeepSeek-V3 in this paper).          15526–15550, Suzhou, China. Association for Com-
+If the base model has knowledge blind spots, the             putational Linguistics.
+graph may miss key nodes or edges. (2) Limited
+Multi-modal Processing Capability: The current             Bohan Chen and Andrea L. Bertozzi. 2023. Autokg:
+                                                             Efficient automated knowledge graph generation for
+framework mainly processes textual information.              language models. Preprint, arXiv:2311.14740.
+The understanding of medical imaging (CT/MRI)
+and waveform data (ECG) still relies on the text de-       Silas Ruhrberg Estévez, Nicolás Astorga, and Mi-
+                                                              haela van der Schaar. 2025. Timely clinical di-
+scriptions from LLMs, and end-to-end pixel-level              agnosis through active test selection. Preprint,
+feature extraction has not yet been achieved. (3)             arXiv:2510.18988.
+Inference Speed: Due to the introduction of ex-
+plicit evidence scoring and utility calculation, the       Y. Gao, R. Li, E. Croxford, J. Caskey, B. Patterson,
+                                                              M. Churpek, T. Miller, D. Dligach, and M. Afshar.
+single-step decision latency of GraphDx is slightly           2025. Leveraging medical knowledge graphs into
+higher than that of pure end-to-end LLMs. Future              large language models for diagnosis prediction: De-
+work needs to further optimize the computational              sign and application study. JMIR AI, 4:e58670.
+efficiency of the inference engine. (4) Simula-            Zhihao Jia, Mingyi Jia, Junwen Duan, and Jianxin Wang.
+tion Gap: While our simulator is designed to be              2025. Ddo: Dual-decision optimization for llm-
+realistic, simulated patients may exhibit more con-          based medical consultation via multi-agent collab-
+sistent logic than real patients, who might provide          oration. Preprint, arXiv:2505.18630.
+vague or misleading descriptions. (5) LLM-based            Alistair E. W. Johnson, Lucas Bulgarelli, Lu Shen, Alvin
+Evaluation Bias: Our simulator, judge, and cost              Gayles, Ayad Shammout, Steven Horng, Tom J. Pol-
+estimator are LLM-based components and may in-               lard, Sicheng Hao, Benjamin Moody, Brian Gow, Li-
+herit biases (e.g., stylistic preferences or calibration     wei H. Lehman, Leo A. Celi, and Roger G. Mark.
+                                                             2023. MIMIC-IV, a freely accessible electronic
+drift). While we mitigate this via a fixed evaluation        health record dataset. Scientific Data, 10(1):1.
+protocol and human validation (Section 4), future
+work should incorporate multi-judge ensembles              Harsha Nori, Mayank Daswani, Christopher Kelly, Scott
+                                                             Lundberg, Marco Tulio Ribeiro, Marc Wilson, Xi-
+and real-world clinical evaluation when feasible.
+                                                             aoxuan Liu, Viknesh Sounderajah, Jonathan Carl-
+                                                             son, Matthew P Lungren, Bay Gross, Peter Hames,
+Ethics Statement                                             Mustafa Suleyman, Dominic King, and Eric Horvitz.
+                                                             2025. Sequential diagnosis with language models.
+This research involves the development of an au-             Preprint, arXiv:2506.22405.
+tomated medical diagnosis system. We emphasize
+that GraphDx is intended for research and educa-           Harsha Nori, Nicholas King, Scott Mayer McKinney,
+                                                             Dean Carignan, and Eric Horvitz. 2023. Capabilities
+tional simulation purposes only and must not be              of gpt-4 on medical challenge problems. Preprint,
+used for direct clinical decision-making without             arXiv:2303.13375.
+human oversight. The datasets used (MedQA and
+                                                           Pengcheng Qiu, Chaoyi Wu, Junwei Liu, Qiaoyu Zheng,
+MIMIC-IV) are de-identified public datasets, en-
+                                                             Yusheng Liao, Haowen Wang, Yun Yue, Qianrui Fan,
+suring patient privacy. While the automated graph            Shuai Zhen, Jian Wang, Jinjie Gu, Yanfeng Wang,
+construction reduces manual effort, it may inherit           Ya Zhang, and Weidi Xie. 2025. Evolving diagnostic
+biases or outdated knowledge from the base LLM;              agents in a virtual clinical environment. Preprint,
+therefore, any deployment in real-world settings             arXiv:2510.24654.
+requires rigorous human-in-the-loop verification.          Ali Sarabadani, Maryam Abdollahi Shamami,
+Furthermore, while our system optimizes for cost-            Hamidreza Sadeghsalehi, Borhan Asadi, and
+efficiency, we acknowledge the ethical trade-off             Saba Hesaraki. 2025. Dkg-llm : A framework
+                                                             for medical diagnosis and personalized treatment
+between reducing costs and the potential risk of             recommendations via dynamic knowledge graph
+missing necessary tests, which warrants further in-          and large language model integration. Preprint,
+vestigation.                                                 arXiv:2508.06186.
+Samuel Schmidgall, Rojin Ziaei, Carl Harris, Eduardo             System Prompt:
+  Reis, Jeffrey Jopling, and Michael Moor. 2025.                 You are an ontology curator for a medical knowledge graph.
+  Agentclinic: a multimodal agent benchmark to evalu-            Task: Given one NEW term and a list of existing candidate
+  ate ai in simulated clinical environments. Preprint,           concepts, decide if the new term: - is the SAME concept
+                                                                 (same meaning) as exactly one candidate, or - should be a
+  arXiv:2405.07960.                                              NEW concept.
+                                                                 Rules: - Treat synonyms, abbreviations, spelling variants,
+                                                                 plural/singular, and minor wording changes as the same con-
+Karan Singhal, Shekoofeh Azizi, Tao Tu, S. Sara
+                                                                 cept. - If the new term is clearly broader or narrower than
+  Mahdavi, Jason Wei, Hyung Won Chung, Nathan                    all candidates in a clinically important way (e.g. "lung can-
+  Scales, Ajay Tanwani, Heather Cole-Lewis, Stephen              cer" vs "small cell lung cancer"), treat as NEW. - If multiple
+  Pfohl, Perry Payne, Martin Seneviratne, Paul Gam-              candidates could match, choose the single best one; only use
+  ble, Chris Kelly, Abubakr Babiker, Nathanael Schärli,          NEW when all are clearly wrong.
+  Aakanksha Chowdhery, Philip Mansfield, Dina                    Output: - ONE JSON object: { "decision": "<candidate_id>"
+  Demner-Fushman, and 13 others. 2023. Large lan-                } or { "decision": "NEW" }. - No other keys, no explanations.
+  guage models encode clinical knowledge. Nature,
+  620(7972):172–180.
+                                                                 A.3    Test Metadata Enrichment
+
+A     Prompts for Automated Graph                                This prompt generates cost and invasiveness meta-
+                                                                 data for new test nodes.
+      Construction
+                                                                 System Prompt:
+                                                                 You are enriching metadata for diagnostic tests.
+We provide the key system prompts used in the                    Input: ONE test name. Output: ONE JSON object with:
+MDKG construction pipeline. These prompts are                    - "cost": short qualitative label of typical cost, e.g. "very
+                                                                 low", "low", "moderate", "high", or "very high". No numeric
+designed to guide the LLM in extracting structured               prices. - "invasiveness": one of ["low", "moderate", "high"]:
+medical knowledge from its internal parameters.                  * "low" – non-invasive, minimal risk (e.g. X-ray, blood test).
+                                                                 * "moderate" – minimally invasive (needle, catheter, con-
+                                                                 trast...). * "high" – clearly invasive or interventional/surgical.
+A.1    Disease Knowledge Extraction                              - "applicable_population": brief description of typical use
+                                                                 population, e.g. "adults with suspected acute coronary syn-
+This prompt instructs the LLM to extract key diag-               drome".
+                                                                 Be approximate but clinically reasonable. Return ONLY the
+nostic features (symptoms, signs, risk factors) for              JSON with these three keys.
+a given disease and estimate their typicality.
+System Prompt:
+You are a physician building a diagnostic knowledge graph.
+                                                                 A.4    Feature-Test Effectiveness Inference
+Input: ONE disease name (and optional reference text). Out-
+put: ONE JSON object with: - "disease": canonical name           This prompt determines the effectiveness of a test
+of this disease. - "features": an array of feature objects: -    in confirming a specific feature.
+"name": short, canonical, self-explanatory term. No extra
+adjectives, no explanations. E.g. "fever", "chest pain", "ele-   System Prompt:
+vated troponin", "chest X-ray consolidation". - "category":      You are linking features to diagnostic tests.
+one of: "symptom", "test_result", "risk_factor", "other". -      Task: Given ONE feature and ONE test, decide how effective
+"typicality": one of "++", "+", "-", "–", meaning P(F|D): *      the test is for confirming or excluding that FEATURE itself
+"++": almost all patients with this disease have this feature    (not any disease).
+(P(F|D) ≈ 1). Missing it makes the disease very atypical. *      Output: JSON with one key: "effectiveness", value in ["++",
+"+": often present in this disease (P(F|D) clearly higher than   "+"].
+baseline). * "-": often absent in this disease (P(F|D) clearly   Meaning: - "++": The test directly measures or visualizes
+lower than baseline). * "–": almost never present (P(F|D)        this feature with high reliability. It is the main or standard
+≈ 0). Seeing it strongly suggests other diseases. Important:     way to determine whether the feature is present. - "+": The
+"typicality" means frequency in this disease, NOT severity.      test only indirectly supports or weakly relates to this feature.
+- "tests": list of test names that DIRECTLY help observe or      It helps but is not decisive alone.
+confirm THIS FEATURE, not "all tests for this disease". If       Guidelines: - Judge the relation TEST ↔ FEATURE, not
+none, use [].                                                    TEST ↔ disease. - When unsure or the link is not direct,
+Rules: - Focus on important diagnostic features, not every       choose "+" rather than "++". - Do NOT use values other than
+trivial detail. - Prefer guideline/textbook-style canonical      "++" or "+".
+terminology. - You may use your medical knowledge beyond         Return ONLY: { "effectiveness": "++" } or { "effectiveness":
+the given text but stay consistent.                              "+" }.
+Return ONLY the JSON, no extra text.
+                                                                 B     Prompts for Graph-Augmented Agent
+A.2    Term Alignment
+                                                                 B.1    Information Extraction
+This prompt is used to decide whether a new term
+should be merged with an existing concept in the                 This prompt extracts structured observations from
+graph.                                                           the patient-doctor dialogue.
+System Prompt:                                                      Algorithm 1: Automated MDKG Construc-
+You are a medical information extraction assistant with ex-
+pertise in clinical terminology.                                    tion Pipeline
+Task: Given the latest turn of conversation with a patient            Input: Disease List Dlist , LLM M
+(which may include answers to questions, or test results),            Output: MDKG G
+extract ONLY the NEW observations mentioned in THIS                 1 Initialize empty graph G;
+TURN.                                                                 // Stage 1: Concurrent Disease Knowledge
+CRITICAL: You MUST translate all observations into STAN-                  Extraction
+DARD MEDICAL TERMINOLOGY. Do NOT use collo-                         2 foreach d ∈ Dlist (Concurrent) do
+quial or layperson descriptions. The extracted terms will           3      (Fd , Tmap ) ← M.extract_knowledge(d)
+be matched against a medical knowledge graph that uses                         // Extract features & test map
+professional clinical vocabulary.                                   4      Pd ← M.estimate_typicality(Fd , d);
+Output a JSON object with: { "observations": [ { "name":            5 end
+"...", // MUST use standard medical terms "category":                 // Stage 2: Sequential Entity Alignment &
+"symptom" | "test_result" | "risk_factor" | "other", "sta-                Graph Construction
+tus": "present" | "absent" | "unknown", "source": "patient"         6 foreach d ∈ Dlist do
+| "test" | "other" }, ... ], "tests_mentioned": [ ... ], "candi-    7      vd ← HybridAlign(d, G.V);
+date_diseases": [ ... ] }                                           8      if vd ∈ G.Vf then
+Guidelines: - ONLY include observations that are NEW or             9            UpgradeNode(vd ) // Promote Feature
+UPDATED in THIS TURN, not previous turns. - ALWAYS                                   to Disease
+convert colloquial descriptions to standard medical termi-         10      end
+nology. - If the patient clearly denies a symptom (e.g. "No        11      foreach f ∈ Fd do
+fever"), set status="absent". - If a symptom is clearly present    12            vf ← HybridAlign(f, G.Vf ) // Hybrid
+or strongly implied, set status="present". - If it’s unclear                         Alignment
+whether the feature is present, use status="unknown". - Map        13            G.add_edge(vd , vf , weight = Pd [f ]);
+lab/imaging findings to category="test_result".                    14            foreach τ ∈ Tmap [f ] do
+                                                                   15                 vτ ← HybridAlign(τ, G.Vt ) // Test
+                                                                                         Alignment
+B.2    Agent Decision Making                                       16                 G.add_edge(vf , vτ );
+                                                                   17            end
+This system prompt guides the final decision-                      18      end
+making of the agent, incorporating the graph sum-                  19 end
+
+mary.                                                                 // Stage 3: Metadata Enrichment & Edge
+                                                                          Inference
+System Prompt:                                                     20 foreach τ ∈ G.Vt (Concurrent) do
+You are an expert diagnostician AI with access to an internal      21      attrτ ← M.enrich_metadata(τ )
+diagnostic knowledge graph. The graph provides: - relation-                    // Cost/Invasiveness
+ships between diseases and features (symptoms, test results,       22      G.update_node(τ, attrτ );
+risk factors) with typicality ("++", "+", "-", "–"), - relation-   23 end
+ships between features and tests, with a qualitative measure
+of how directly the test measures the feature ("++" or "+"), -
+simple metadata about test cost and invasiveness.
+You are interacting with a simulated patient to diagnose their
+condition. Each turn you receive NEW information from the          D     Detailed Experimental Setup
+environment (patient answers or test results). The system
+may also provide you with a GRAPH SUMMARY contain-                 D.1    Environment Setup
+ing: - a list of structured observations parsed from the con-
+versation, - a graph-based ranking of candidate diseases, -        We developed ClinicSim, a modular simulation
+graph-based suggestions of useful follow-up questions and
+tests.                                                             environment designed to evaluate sequential diag-
+IMPORTANT: - The knowledge graph may be incomplete                 nostic capabilities. It integrates the dynamic inter-
+or imperfect. Its suggestions are HINTS, not truth. - You          action mechanism of AgentClinic (Schmidgall
+must combine the graph suggestions with your own clinical
+reasoning and the full history. - Do NOT blindly follow            et al., 2025) with the cost-sensitive evaluation
+the graph if it conflicts with clinical reasoning. - You have      framework of SDBench (Nori et al., 2025). Specifi-
+a maximum of {max_turns} turns; try to be efficient and
+accurate.
+                                                                   cally, ClinicSim consists of two core components:
+Available actions: 1. "ask" – Ask the patient a follow-up          (1) Patient Actor: An LLM-driven patient agent
+question to gather more information. 2. "test" – Order a           that conducts realistic multi-turn natural language
+medical test. 3. "diagnose" – Provide a final diagnosis if you
+think you have enough information.                                 dialogues based on a complete clinical profile. It
+You MUST respond in JSON with two keys: "action_type"              is instructed to be "passive," revealing information
+and "action_content".                                              only when explicitly asked, to mimic the informa-
+                                                                   tion asymmetry in real consultations; (2) Test Re-
+C     Algorithms                                                   sult Generator: An independent generation mod-
+                                                                   ule responsible for returning corresponding med-
+We provide the detailed pseudocode for the two                     ical test results (e.g., blood metrics, imaging de-
+core algorithms of GraphDx.                                        scriptions) based on doctor orders. To ensure con-
+ Algorithm 2: Knowledge-Enhanced Diag-                      D.3   Parameter Settings
+ nostic Loop                                                In our experiments, we set the typicality weights
+  Input: Dialogue History Ht , MDKG G                       as w++ = 4.0, w+ = 1.5, w− = −1.5, and
+  Output: Action at
+  // 1. Info Extraction & State Tracking                    w−− = −4.0. The penalty coefficient λ was
+1 Ot ← ExtractObservations(Ht );                            set to 0.6. For the utility calculation, the verifi-
+2 UpdateState(G, Ot ) // Update                             cation effectiveness weights were set to wef f ∈
+      Confirmed/Excluded Features
+  // 2. Evidence Scoring (Heuristic)                        {1.0, 0.5}. The cost levels C(t) were mapped to
+3 foreach d ∈ G.Vd do
+              P                   P                         integers {1, 2, 3, 4, 5} representing "very low" to
+4      S(d) ← f ∈O+ w(d, f )−λ· f ∈O− w(d, f );             "very high" costs, and the invasiveness multipliers
+                        t                      t
+
+                                                            Minv (t) were set to {1.0, 1.5, 2.0} for low, mod-
+5  end
+6  Dtop ← TopK(S);                                          erate, and high invasiveness, respectively. The se-
+   // 3. Utility-Based Action Suggestion                    mantic retrieval threshold τ was set to 0.8.
+ 7 Asuggest ← ∅;
+ 8 Tcand ← {τ | ∃f ∈ Neighbors(Dtop ), (f, τ ) ∈            D.4   Baseline Settings
+     Etest } \ Thistory ;
+ 9 foreach τ ∈ Tcand do
+                   P                                        To verify the generality of our method, we evalu-
+10      Vtotal ← f ∈Verifies(τ ) V (f ) · η(f, τ );         ated it on three advanced Large Language Models:
+11      Utility(τ ) ← Vtotal /(1 + Cost(τ ) · Inv(τ ));
+12      Asuggest .add(τ, Utility(τ ));                      (1) DeepSeek-V3; (2) Kimi-k2; (3) Llama-3.3.
+13 end                                                      For each model, we compared three settings:
+   // 4. LLM Decision Making
+14 Ssummary ←                                               • Standard LLM (Baseline): Standard agent us-
+     FormatSummary(Ot , Dtop , Asuggest );
+15 at ← LLM.decide(Ht , Ssummary );
+                                                              ing direct prompting for inquiry and diagnosis.
+16 return at ;
+                                                            • MAI-DxO (Nori et al., 2025): The SOTA archi-
+                                                              tecture proposed in SDBench, employing multi-
+                                                              agent collaboration (Dr. Test-Chooser, Dr. Chal-
+sistency, it retrieves results directly from the ground       lenger, etc.) for diagnostic orchestration.
+truth profile; if a specific value is missing, it returns
+a "normal" or "unknown" status consistent with the          • GraphDx (Ours):     The proposed graph-
+patient’s overall condition. The maximum number               augmented knowledge-enhanced agent.
+of dialogue turns is set to 20. This design allows us
+to track the economic cost of each step in real-time,       We note that several related sequential diagno-
+enabling a comprehensive evaluation of agent per-           sis frameworks (e.g., DDO (Jia et al., 2025),
+formance in the "Accuracy-Cost-Efficiency" space.           ACTMED (Estévez et al., 2025), and Diag-
+The source code for GraphDx and the ClinicSim               Gym (Qiu et al., 2025)) are highly relevant in mo-
+environment is available at https://anonymous.              tivation, but are not included as baselines because
+4open.science/r/GraphDx-BB8B.                               they rely on closed-set action spaces (predefined
+                                                            symptom/test lists) incompatible with our open-
+                                                            ended natural language dialogue setting. To ensure
+D.2    Datasets
+                                                            a fair comparison, we also enforce a controlled
+We utilized two datasets for evaluation:                    evaluation protocol where the ClinicSim environ-
+(1) MedQA Dataset:            Derived from the              ment (Patient Actor, Test Result Generator, and
+medqa_extended dataset (Schmidgall et al.,                  Judge) remains fixed across all methods, isolating
+2025), covering diverse chief complaints, medical           the impact of the agent design.
+histories, and personality traits, totaling 200
+test cases. (2) MIMIC-IV Dataset: To verify                 D.5   Evaluation Metrics
+robustness on real-world data, we constructed               We employ three core metrics to evaluate diag-
+200 scenarios from the MIMIC-IV clinical                    nostic performance: (1) Diagnostic Score (0-10):
+database (Johnson et al., 2023) following the               Scored by Llama-3.3 as a judge model based on
+AgentClinic (Schmidgall et al., 2025) methodology.          the clinical equivalence between the agent’s final
+These cases contain real clinical noise, incomplete         diagnosis and the ground truth (10: Optimal; 5: In-
+information, and complex medical histories, posing          complete but safe; 0: Incorrect and misleading). (2)
+a greater challenge to the agent’s information              Cost ($): The sum of estimated costs for all med-
+extraction and reasoning capabilities.                      ical tests ordered during the diagnosis. To ensure
+fair comparison, costs are estimated in USD by an       System Prompt:
+                                                        You are an expert diagnostician AI. You are interacting with
+independent LLM evaluator using a standardized          a patient to diagnose their condition. You will receive infor-
+price book prompt, rather than using the agent’s in-    mation in turns. Each turn, you will get new information,
+ternal optimization scores. (3) Turns: The number       which could be the patient’s response to your questions or
+                                                        the results of a medical test you ordered. Based on the infor-
+of dialogue turns between the doctor and patient,       mation you have, you must decide on the next action to take.
+reflecting diagnostic efficiency. Note that for all     You have three possible actions: 1. **ask**: Ask the patient
+metrics, we report the Mean ± Standard Devia-           a follow-up question to gather more information. 2. **test**:
+                                                        Order a medical test to get specific data. 3. **diagnose**: If
+tion across 3 independent runs for each scenario.       you have enough information, provide a final diagnosis.
+The standard deviation measures the stability of the    You must respond in JSON format with two keys: - ‘"ac-
+agent’s performance, with randomness stemming           tion_type"‘: One of ‘"ask"‘, ‘"test"‘, or ‘"diagnose"‘. - ‘"ac-
+                                                        tion_content"‘: The specific question, test name, or diagno-
+from the LLM’s decoding temperature.                    sis.
+                                                        For example: If you want to ask a question: ‘{"ac-
+                                                        tion_type": "ask", "action_content": "Have you experienced
+                                                        any fever?"}‘
+                                                        If you want to order a test: ‘{"action_type": "test", "ac-
+                                                        tion_content": "Complete Blood Count"}‘
+E     Hyperparameters and Constants                     If you are ready to diagnose: ‘{"action_type": "diagnose",
+                                                        "action_content": "Common Cold"}‘
+                                                        You have a maximum of {max_turns} turns to diagnose the
+                                                        patient. Strive to be efficient and accurate.
+We list the specific numerical values used for the
+qualitative attributes in our system.
+                                                        G     Simulation Environment Details
+Table 5: Typicality Weights used in Evidence Scoring
+                                                        We use a modular simulation environment
+        Typicality Label    Symbol     Weight Value     ClinicSim to evaluate the agents. The environ-
+        Strongly Positive     ++           4.0          ment consists of a Patient Actor and a Test Result
+        Positive               +           1.5          Generator, both driven by LLMs.
+        Negative               -           -1.5
+        Strongly Negative      –           -4.0
+
+                                                        G.1    Patient Actor Prompt
+
+                                                        The Patient Actor simulates a real patient based
+    Table 6: Cost Scores and Invasiveness Multipliers   on a detailed clinical profile. It is instructed to
+                                                        reveal information only when asked, mimicking
+      Cost Label    Score   Invasiveness   Multiplier   the information asymmetry in real consultations.
+      Very Low       1.0    Low               1.0
+      Low            2.0    Moderate          1.5       System Prompt:
+      Moderate       3.0    High              2.0       You are role-playing as the PATIENT (or the accompanying
+      High           4.0                                family member IF the patient are not capable of making
+      Very High      5.0                                decisions) described below. A doctor is examining you (or
+                                                        your dependent).
+                                                        Rules: - Your profile (or your dependent’s) contains very
+                                                        detailed medical information about you (or your dependent)
+                                                        but NEVER directly reveal it unless asked by the doctor.
+                                                        - NEVER directly reveal the true diagnosis to the doctor. -
+                                                        Answer the doctor’s questions naturally and unprofessionally,
+                                                        as a real patient would. - ONLY share symptoms/history
+                                                        based on your profile when asked. - If unsure, say "I don’t
+F     Baseline Agent Prompts                            know" or give a plausible answer.
+                                                        {profile}
+
+
+To ensure fair comparison and reproducibility, we
+provide the system prompts used for the Baseline        G.2    Test Result Generator Prompt
+Agent. The Baseline Agent uses a standard Chain-
+of-Thought (CoT) approach without access to the         The Test Result Generator provides realistic test
+external knowledge graph.                               results based on the patient’s ground truth data.
+System Prompt:                                                      System Prompt:
+You are a medical test result generator. Given a test name,         You are a medical billing expert. For each of the following
+provide a realistic result for that test based on the patient’s     medical tests, provide an estimated cost in USD. Use realistic
+profile.                                                            pricing based on typical costs in the United States healthcare
+Rules: - Return realistic values CONSISTENT with the pa-            system.
+tient’s condition. - Return EXACTLY the required test result,       CRITICAL RULES:
+NOT all results from the profile. - If the test is not in the
+profile, generate the most CONSISTENT result based on the           1. You MUST present the output as a valid JSON object
+patient’s condition. - Format: brief, factual lab report style. -      where keys are the test names and values are the estimated
+NO diagnosis, NO interpretation, NO conversation.                      costs (as numbers).
+{profile}
+                                                                    2. Do not include any other text or explanations.
+
+                                                                    3. ONLY include tests that are explicitly listed below. Do
+G.3     Evaluation Prompts                                             NOT add any tests that are not in the list.
+
+                                                                    Example output when tests are ordered: { “Complete Blood
+To ensure consistent and scalable evaluation, we                    Count (CBC)”: 50, “Basic Metabolic Panel (BMP)”: 75 }
+                                                                    Tests Ordered: {ordered_tests}
+utilize LLM-based judges for both diagnostic accu-
+racy scoring and cost estimation.
+                                                                    H     Additional Experimental Analysis
+                                                                    H.1    MDKG Statistics
+G.3.1     Diagnostic Accuracy Evaluator
+                                                                    Before evaluating the diagnostic performance, we
+We employ an LLM-based evaluator to grade the                       assessed the quality of the constructed MDKG
+diagnostic outcome against the ground truth.                        through a rigorous manual verification process. We
+                                                                    randomly sampled 243 triples (disease-feature as-
+System Prompt:
+You are an expert medical evaluator. Compare the agent’s            sociations) from the generated graph and asked
+diagnosis with the ground truth diagnosis. Provide a score          medical professionals to classify them into three
+from 0 to 10. Use this scale:
+                                                                    categories: Correct (medically accurate and pre-
+• 10 (Optimal): The agent’s final diagnosis is clinically           cise), Plausible (reasonable but potentially vague
+  equivalent to the ground truth diagnosis.                         or context-dependent), and Incorrect (medically
+• 5 (Acceptable): The agent’s diagnosis is incor-                   false).
+  rect/incomplete, BUT it is safe and does not mislead future          The evaluation results yielded 186 (76.5%) Cor-
+  treatment (e.g., a correct referral, or a safe differential).
+                                                                    rect triples, 37 (15.2%) Plausible triples, and
+• 0 (Harmful): The agent’s diagnosis is incorrect AND mis-          20 (8.2%) Incorrect triples. The overall validity
+  leading, potentially causing harm or treatment delay.             rate (Correct + Plausible) reached 91.8%, demon-
+Above descriptions are anchor points; intermediate scores           strating that our automated pipeline can reliably
+(1-4, 6-9) should reflect gradations in clinical relevance and      extract high-quality medical knowledge. The
+safety.
+You MUST output a JSON object with ONLY the "score"
+                                                                    small fraction of incorrect triples mostly involved
+field. No other fields or text allowed.                             over-generalized associations (e.g., linking generic
+Example output: {“score”: 8}                                        symptoms to specific rare diseases), which are of-
+Full profile of the case: {profile_text}
+Agent’s Diagnosis: {agent_diagnosis}                                ten filtered out during the subsequent evidence scor-
+                                                                    ing phase.
+                                                                       Figure 4 shows the distribution of key graph at-
+G.3.2     Cost Estimation Methodology &                             tributes. Figure 4a displays the distribution of fea-
+          Prompt                                                    ture typicality (P (f |d)), presenting a reasonable
+                                                                    skewed distribution, indicating that the graph can
+To evaluate the economic efficiency of diagnostic                   distinguish between "hallmark features" (high typ-
+agents, we calculate the financial cost of each di-                 icality) and "common features." Figure 4b shows
+agnostic session. Since real-world pricing varies                   the distribution of test costs, covering a wide range
+continuously, we employ a Large Language Model                      from low-cost (e.g., CBC) to high-cost (e.g., MRI)
+(specifically Llama-3.3-70b-instruct) acting as                     tests, providing a basis for cost-sensitive planning.
+a "Medical Billing Expert" to estimate the cost of                  Figure 4c illustrates the degree distribution of dis-
+each ordered test. The model is prompted to pro-                    ease nodes (i.e., number of features per disease),
+vide realistic US-based pricing (in USD) for each                   with an average of 15.7 features per disease, provid-
+specific test name.                                                 ing sufficient evidence for differential diagnosis.
+  (a) Feature Typicality Distribution          (b) Test Cost Distribution                                                 (c) Disease-Feature Degree Dist.
+
+                             Figure 4: Statistical distribution of key attributes in MDKG.
+
+
+H.2   Parameter Sensitivity Analysis                                                                    Top-1 Accuracy Sensitivity to Parameters
+                                                                                                                                                             0.62
+                                                                           2.0                  0.621       0.606           0.591            0.561   0.576
+To assess the robustness of our evidence scoring
+                                                                                                                                                             0.61
+mechanism while avoiding the prohibitive compu-
+                                                                                                0.606       0.591           0.591            0.576   0.576
+
+
+                                                              Weight of Strong Evidence (++)
+tational cost of re-running full agent simulations,                                                                                                          0.60
+we conducted an offline sensitivity analysis on the
+
+                                                              5.0           4.0           3.0
+                                                                                                0.621       0.621           0.591            0.591   0.606
+Llama-3.3 interaction logs. We re-evaluated the                                                                                                              0.59
+
+disease ranking logic by varying two key hyperpa-
+                                                                                                0.606       0.621           0.591            0.591   0.606   0.58
+rameters: the weight of strong positive evidence
+(w++ ) and the penalty coefficient for missing ex-                                                                                                           0.57
+pected features (λ).                                                       6.0                  0.591       0.591           0.576            0.576   0.591
+
+   Figure 5 illustrates the Top-1 accuracy of the                                                0.0         0.3             0.6              0.9     1.2
+                                                                                                                    Absence Penalty Factor
+ground truth disease across a grid of parameter
+settings. We observe that:                                    Figure 5: Sensitivity of Top-1 Accuracy to variations in
+                                                              Strong Evidence Weight (w++ ) and Absence Penalty
+• Robustness to Weight Variations: The system                 (λ). The system exhibits a stable performance plateau,
+  maintains stable performance (Top-1 accuracy                demonstrating robustness.
+  ≈ 60%, Top-5 accuracy ≈ 88%) across a wide
+  range of w++ values (2.0–5.0). This indicates               Case 1: Capturing Subtle Clues in Rare Dis-
+  that the ranking is primarily driven by the struc-          eases (Scenario 50) As shown in Figure 6, Case
+  tural correctness of the graph (presence of correct         Background: A 16-year-old female presented with
+  edges) rather than fine-tuned parameters.                   primary amenorrhea and delayed breast develop-
+                                                              ment. Notably, her history included "fractures from
+• Impact of Absence Penalty: A lower absence
+                                                              minor falls" and she was "tall for her age".
+  penalty (λ ∈ [0.0, 0.3]) yields slightly better re-
+  sults than higher penalties. This suggests that in          • Baseline: Focused solely on amenorrhea and de-
+  natural language dialogue, "missing" features are             layed puberty, diagnosing "Turner Syndrome". It
+  often simply unmentioned by the patient rather                failed to recognize that Turner Syndrome typi-
+  than clinically absent, so the system should be               cally presents with short stature, contradicting
+  cautious about penalizing them too heavily.                   the patient’s "tall" description. It also ignored the
+                                                                fracture history.
+
+H.3   Case Study                                              • GraphDx: The graph reasoning engine success-
+                                                                fully linked "fractures" (osteoporosis) and "tall
+To deeply understand the decision-making advan-
+                                                                stature" (delayed epiphyseal closure) with "amen-
+tages of GraphDx in different clinical contexts,
+                                                                orrhea". It identified the rare etiology "Aro-
+we selected three representative cases from the
+                                                                matase Deficiency" (inability to synthesize es-
+MedQA-Extended dataset for detailed compara-
+                                                                trogen from androgens) and confirmed it via hor-
+tive analysis. These cases reveal typical failure
+                                                                mone panel and karyotype, achieving a precise
+modes of baseline models in rare disease reason-
+                                                                diagnosis.
+ing, anatomical logic, and cost-effective diagno-
+sis, while GraphDx successfully avoids these pit-             Case 2: Strict Anatomical and Functional Con-
+falls through structured knowledge.                           straints (Scenario 14) Case Background: A
+patient reported a swollen right ring finger after a
+football injury, stating, "I can’t bend the tip of my
+finger at all when I try to make a fist."
+• Baseline: Confused the functional description,
+  diagnosing "Mallet Finger" (an extensor tendon
+  injury characterized by inability to extend the
+  tip).
+
+• GraphDx: The MDKG explicitly encodes the
+  functional logic of musculoskeletal anatomy. It
+  correctly interpreted the inability to flex the dis-
+  tal joint as a rupture of the Flexor Digitorum
+  Profundus tendon, correctly diagnosing "Jersey
+  Finger".
+Case 3: Cost-Effective Decision Making (Sce-
+nario 66) Case Background: A 1-month-old
+preterm infant presented with "apnea episodes" dur-
+ing sleep and "pale skin".
+• Baseline: Reacted defensively to the high-risk
+  symptom "apnea" by ordering an expensive
+  Polysomnography ($2500), diagnosing "Apnea
+  of Prematurity" without investigating the root
+  cause.
+
+• GraphDx: Integrated the "pale skin" clue with
+  "apnea" in the evidence-weighted graph, hypoth-
+  esizing anemia as a potential cause. It prioritized
+  a low-cost Complete Blood Count ($50), reveal-
+  ing low hemoglobin (8.2 g/dL), and correctly
+  diagnosed "Anemia of Prematurity". This
+  demonstrates how utility-based planning avoids
+  unnecessary expensive testing.
+
+
+
+
+Figure 6: Typical Case Analysis (Scenario 50: Primary
+Amenorrhea). The Baseline agent (left) misdiagnosed
+Turner Syndrome by focusing on amenorrhea while
+ignoring the contradictory evidence of tall stature and
+fractures. In contrast, GraphDx (right) successfully
+linked these cues to Aromatase Deficiency via the struc-
+tured graph, demonstrating the navigational role of struc-
+tured knowledge.
+

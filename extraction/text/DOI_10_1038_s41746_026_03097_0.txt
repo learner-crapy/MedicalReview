@@ -1,0 +1,1956 @@
+npj Digital Medicine                                                                                    https://doi.org/10.1038/s41746-026-03097-0
+
+
+Article in Press
+
+HealthFlow: automating electronic health record
+analysis via a strategically self-evolving multi-
+agent framework
+
+Received: 28 January 2026                            Yinghao Zhu, Zixiang Wang, Yifan Qi, Lei Gu, Dehao Sui, Haoran Hu, Xichen Zhang, Ziyi
+Accepted: 29 July 2026                               He, Yasha Wang, Junjun He, Liantao Ma & Lequan Yu
+                                                                                                      S
+                                                                                             ES
+Cite this article as: Zhu, Y., Wang, Z.,             We are providing an unedited version of this manuscript to give early access to its
+Qi, Y. et al. HealthFlow: automating
+electronic health record analysis via a
+                                                                                   PR
+                                                     findings. Before final publication, the manuscript will undergo further editing. Please
+                                                     note there may be errors present which affect the content, and all legal disclaimers
+strategically self-evolving multi-                   apply.
+agent framework. npj Digit. Med.
+(2026). https://doi.org/10.1038/
+                                                                       IN
+                                                       If this paper is publishing under a Transparent Peer Review model then Peer
+                                                     Review reports will publish with the final article.
+s41746-026-03097-0
+                                                            LE
+                                                       C
+                                               TI
+                                          R
+                                     A
+
+
+
+
+© The Author(s) 2026. Open Access This article is licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International
+License, which permits any non-commercial use, sharing, distribution and reproduction in any medium or format, as long as you give appropriate credit
+to the original author(s) and the source, provide a link to the Creative Commons licence, and indicate if you modified the licensed material. You do not
+have permission under this licence to share adapted material derived from this article or parts of it. The images or other third party material in this
+article are included in the article's Creative Commons licence, unless indicated otherwise in a credit line to the material. If material is not included in the
+article's Creative Commons licence and your intended use is not permitted by statutory regulation or exceeds the permitted use, you will need to obtain
+permission directly from the copyright holder. To view a copy of this licence, visit http://creativecommons.org/licenses/by-nc-nd/4.0/.
+                                       ARTICLE IN PRESS
+
+
+
+
+HealthFlow: Automating electronic health record
+analysis via a strategically self-evolving
+multi-agent framework
+Yinghao Zhu1,2,∗ , Zixiang Wang1,∗ , Yifan Qi1,∗ , Lei Gu1 , Dehao Sui1 , Haoran Hu1 ,
+Xichen Zhang3 , Ziyi He2 , Yasha Wang1 , Junjun He4 , Liantao Ma1,† , and Lequan Yu2,†
+
+1 National Engineering Research Center of Software Engineering, Peking University, Beijing, China, 100871
+2 School of Computing and Data Science, The University of Hong Kong, Hong Kong SAR, China, 999077
+3 Department of Computer Science and Engineering, The Hong Kong University of Science and Technology,
+
+Hong Kong SAR, China, 999077
+4 Shanghai Artificial Intelligence Laboratory, Shanghai, China, 200232
+∗ These authors contributed equally to this work
+† Correspondence to malt@pku.edu.cn, lqyu@hku.hk
+                                                                         S
+ABSTRACT
+                                                               ES
+                                                        PR
+Electronic health records (EHRs) are a rich source of real-world clinical data, but turning them
+into valid analyses remains slow, brittle, and expert-intensive. Although recent AI agents can
+                                                   IN
+answer medical questions and use tools, automating full EHR workflows remains difficult because
+small planning or execution errors can invalidate otherwise plausible analyses. Here we present
+HealthFlow, a multi-agent framework that converts prior EHR analyses into structured, governed
+                                        LE
+experience for planning under dataset-specific and methodological constraints. We also introduce
+EHRFlowBench, a rigorously curated benchmark of EHR analysis tasks derived from 51,280
+                                    C
+peer-reviewed papers. Across EHRFlowBench and four established benchmarks (MedAgentBoard,
+                              TI
+MedAgentsBench, HLE, and CureBench), HealthFlow consistently outperforms strong baselines
+in generating valid clinical artifacts and completing complex EHR analysis pipelines. These results
+                           R
+show that governed reuse of prior analytical experience improves robustness in health data science
+                       A
+and opens a promising path to automating open-ended EHR analysis.
+
+
+
+1 Introduction
+The digitization of healthcare has generated massive repositories of electronic health records
+(EHRs) and an exponentially growing body of scientific literature1, 2 . While these resources hold
+substantial promise for precision medicine and clinical research, transforming high-dimensional,
+heterogeneous clinical data into actionable insights remains a persistent challenge: EHR analysis is
+constrained by data-quality variation, documentation artifacts, and methodological validity risks3–7 .
+Traditionally, this process relies on human experts, making it labor-intensive, difficult to scale, and
+sensitive to analyst variability. Recent Large Language Models (LLMs) and LLM-driven agentic
+systems have demonstrated the potential to automate parts of this workflow by orchestrating code
+generation, tool usage, and retrieval over biomedical resources8–15 . Extending these capabilities
+to EHR analysis requires end-to-end workflow orchestration, spanning cohort definition, feature
+construction, modeling, visualization, and reporting to turn heterogeneous patient records into
+reproducible analytical outputs.
+    Recent agent research has expanded planning, tool use, and reflection across general and biomedi-
+                                     ARTICLE IN PRESS
+
+
+
+
+cal settings, yet much of this progress relies on fixed control structures or narrowly scoped refinement
+mechanisms. Early general-purpose systems such as AutoGPT16 , GPT4Tools17 , HuggingGPT18 , and
+MetaGPT19 broadened tool-augmented planning and execution in open domains, while scientific and
+biomedical systems such as SciToolAgent20 , Robin21 , Biomni22 , BioMedAgent23 , and EvoMDT24
+extended these ideas to research and medicine. Methods including Reflexion25 , Self-Refine26 ,
+TextGrad27 , and AlphaEvolve28 sharpen outputs through feedback or code optimization, while
+BioDSA29 , AFlow30 , Alita31 , and STELLA32 expand plan-centric scaffolding, workflow generation,
+tools, or reusable reasoning structures. These advances broaden what agents can do but do not
+resolve how accumulated experience should be carried forward under explicit validity constraints in
+high-stakes EHR analysis.
+    The central unresolved problem is governed reuse of prior experience: how prior experience
+should be represented, bounded, and retrieved so that useful strategies inform later tasks without
+propagating invalid assumptions33, 34 . EHR analysis is particularly demanding for this problem
+because success depends not only on producing code or invoking tools but on maintaining method-
+                                                                    S
+ological validity across heterogeneous datasets, open-ended tasks, and partial failures. Failure is
+                                                             ES
+often not an obvious crash but a plausible analysis with hidden flaws, including temporal leakage,
+invalid patient-level splitting, unsafe handling of missingness, or clinically implausible aggregation.
+                                                      PR
+    To address this gap, we introduce HealthFlow, a strategically self-evolving multi-agent framework
+for autonomous EHR analysis. HealthFlow organizes completed analyses into structured, inspectable
+                                              IN
+forms of knowledge: methodological safeguards, reusable multi-step workflows, stable dataset-
+grounded facts, and implementation guidance. These memories are written back, retrieved, and
+updated over time under governed conditions tied to task family, dataset signature, schema cues,
+                                      LE
+and risk tags. By selectively reusing accumulated experience under explicit validity constraints,
+HealthFlow ensures that future planning recovers not only what previously worked, but under what
+                                  C
+clinical and structural parameters it remains applicable.
+                             TI
+    Existing evaluation benchmarks are insufficient for assessing autonomous EHR analysis agents.
+                         R
+Datasets such as MedQA35 or PubMedQA36 assess medical knowledge through multiple-choice
+                      A
+questions, but exam-style settings do not test data handling, workflow construction, artifact verifi-
+cation, or recovery from implementation errors37, 38 . General agent benchmarks such as GAIA39
+evaluate broad tool use, multi-step reasoning, and web navigation, but do not capture the domain-
+specific data handling, artifact validation, and workflow fidelity required for EHR analysis38, 40, 41 .
+We therefore introduce EHRFlowBench, a rigorously curated benchmark of 100 EHR analysis
+tasks derived from a large-scale screen of 51,280 peer-reviewed papers and finalized through expert
+adjudication, requiring agents to perform full-cycle analysis from cohort definition and feature
+engineering to statistical modeling and reporting.
+    We demonstrate that HealthFlow consistently outperforms state-of-the-art frameworks across five
+benchmarks spanning open-ended EHR workflow orchestration, EHR data analysis and modeling,
+medical knowledge reasoning, and tool-augmented biomedical decision-making: EHRFlowBench,
+MedAgentBoard42 , MedAgentsBench43 , HLE44 , and CureBench45 . These results show the value of
+governed experience reuse for improving robustness in autonomous EHR analysis and accelerating
+data-driven healthcare research.
+                                                                                                                                                         ARTICLE IN PRESS
+
+
+
+
+a
+           Input
+                                                                                                                                                                                                                                                                                  Update Memory                           1 Report                                               2 Artifacts
+              1 Task Description                                                                     Meta Agent
+                                                                                                                               Retrieve                                  Combine                                   Generate                                                                                                 Introduction
+                     Develop a model based on MIMIC-IV.csv to
+                     predict patient outcomes, and examine how                                           EHR-Aware             Memories       Governed                   Memories
+                                                                                                                                                                                          Bounded              Case-Specific Plan
+                                                                                                                                                                                                                                      Structured
+                                                                                                                                                                                                                                                                                                                            - Irregular Laboratory Trajectories with Heavy
+                                                                                                                                                                                                                                                                                                                              Missingness
+
+
+                     performance improves with the inclusion of                                         Task Context                      Experience Memory                           Planning Context                              Execution Plan                       Reflector Agent                                    - Compare Latest-Value, Time-Decayed, and
+                                                                                                                                                                                                                                                                                                                              Interaction Models
+                                                                                                                                                                                                                                                                                                                            Method
+                     extended historical records.
+                                                                                                                                                                                                                                                                              Trajectory-Level Reflection
+                                                                                                                                                                                                                                                                                                                            - Dataset Construction
+                                                                                                                                                                                                                                                                                                                            - Preprocessing
+                                                                                                                                                                                                                                                                                                                            - Model Definitions
+
+                2 EHR Data                                                                                                                                                                                                               Repair                                  and Memory Update                          - Validation Strategy
+                                                                                                                                                                                                                                                                                                                            Experiments
+
+                             Patient ID        Age         Diagnosis           Date                                                   Executor Agent                                           Evaluator Agent                            Loop                                                                              - Quantitative Comparison
+                                                                                                                                                                                                                                                                                                                            - Learned Time Decay
+                           Patient ID        Age         Diagnosis           Date                             When Plan is Ready,                                            Evaluate Trace                                                                                                                                 - Personalized Interactions
+                          Patient ID
+                             PID-0000
+                                           Age
+                                                86
+                                                       Diagnosis
+                                                          ICD-10-xxxx
+                                                                            Date
+                                                                          YYYY/MM/DD
+                                                                                                                                                                                                                                                          Accepted If Status is Success and                                 - Risk Stratification with the Best Model
+                           PID-0000           86        ICD-10-xxxx      YYYY/MM/DD                               Execute it                                                  and Artifacts                                                                     Score >= Threshold                                          Conclusion
+                          PID-0000
+                             PID-0001
+                           PID-0001
+                                           86
+                                              72
+                                                72
+                                                      ICD-10-xxxx
+                                                          ICD-10-xxxx
+                                                        ICD-10-xxxx
+                                                                        YYYY/MM/DD
+                                                                          YYYY/MM/DD
+                                                                         YYYY/MM/DD
+                                                                                                                                          Sandboxed Execution                                     Structured Evaluation and Repair                                                                                          - Time Decay Selected Non-Zero Beta for 60 of 73
+                                                                                                                                                                                                                                                                                                                              Dynamic Features
+                          PID-0001         72         ICD-10-xxxx       YYYY/MM/DD
+                                  ...           ...             ...              ...                                                                                                                                                                                                                                        - Sparse Interactions Improved Validation Fit More
+                                ...           ...             ...              ...                                                                                                                                                                                                                                            Than Test Discrimination
+                              ...           ...             ...              ...                                                                                                                                                                                                                                            - Model A Test AUROC 0.997; Model B 0.997; Model
+                              PID-xxxx          27        ICD-10-xxxx     YYYY/MM/DD
+                            PID-xxxx          27        ICD-10-xxxx      YYYY/MM/DD                                                                                                                                                                                                                                           C 0.994
+                          PID-xxxx         27         ICD-10-xxxx       YYYY/MM/DD
+                                                                                                  HealthFlow Control Loop
+
+
+b
+        Within the Current Task                                                                                                                                                     Across Later Tasks
+
+                 Execution Trace and Artifacts                                                                                Next Plan                                               Full Task Trajectory                                                                  Update Prior Memory
+                                                                                         If Retry is Recommended,
+                1 Logs and Code Actions                                                  Rerun with the Updated Plan          1 Updated Checks                                        1 Plans, Traces, Verdicts, and Repaired Attempts                                      1 Validate Useful Memory
+                2 Tables and Figures                                                                                          2 Revised Steps                                         2 Terminal Outcome and Artifacts                                                      2 Retire Outdated Memory
+                3 Workspace Outputs
+
+
+                                          Review the Output                                                                         Use Fixes into Replanning                                    Aggregate the Full History                                                      Apply Lifecycle Updates
+
+
+                 Evaluation Verdict                                                                                           Repair Feedback                                         Reflector Synthesis                                                                   Write Back New Memory
+                 1 Status
+                                                                                                                              for Next Plan                                                                                                                                 Trajectory-grounded Experience
+                                                                                       Convert Verdict into Repair                                                                    1 Review the Whole Trajectory             Synthesize Reusable Experience
+                                                                                                                              1 Check Split Unit
+                 2 Failure Type
+                                                                                                                              2 Verify Target Column
+                                                                                                                                                                                      2 Distill Reusable Guidance                                                           Becomes Active Retrieval Candidates          Later Tasks Retrieve from
+                 3 Violated Constraints                                                                                                                                               3 Judge Prior Memory Updates
+                 4 Repair  Instructions                                                                                       3 Rebuild Cohort Filter                                                                                                                                                                    the Updated Store
+                     Convert Verdict into Repair
+
+
+
+c                                                                                                                                                                                      d                                                  tic /
+                                                                                                                                                                                                                                    Synthe cy
+                                                                                                                                                                                                                                       Priva
+                                                                                                                                                                                                                                                                                                                  Graph / Retrieval 18%
+
+
+
+                          4
+                                          General Agents
+                                          Biomedical Agents                                                            Biomni
+                                                                                                                                              + Harness
+                                                                                                                                                                  HealthFlow
+                                                                                                                                                                  (+Tool Use)
+                                                                                                                                                                                                                        TL
+                                                                                                                                                                                                                     M sfer
+                                                                                                                                                                                                                     Tr an
+                                                                                                                                                                                                                           /
+                                                                                                                                                                                                                                                        S           Gr
+                                                                                                                                                                                                                                                                   Re aph
+                                                                                                                                                                                                                                                                     trie /
+                                                                                                                                                                                                                                                                         va l
+                                                                                                                                                                                                                                                                                                                  Causal / Counterfactual 4%
+
+
+
+                                                                                                                                                                                                                                    ES
+ EHRFlowBench LLM Score
+                                          HealthFlow Variants                                                                                          + Self-Evolving                                                                                                                                            Representation / Features 17%
+                                                                                                                                     Bare                                                                                                                                             sal /     al
+                                                                                                                                                                                                   Pheno
+                                                                                                                                                                                                         typi                                                                      Cau terfactu
+                                                                                                BioDSA                                                                                                Clust ng /                                                                    Cou
+                                                                                                                                                                                                                                                                                        n                         Forecasting 3%
+                          3                                                                                                                                                                                ering
+
+                                                                                                                                                                                                                                 EHRFlowBench                                                                     Robustness / Missingness 10%
+
+
+                          2
+
+
+
+                          1
+                                               AFlow
+                                                                                                                     STELLA
+                                                                                                                                                                                                           PR
+                                                                                                                                                                                                         ery /
+                                                                                                                                                                                                    NL Qu rts
+                                                                                                                                                                                                       Repo
+                                                                                                                                                                                                                                           100 tasks
+                                                                                                                                                                                                                                         10 categories                              Rep
+                                                                                                                                                                                                                                                                                        re
+                                                                                                                                                                                                                                                                                   Fea senta
+                                                                                                                                                                                                                                                                                      ture
+                                                                                                                                                                                                                                                                                           s
+                                                                                                                                                                                                                                                                                             tion
+                                                                                                                                                                                                                                                                                                  /
+                                                                                                                                                                                                                                                                                                                  Temporal Prediction 19%
+
+                                                                                                                                                                                                                                                                                                                  NL Query / Reports 2%
+
+                                                                                                                                                                                                                                                                                                                  Phenotyping / Clustering 12%
+                                                                        Alita                                                                                                                                       T
+                                                                                                                                                                                                                 Pr em
+                                                                                                                                                                                                                   ed po
+                                                                                             BioMedAgent                                                                                                              ict ral                                          re
+                                                                                                                                                                                                                                                                                                                  MTL / Transfer 8%
+
+                          0
+                                                 General Agent                                  Biomedical Agent                              HealthFlow Variants                   IN                                   ion
+
+                                                                                                                                                                                                                                                           ess /
+                                                                                                                                                                                                                                                   Robustn ss
+                                                                                                                                                                                                                                                   Missing
+                                                                                                                                                                                                                                                           ne
+                                                                                                                                                                                                                                                                    Fo
+                                                                                                                                                                                                                                                                       ca
+                                                                                                                                                                                                                                                                        sti
+                                                                                                                                                                                                                                                                            ng                                    Synthetic / Privacy 7%
+
+
+
+
+Figure 1. HealthFlow: a strategically self-evolving multi-agent framework for autonomous
+electronic health record analysis. (a) System-level overview linking task input and EHR data to
+                                                                                                                                                                LE
+the meta, executor, evaluator, and reflector agents, which together implement EHR-aware task                                                     C
+context construction, governed experience memory, bounded planning, sandboxed execution,
+structured evaluation and repair, trajectory-level reflection, memory update, and final report and
+                                                                                                                                TI
+artifact generation. (b) HealthFlow control loop coupling evaluator-guided within-task repair with                   R
+reflector-mediated cross-task memory evolution: evaluator feedback updates the next plan during
+the current task, whereas reflector synthesis writes new reusable experience and validates, updates,
+                                                                                                         A
+or retires prior memory for later tasks. (c) Performance positioning of representative general agents,
+biomedical agents, and HealthFlow variants on the EHRFlowBench LLM-score axis. (d)
+Task-category distribution of the 100-task EHRFlowBench evaluation subset across 10 categories.
+
+
+2 Results
+2.1 Overview of the HealthFlow Framework
+HealthFlow (Figure 1) is designed for EHR analysis settings in which heterogeneous schemas, open-
+ended workflows, and risks such as temporal leakage, invalid patient-level splitting, unsafe missing-
+value handling, and clinically implausible aggregation can invalidate otherwise plausible outputs.
+Together, Figure 1a,b define a closed-loop architecture for controlling this failure mode: Figure 1a
+summarizes end-to-end coordination across planning, execution, evaluation, and reflection; the
+EHR-aware task context and governed experience memory modules are expanded in Supplementary
+Figure 1a,b; and Figure 1b separates immediate repair from cross-task memory writeback, updating,
+and retirement, with the executor operating through an external coding-agent backend and extensible
+                                     ARTICLE IN PRESS
+
+
+
+
+command-line interface (CLI)- and Model Context Protocol (MCP)46 -based tool support. This design
+is intended to make experience reuse useful without allowing invalid assumptions to propagate across
+heterogeneous EHR settings. In the benchmark view, Figure 1c shows that HealthFlow variants
+outperform representative general and biomedical agents on EHRFlowBench, and Figure 1d shows
+that this comparison is drawn from a 100-task benchmark spanning 10 EHR-analysis categories,
+including temporal prediction, representation and feature engineering, phenotyping and clustering,
+robustness and missingness analysis, etc.
+
+2.2 HealthFlow Consistently Outperforms Baselines Across Five Benchmarks
+We evaluated HealthFlow on five benchmarks spanning open-ended EHR workflow orchestration,
+executable EHR analysis, medical knowledge reasoning, and tool-augmented decision-making. Our
+primary testbed for open-ended EHR analysis is EHRFlowBench, instantiated on TJH and the
+MIMIC-IV Public Demo Release47, 48 . EHRFlowBench comprises 100 tasks derived from 118 peer-
+reviewed seed papers and evaluates the ability to translate clinical objectives into concrete analytical
+                                                                   S
+pipelines, including cohort construction, feature engineering, modeling, visualization, and report
+                                                             ES
+writing, across 10 task categories summarized in Figure 1d. We additionally used a workflow-focused
+executable task set based on MedAgentBoard42 covering data extraction, predictive modeling, and
+                                                      PR
+visualization, also instantiated on TJH and the MIMIC-IV Public Demo Release. We further
+evaluated medical knowledge and reasoning using three deterministic multiple-choice benchmarks:
+the MedAgentsBench hard set43 , selected biology and medicine questions from Humanity’s Last
+                                              IN
+Exam (HLE)44 , and selected questions from CureBench45 (100 randomly selected questions from
+each benchmark).
+    Across this evaluation suite, HealthFlow achieved the highest score on all five benchmarks
+                                      LE
+(Figure 2a). The clearest separation appeared on the two workflow-intensive benchmarks that
+                                  C
+most closely match the target use case. On EHRFlowBench, HealthFlow reached 4.01, compared
+with 3.76 for the strongest baseline, Biomni22 . On MedAgentBoard, it achieved 63.05% success,
+                             TI
+compared with 50.10% for Biomni, a 12.95-percentage-point difference. HealthFlow also led the
+                         R
+three more knowledge-oriented benchmarks, topping MedAgentsBench, HLE, and CureBench.
+                      A
+    Head-to-head comparisons on EHRFlowBench (Figure 2c) show that the aggregate gains are
+distributed across tasks rather than driven by a small number of outliers. HealthFlow outscored
+AFlow, Alita, BioMedAgent, and STELLA on 95.0–98.0% of tasks. The comparisons were tighter
+against BioDSA and Biomni, but the HealthFlow-higher category still remained the largest seg-
+ment in both cases (52.0% and 38.0%, respectively). In our runs, much of the gap came from
+incomplete long-horizon workflows, especially missing or partial reports and artifacts, while Biomni
+and BioDSA remained closer but still lagged on full EHR-specific protocol completion. These
+distributions suggest that the main bottleneck in autonomous health data science is not only access
+to medical knowledge, but the reliable orchestration of that knowledge into valid end-to-end an-
+alytical pipelines. The same pattern appears in blinded human evaluation on randomly selected
+EHRFlowBench reports (Figure 2e), which we analyze separately below.
+
+2.3 Ablation Study of HealthFlow’s Design and Runtime Configuration
+To isolate the sources of these gains, we conducted a progressive ablation over HealthFlow’s design
+(Figure 2d), starting from an executor-only reference setup using OpenCode and then adding the
+EHR-aware planner and evaluator, the self-evolving reflector with governed memory retrieval and
+synthesis, and finally task-matched external tools through OneEHR and ToolUniverse. Performance
+improved monotonically as components were added. Relative to the executor-only reference, the
+                                                                                                                                     ARTICLE IN PRESS
+
+
+
+
+a                                                                                                                                                                                   b
+                                                      EHRFlowBench MedAgentBoard MedAgentsBench                                                     HLE          CureBench                                                                                                  EHRFlowBench MedAgentBoard MedAgentsBench                          HLE          CureBench
+           Category            Method                                                                                                                                                               Ablation Frontend                   Backend              Executor
+                                                                                                                                                                                                                                                                              (LLM Score ↑)     (Success Rate % ↑)    (Accuracy % ↑)       (Accuracy % ↑)   (Accuracy % ↑)
+                                                               (LLM Score ↑)              (Success Rate % ↑)      (Accuracy % ↑)                (Accuracy % ↑)   (Accuracy % ↑)
+                                                                                                                                                                                                    Baseline DeepSeek-V3.2              DeepSeek-V3.2        OpenCode         4.01± 0.12            63.05± 4.78       32.40± 4.56          10.20± 2.98      93.02± 2.53
+           General             DeepSeek-V3.2                                  –                   –               17.98± 3.88                    8.95± 2.86         82.95± 3.77
+                                                                                                                                                                                                    Varying DeepSeek-V3.2-Think DeepSeek-V3.2                OpenCode         4.08± 0.11            64.12± 4.55       33.08± 4.33          10.98± 3.11      95.01± 2.19
+           LLM                 DeepSeek-V3.2-Think                            –                   –               31.90± 4.67                    9.90± 2.95         83.40± 3.70                     Frontend Qwen3.5-Flash      DeepSeek-V3.2                OpenCode         3.94± 0.14            62.18± 4.62       31.88± 4.21          10.02± 2.79      92.76± 2.61
+                               Baichuan-M2                                    –                   –               16.00± 3.67                    7.02± 2.57         74.06± 4.39                     Varying DeepSeek-V3.2               DeepSeek-V3.2-Think OpenCode          4.05± 0.12            63.88± 4.60       32.96± 4.28          18.20± 3.71      93.44± 2.44
+           Medical                                                                                                                                                                                  Backend DeepSeek-V3.2
+                               HuatuoGPT-o1                                   –                   –                8.05± 2.70                    9.60± 2.85         62.99± 4.82                                                         Qwen3.5-Flash        OpenCode         3.90± 0.15            61.94± 4.67       31.74± 4.19           9.94± 2.78      92.58± 2.69
+           LLM
+                               MedGemma                                       –                   –               22.00± 4.13                    8.00± 2.69         69.92± 4.63                     Varying DeepSeek-V3.2               DeepSeek-V3.2        Claude Code      4.03± 0.14            62.96± 4.84       32.97± 4.70          11.96± 3.27      93.99± 2.35
+                                                                                                                                                                                                    Executor DeepSeek-V3.2              DeepSeek-V3.2        Pi               3.97± 0.14            61.92± 4.70       31.86± 4.24           9.94± 2.84      92.70± 2.58
+                               ColaCare                                       –                   –               21.00± 4.06                    7.98± 2.74         80.02± 4.01
+           Multi-Agent   MDAgents                                             –                   –               17.97± 3.83                    9.70± 2.90         79.97± 4.01
+           Collaboration MedAgents                                            –                   –               19.93± 4.01                    9.20± 2.82         80.94± 3.93     c                                   Other Methods Score Higher          Score Tie             HealthFlow Score Higher
+
+                               EvoMDT                                         –                   –               23.02± 4.21                    7.00± 2.53         83.03± 3.74                         AFlow                                                                          96.0%
+
+           General             AFlow                              1.05± 0.29                41.06± 4.93           30.40± 4.60                    9.60± 2.88         79.98± 4.04                           Alita                                                                      98.0%
+           Agent               Alita                              0.50± 0.24                36.99± 4.82           19.99± 3.99                    9.07± 2.83         81.98± 3.86
+                                                                                                                                                                                                     BioDSA                 20.0%                            28.0%                                                    52.0%
+                               Biomni                             3.76± 0.16                50.10± 5.01           30.94± 4.59                    9.95± 2.94         86.00± 3.46                      BioMed
+                                                                                                                                                                                                                                                                                     98.0%
+           Biomedical          STELLA                             1.44± 0.32                37.98± 4.86           13.99± 3.47                    5.98± 2.40         81.97± 3.88                        Agent
+           Agent               BioDSA                             2.94± 0.17                47.98± 4.99           28.02± 4.50                    9.80± 2.92         87.01± 3.38                         Biomni                      30.0%                                    32.0%                                                  38.0%
+                               BioMedAgent                        0.40± 0.23                33.93± 4.74           21.09± 4.09                    6.99± 2.56         80.96± 3.92
+                                                                                                                                                                                                    STELLA                                                                              95.0%
+           Ours                HealthFlow                         4.01± 0.12                63.05± 4.78           32.40± 4.56                    10.20± 2.98        93.02± 2.53
+                                                                                                                                                                                                               0%                                 25%                               50%                                   75%                                         100%
+
+
+d                                                                                                                                                                                   e
+                          EHRFlowBench                                              MedAgentBoard                                        MedAgentsBench
+                4.5                                                      70                                                         40                                                                         HealthFlow               Biomni              BioDSA                AFlow                BioMedAgent                 STELLA                    Alita
+
+
+
+
+                                                      Success Rate (%)
+                               3.9      3.92   4.01                                                       63.05                                                        32.4
+                4.0    3.72                                              65                      57.09                                                         31
+                                                                                                                                                   29.8
+
+
+
+                                                                                                                     Accuracy (%)
+                                                                                                                                    35   28.6
+
+
+    LLM Score
+                3.5
+                                                                         60
+                                                                                          51                                                                                                  12           1                        1       1           1                                       1                                                 1         1         1
+                                                                         55                                                         30                                                                              2                             2               2           2                                                2
+                                                                                                                                                                                                                           3                                                                                      3
+                3.0                                                               43.94                                                                                                                                                                                                                               4
+                                                                         50                                                                                                                                2                                                            5              7                5
+                                                                                                                                    25                                                              9               2                       4                                 2
+                2.5                                                                                                                                                                                                                                     4
+
+
+
+
+                                                                                                                                                                                  Evaluator Votes
+                                                                         45                                                                                                                                                                                                                                                    3       7                    5
+                                                                                                                                                                                                                                                  4                                                               2
+                2.0                                                      40                                                         20                                                                                     3        7                             5                                                                               7                   7
+                                                                                                                                                                                                                                                                                                8
+                                                                                           HLE                                                   CureBench                                                                                                              1                               1
+                                                                                                                                                                                                    6
+                                                                         20                                                      100
+                                                                                                                                                                        93.02
+                                                                                                                                                                                                           9
+                                                                                                                                                                                                                                            3
+                                                                                                                                                                                                                                                  S                                                                   6
+
+
+
+
+                                                      Accuracy (%)                                                Accuracy (%)
+                                                                         15                                                         95
+                      Bare        + Harness                                                                10.2                                     88        88.2                                                  8                                                         8        2                                               2
+                                                                                                  9.3                                                                                                                                                                                                                          7
+
+                      + Self-Evolving
+
+                      HealthFlow (+Tool Use)
+                                                                         10
+
+                                                                          5
+
+                                                                          0
+                                                                                   7.2
+                                                                                          8.4                                       90
+
+                                                                                                                                    85
+
+                                                                                                                                    80
+                                                                                                                                         84.01                                                      3
+
+
+                                                                                                                                                                                                    0
+                                                                                                                                                                                                                           6
+
+                                                                                                                                                                                                                            ES      4       4
+                                                                                                                                                                                                                                                  6
+                                                                                                                                                                                                                                                        7
+                                                                                                                                                                                                                                                                  5
+                                                                                                                                                                                                                                                                        6
+
+                                                                                                                                                                                                                                                                                       3
+
+
+                                                                                                                                                                                                                                                                            EHRFlowBench
+                                                                                                                                                                                                                                                                                                3
+                                                                                                                                                                                                                                                                                                        6
+                                                                                                                                                                                                                                                                                                                  7
+
+
+                                                                                                                                                                                                                                                                                                                      2
+                                                                                                                                                                                                                                                                                                                                       3
+                                                                                                                                                                                                                                                                                                                                                  4
+                                                                                                                                                                                                                                                                                                                                                            6
+                                                                                                                                                                                                                                                                                                                                                                      4
+
+
+
+                                                                                                                                    75
+
+
+                                                                                                                                                                                                        PR
+Figure 2. Comprehensive evaluation of HealthFlow across five benchmarks. (a) Overall
+benchmark comparison against representative baselines. (b) Runtime-configuration sensitivity under
+different frontend models, backend models, and executor backends. (c) Head-to-head win-rate                                                                          IN
+distributions on EHRFlowBench against representative agent frameworks. (d) Progressive ablation
+from a reference executor-only setup using OpenCode to adding the EHR-aware planner and
+evaluator, then the self-evolving reflector with governed memory retrieval and synthesis, and finally
+                                                                                                                                         LE
+task-matched external tool use through OneEHR and ToolUniverse. (e) Task-level blinded human                         C
+preference votes across 20 randomly selected EHRFlowBench reports, with each bar aggregating
+the blinded selections of all 12 domain experts on the same task. Values in (a) and (b) and error bars
+                                                                                                      TI
+                                                                                          R
+in (d) denote standard deviations; ‘–’ indicates settings not evaluated on executable workflow
+                                                                                  A
+benchmarks. Outcomes in (c) are categorized as a tie when the paired systems receive the same task
+score.
+
+
+full system increased EHRFlowBench from 3.72 to 4.01 and MedAgentBoard from 43.94% to
+63.05%; MedAgentsBench, HLE, and CureBench also improved steadily. The first step, adding
+the planner and evaluator, produced the largest increment on EHRFlowBench, MedAgentBoard,
+and HLE, whereas the final tool-use step produced the largest increment on MedAgentsBench and
+CureBench. Adding governed experience synthesis and retrieval yielded a further improvement on
+every benchmark, indicating that the gains do not arise solely from repeated within-task attempts
+but also from cross-task reuse of validated procedural knowledge. The full configuration, which
+additionally enables task-matched external tool use, produced the strongest overall results. Taken
+together, this progressive ablation shows that HealthFlow’s gains emerge from the cumulative
+interaction of EHR-aware planning, evaluator-guided repair, governed experience reuse, and task-
+matched external tools. Supplementary Information (Supplementary Table 4) further summarizes the
+attempt-level repair dynamics behind this ablation, showing that the full HealthFlow loop eliminates
+terminal failures across all benchmark runs.
+    We next examined runtime-configuration sensitivity (Figure 2b). The reference configuration
+                                               ARTICLE IN PRESS
+
+
+
+
+used DeepSeek-V3.2 as both the frontend and backend models, with OpenCode as the execu-
+tor backend. Using DeepSeek-V3.2-Think on the frontend produced the best EHRFlowBench,
+MedAgentBoard, MedAgentsBench, and CureBench values (4.08, 64.12%, 33.08%, and 95.01%,
+respectively), whereas using it on the backend produced the best HLE value (18.20%). When varying
+the coding-agent backend, OpenCode, Claude Code, and Pi remained close, with EHRFlowBench
+spanning 3.97–4.03 and MedAgentBoard spanning 61.92–63.05%. This pattern is consistent with
+stronger intrinsic reasoning and knowledge helping not only deterministic QA, but also plan forma-
+tion, failure diagnosis, and retry control inside HealthFlow. A strong base model therefore remains
+important, especially on the frontend, because better decomposition and error interpretation shape
+every downstream attempt. Once execution is handled by a mature coding-agent backend, backend
+differences narrow, and the remaining gains are better explained by EHR-aware decomposition,
+evaluator-guided recovery, and bounded experience reuse than by raw code-editing ability alone.
+    Our stage-wise cost analysis under the reference configuration, which uses DeepSeek-V3.2 as
+both the frontend and backend models and OpenCode as the executor backend (Table 1), shows that
+                                                                                        S
+practical overhead is dominated by execution. Across the five benchmarks, execution accounted
+                                                                                ES
+for 69.05–84.47% of total cost and 81.03–93.63% of total runtime, while planning, evaluation, and
+reflection remained comparatively lightweight. The main determinant of runtime was therefore how
+                                                                        PR
+open-ended the execution search space was. This is clearest in the contrast between EHRFlowBench
+and MedAgentBoard: EHRFlowBench required 37.99 hours over 100 tasks (22.79 minutes per
+task), whereas MedAgentBoard required 7.96 hours (4.78 minutes per task) and was even faster than
+                                                               IN
+the QA-style MedAgentsBench at 9.09 hours (5.45 minutes per task) and HLE at 9.82 hours (5.89
+minutes per task) despite requiring executable artifact generation. In other words, runtime depended
+less on whether code had to be produced at all than on how tightly the target artifact was specified:
+                                                 LE
+MedAgentBoard constrained the endpoint more narrowly, whereas EHRFlowBench forced longer
+implementation-and-revision loops.          C
+          Module
+                                    TI
+                      EHRFlowBench MedAgentBoard MedAgentsBench                               HLE             CureBench
+
+                      Cost ($)   R
+                                 Time (h)   Cost ($)   Time (h)   Cost ($)   Time (h)   Cost ($)   Time (h)   Cost ($)   Time (h)
+
+          Planner         A
+                      0.998       1.14      0.732        0.5      0.443      0.383      0.459      0.413       0.55      0.424
+          Executor     8.19      35.57       2.41       6.45       4.08       7.96       2.87       8.54       2.85       7.17
+          Evaluator 0.355        0.531      0.154      0.215      0.163      0.272      0.155      0.302       0.15      0.263
+          Reflector   0.293      0.752      0.192      0.798      0.142       0.47      0.166      0.562      0.146      0.586
+
+          Total        9.83      37.99       3.49       7.96       4.83       9.09       3.65       9.82       3.69       8.45
+
+
+Table 1. Stage-wise cost and runtime of HealthFlow across five benchmarks, accumulated
+over 100 tasks per benchmark under the default DeepSeek-V3.2 with OpenCode configuration.
+Planning, execution, evaluation, and reflection overheads are summarized to assess the practical cost
+of the full multi-agent pipeline. Cost is reported in US dollars and runtime in hours.
+
+
+2.4 Analysis of Experience Synthesis and Retrieval
+A fine-grained breakdown of EHRFlowBench and MedAgentBoard (Figure 3a) shows that Health-
+Flow’s gains cluster in stages where prior experience can change execution quality. On EHRFlow-
+Bench, the clearest separation from Biomni22 appears in artifact-facing dimensions such as presen-
+tation quality on TJH (4.58 vs. 4.08). On MedAgentBoard, the largest lift appears in predictive
+modeling (41.09% vs. 17.77% on TJH), although performance there remains far from saturated.
+                                                                                                                        ARTICLE IN PRESS
+
+
+
+
+These patterns show where HealthFlow’s self-evolving memory matters most: turning methodologi-
+cal intent into executable analysis.
+
+   a
+                                                                                                                         TJH                                                                                                MIMIC-IV
+                     Category           Method
+                                                            Method Soundness Presentation Quality Artifact Generation Overall Score Method Soundness Presentation Quality Artifact Generation Overall Score
+                                                                   (LLM Score ↑)                  (LLM Score ↑)                            (LLM Score ↑)           (LLM Score ↑)       (LLM Score ↑)              (LLM Score ↑)                          (LLM Score ↑)             (LLM Score ↑)
+
+                     General            AFlow                       1.10± 0.41                        1.50± 0.51                           1.20± 0.45              1.10± 0.41           1.00± 0.40                1.40± 0.55                              1.20± 0.49                1.01± 0.40
+                     Agent              Alita                       0.80± 0.41                        1.10± 0.54                           0.79± 0.42              0.80± 0.42           0.20± 0.19                0.30± 0.28                              0.20± 0.19                0.20± 0.19
+
+                                        Biomni                      3.88± 0.23                        4.08± 0.23                           3.88± 0.23              3.80± 0.23           3.74± 0.22                4.30± 0.20                              3.82± 0.21                3.72± 0.22
+                     Biomedical STELLA                              1.50± 0.52                        1.70± 0.60                           1.50± 0.51              1.50± 0.52           1.41± 0.40                2.00± 0.53                              1.40± 0.41                1.40± 0.40
+                     Agent      BioDSA                              2.74± 0.26                        3.32± 0.27                           2.78± 0.25              2.66± 0.25           3.24± 0.23                3.88± 0.20                              3.37± 0.22                3.22± 0.23
+                                        BioMedAgent                 0.60± 0.41                        0.70± 0.45                           0.71± 0.45              0.59± 0.40           0.20± 0.19                0.20± 0.19                              0.30± 0.28                0.20± 0.19
+
+                     Ours               HealthFlow                  4.00± 0.16                        4.58± 0.10                           4.16± 0.16              3.98± 0.17           4.04± 0.16                4.60± 0.09                              4.14± 0.16                4.04± 0.16
+
+
+                                                                                                                              TJH                                                                                           MIMIC-IV
+                     Category             Method
+                                                                 Data Extraction Predictive Modeling Visualization Overall Score Data Extraction Predictive Modeling Visualization Overall Score
+                                                                   (Success Rate % ↑)           (Success Rate % ↑)                     (Success Rate % ↑)     (Success Rate % ↑)   (Success Rate % ↑)           (Success Rate % ↑)                    (Success Rate % ↑)       (Success Rate % ↑)
+
+                     General              AFlow                      70.60± 10.95                                17.74± 9.17               31.30± 11.56            39.93± 6.92          82.21± 9.26               17.59± 9.21                           25.07± 10.75             42.16± 6.99
+                     Agent                Alita                      58.79± 11.87                                5.81± 5.64                31.35± 11.59            32.05± 6.72          82.26± 9.17               11.74± 7.70                           31.28± 11.62             42.04± 6.93
+
+                                          Biomni                     82.42± 9.13                                 17.77± 9.22               49.95± 12.61            50.11± 7.12          88.24± 7.83               29.48± 10.97                          31.28± 11.58             50.09± 7.15
+                     Biomedical STELLA                               76.62± 10.21                                5.88± 5.73                37.50± 12.11            40.04± 6.97         70.51± 11.10               11.83± 7.80                           25.05± 10.94             36.05± 6.81
+                     Agent      BioDSA
+                                          BioMedAgent
+                                                                     82.35± 9.38
+                                                                     46.99± 12.29
+                                                                                                                 11.79± 7.88
+                                                                                                                 5.85± 5.74
+                                                                                                                                           43.70± 12.34
+                                                                                                                                           31.15± 11.48
+                                                                                                                                                                   45.97± 7.01
+                                                                                                                                                                   27.87± 6.35
+                                                                                                                                                                                        82.50± 9.22
+                                                                                                                                                                                        82.47± 9.29
+                                                                                                                                                                                                       S          35.42± 11.46
+                                                                                                                                                                                                                  11.76± 7.80
+                                                                                                                                                                                                                                                        31.34± 11.50
+                                                                                                                                                                                                                                                        25.20± 10.91
+                                                                                                                                                                                                                                                                                 50.02± 7.04
+                                                                                                                                                                                                                                                                                 40.01± 6.97
+
+                     Ours                 HealthFlow                 94.18± 5.71                           41.09± 11.98                    56.03± 12.49            64.01± 6.75         ES
+                                                                                                                                                                                        94.09± 5.72               47.06± 12.07                          43.66± 12.34             61.99± 6.90
+
+
+   b                                                                                                                                                                               c                                                      EHRFlowBench
+
+
+                            3.5
+                                  dataset anchor
+                                             EHRFlowBench
+                                                                 code snippet           workflow                               safeguard
+                                                                                                                              MedAgentBoard
+                                                                                                                                                                        PR                    Safety / Leakage / Compliance
+
+                                                                                                                                                                                                  Data Processing / Cleaning                       9
+                                                                                                                                                                                                                                                                                           109
+
+
+
+
+   Average Count per Task                                                               Average Count per Task
+                            3.0                                               2.93
+                                                                                                                                                                                                  Dataset Structure /Schema                       6
+                            2.5
+                            2.0
+                            1.5
+                                                                                                                      1.05
+                                                                                                                                    1.66           IN
+                                                                                                                                                  2.03
+
+
+                                                                                                                                                              1.06
+                                                                                                                                                                                         Feature Engineering / Aggregation
+
+                                                                                                                                                                                                            Modeling / Training
+                                                                                                                                                                                                                                              3
+
+                                                                                                                                                                                                                                              2
+                            1.0
+                                                   0.56
+                                                                 0.44                                                                                                                                  Visualization / Reporting              1
+                            0.5
+                            0.0
+                                      0.07
+                                    dataset
+                                    anchor
+                                                   code
+                                                  snippet
+                                                             workflow safeguard                                      dataset
+                                                                                                                     anchor
+                                                                                                                             LE   code
+                                                                                                                                 snippet
+                                                                                                                                                workflow safeguard                                                                        0            25       50
+                                                                                                                                                                                                                                                                     Count
+                                                                                                                                                                                                                                                                           75       100       125
+
+
+
+                                                                                                                    C                                                                                                             MedAgentBoard
+
+
+
+                                                          0.8%
+                                                                 9.2%
+
+                                                                         7.7%
+                                                                                        TI                                     24.1%                       24.1%
+                                                                                                                                                                                              Dataset Structure / Schema                                                                    153
+
+
+                                                                                                                                                                                          Safety / Leakage / Compliance                                       58
+                                                  EHRFlow
+                                                   Bench
+                                                                               R                                                    MedAgent
+                                                                                                                                     Board                                                    Data Processing / Cleaning                      12
+
+
+
+                                        82.3%
+                                                                     A                                                    24.1%                            27.7%
+                                                                                                                                                                                       Feature Engineering / Aggregation              1
+
+
+                                                                                                                                                                                                                                  0           25        50      75       100     125    150      175
+                                                                                                                                                                                                                                                                   Count
+
+
+Figure 3. Fine-grained performance analysis and characterization of experience synthesis
+and retrieval. (a) Performance breakdowns for EHRFlowBench and MedAgentBoard across
+datasets and evaluation dimensions. (b) Bar charts: average number of retrieved memory items of
+each type per task. Pie charts: type composition of the persistent memory pool after the 100-task
+evaluation sequence for each benchmark, rather than retrieval frequency. (c) Taxonomy counts of
+synthesized experience categories for EHRFlowBench and MedAgentBoard.
+
+    This same pattern appears in retrieval (Figure 3b,c). EHRFlowBench retrieval was dominated by
+safeguards (2.93 items per task), suggesting that open-ended EHR studies are bottlenecked mainly
+by methodological control. MedAgentBoard retrieval drew on a more balanced mix of workflows,
+code snippets, dataset anchors, and safeguards, matching a task family whose failures are distributed
+across procedure structure, schema grounding, and implementation. This task-dependent retrieval is
+a practical manifestation of HealthFlow’s self-evolving memory: different memory types are reused
+when different bottlenecks recur.
+                                     ARTICLE IN PRESS
+
+
+
+
+    Writeback shows the same selectivity (Figure 3c). EHRFlowBench synthesized mostly safety,
+leakage, and compliance guidance (109), whereas MedAgentBoard synthesized mostly dataset-
+structure and schema knowledge (153), with safety guidance as a secondary component. The
+writeback channel therefore preserves the lesson that each task family repeats most often: method-
+ological guardrails for open-ended studies and schema-level operational knowledge for structured
+executable tasks. This continuous writeback makes HealthFlow’s memory self-evolving and keeps
+the memory bank focused as it grows.
+
+2.5 Case Study of HealthFlow on a Representative EHRFlowBench Task
+To show how HealthFlow handles an open-ended EHRFlowBench task, we examine a predictive-
+modeling case centered on representation learning under strict split-preservation and leakage-control
+requirements (Figure 4). This task uses the MIMIC-IV Public Demo Release and asks the agent
+to predict outcome from raw, flat-cluster, and hierarchical masked representations, preserve the
+provided train/validation/test partitions, audit negative-pair removal, and deliver tables, figures,
+                                                                   S
+and a report. The difficulty is therefore not merely generating runnable code, but maintaining
+                                                             ES
+methodological validity when apparently strong metrics can arise from invalid preprocessing or split
+handling.
+                                                      PR
+    In the first attempt, the meta agent drafts a seemingly reasonable predictive-modeling pipeline,
+but the executor returns anomalously perfect test AUROC and AUPRC together with an implausibly
+low validation loss on a split-preserved EHR task (Figure 4a). HealthFlow’s evaluator does not
+                                              IN
+treat this as a benign high score; instead, it interprets the jointly unrealistic discrimination and
+validation behavior as a structured EHR risk signal consistent with leakage or split misuse and
+therefore triggers a leakage-focused review. This is the within-task repair mechanism described
+                                      LE
+in Figure 1b at full resolution: once the task profile marks the case as predictive modeling with
+                                  C
+high-severity target leakage, evaluator feedback is folded into the next attempt as explicit
+repair guidance rather than as unconstrained reflective text. The planner then updates the next plan to
+                             TI
+enforce train-only imputation and scaling, train-only hierarchical clustering, validation-only tuning
+                         R
+of the masking quantile, and strict preservation of the provided splits before rerunning the pipeline.
+                      A
+    The same trajectory also illustrates how HealthFlow resolves potential memory conflict through
+governed retrieval rather than by exposing the planner to a large undifferentiated memory bank.
+After the evaluator flags leakage, bounded per-type retrieval admits only two risk-matched safe-
+guards, ehr modeling pipeline and ehr predictive modeling pipeline, into the
+planning context (Figure 4a). The practical effect is that memory becomes an execution constraint:
+guidance relevant to the active leakage risk is promoted, while less relevant procedural advice
+does not compete with the repair. In the repaired run, the executor rebuilds the workflow from
+scratch, completes data loading and integrity checks, engineers 121 features across 17 channels, and
+produces a more plausible hierarchical-masking result with an AUPRC of 0.8333. The evaluator
+then confirms that all required artifacts are generated and that train-only preprocessing removes the
+principal methodological concern.
+    The final outputs in Figure 4b,c make the same distinction visible at the artifact level. HealthFlow
+delivers the requested representation-wise comparison together with the hierarchical-clustering
+dendrogram, which provides direct evidence that the full raw-versus-flat-versus-hierarchical protocol
+was actually executed. By contrast, the final figures from BioDSA29 and Biomni22 summarize
+narrower views of performance and do not surface the full protocol requested by the task, leaving
+the underlying analytical path less transparent. After success, the reflector writes back a leakage-
+prevention safeguard, a reusable workflow for this representation-learning pattern, and code-level
+                                                                                                                   ARTICLE IN PRESS
+
+
+
+
+    a
+                     Task: Predict outcome with raw, flat-cluster, and hierarchical masked representations; preserve the provided splits; audit negative-pairremoval; and deliver tables,figures, and report.
+                     Dataset: MIMIC-IV Demo, 128 episodes (train / val / test = 89 / 26 / 13), 15 Positives Total
+
+               Profile Task                                                                                        Repair Injection                                                                                           Planner Update
+
+                        1        {                                                                                  1    Previous failure: perfect test metrics...                                                             1   Address prior data leakage issues...
+                        2        “task_family”: “predictive_modeling”,                                              2    Likely data leakage/evaluation errors                                                                 2   Fit imputer/scaler on train only
+                        3        “domain_focus”: “ehr”,                                                             3    Do not use test data                                                           Repair planning        3   Fit hierarchical clustering on train
+                        4        “target_columns”: [“Outcome”, “Readmission”],                                      4    Use train-only clustering...                                                                          4   Tune masking quantile on validation
+                        5        “risk_category”: “target_leakage”,                                                 5    Inject ehr modeling pipeline safeguard
+                        6        “risk_severity”: “high”,                                                           6    Inject ehr predictive modeling pipeline safeguard                                                                                  Run Repaired Pipeline
+                        7        }                :
+                                                                                                                                                                                                                               Executor
+                                                                                                                                                         Make memory an
+                                                          Draft the First Plan
+                                                                                                                                                         execution constraint                                                  1   Fresh implementation avoids previous leakage...
+                                                                                                                   Bounded Retrieval                                                                                           2   Start data loading/integrity checks
+                                                                                                                                                                                                                               3   Feature engineering: 121 features, 17 channels
+               Planning                                                                                             1    {                                                                                                     4   Hierarchical AUPRC 0.8333, more realistic
+                                                                                                                    2    “policy”: “bounded per-type retrieval”,
+                        1        Load and validate data; assign splits...                                           3    “range”: "safeguard 0-2...",
+                        2        Fit imputer/scaler on train only                                                   4    “filter”: "require EHR risk overlap",                                                                 Evaluator
+                        3        Fit hierarchical clustering at three granularities                                 5    “selected_1”: “ehr_modeling_pipeline”,
+                        4        Generate required figures...                                                       6    “selected_2”: “ehr_predictive_modeling_pipeline”,                                                     1   {
+                        5        Write unified report.md                                                            7    “match”: “temporal/target leakage, validation...”                                                     2   "status": "success",
+                        6        Do not trust perfect metrics...                                                    8    }                                                                                                     3   "outputs": "all required files generated",
+                                                                                                                                                                                                                               4   "safeguard": "train-only prevents leakage",
+                                                                                                                                                        Get Memories                                                           5   "insight": "hierarchical masking more realistic",
+                                                                                                                                                                                                                               6   }
+                                                                                                                   Evaluator: Perfect Metrics Triggers Leakage Review
+
+                 Executor: Runs the First Pipeline                                                                   1    {                                                                                                    Reflector: Write back Experiences
+                                                                                                                     2    “status”: “needs_retry”,
+                                                                                                                     3    “failure”: “data leakage...”,                                                                        1    {
+                         1       Create modular Python pipeline...
+                         2
+                         3
+                                 Data loading and validation
+                                 Split metadata issue...
+                                                                                                                     4
+                                                                                                                     5
+                                                                                                                     6
+                                                                                                                          “signal”: “perfect test metrics...”,
+                                                                                                                          “repair_1”: “fix split leakage...”,
+                                                                                                                          “repair_2”: “train-only preprocessing/clustering...”,
+                                                                                                                                                                                                                S              2
+                                                                                                                                                                                                                               3
+                                                                                                                                                                                                                               4
+                                                                                                                                                                                                                                    "new_1": "safeguard: leakage prevention",
+                                                                                                                                                                                                                                    "new_2": "workflow: representation learning",
+                                                                                                                                                                                                                                    "new_4": "code: negative pair analysis"
+
+
+
+
+    b
+                         4
+                         5
+                         6
+                                 Patient-level feature engineering
+                                 Perfect test AUROC/AUPRC; zero sensitivity
+                                 Severe overfitting or class imbalance...
+                                                                                                                     7
+                                                                                                                     8
+                                                                                                                          “repair_3”: “rerun realistic validation...”
+                                                                                                                          }                                                                  ES                                5
+                                                                                                                                                                                                                               6
+                                                                                                                                                                                                                                    "updates": "validate two retrieved
+                                                                                                                                                                                                                                    }
+                                                                                                                                                                                                                                                                            ,
+                                                                                                                                                                                                                                                                       safeguards"
+                                                                                                                                                                                                                                                                                   ,
+
+
+
+
+                       BioDSA Final Figure
+                                          Validation Performance                                                 Test Performance
+                                                                                                                                                                         PR
+                                                                                                                                                                   Biomni Final Figure
+
+                                                                                                                                                                                1.0
+                                                                                                                                                                                                            Logistic Regression
+
+                                                                                                                                                                                            Test_AUROC Comparison
+                                                                                                                                                                                                                                      Random Forest
+
+                                                                                                                                                                                                                                                    Test_AUPRC Comparison
+
+           1.0
+
+
+
+                                                                                                                                                                   Test_AUROC
+                                                                                                                                                                                0.8
+           0.8
+
+   Score   0.6
+
+           0.4
+                                                                                                                                           IN                                   0.6
+
+                                                                                                                                                                                0.4
+
+           0.2                                                                                                                                                                  0.2
+
+           0.0
+                                     AUROC          AUPRC
+                                                     Metric
+                                                                            F1                           AUROC
+                                                                                                                        LE
+                                                                                                                         AUPRC
+                                                                                                                           Metric
+                                                                                                                                              F1
+                                                                                                                                                                                0.0
+                                                                                                                                                                                           A               B
+                                                                                                                                                                                                         Setting
+                                                                                                                                                                                                                          C                     A               B
+                                                                                                                                                                                                                                                                Setting
+                                                                                                                                                                                                                                                                                     C
+
+
+
+    c
+                                                   Baseline                  Flat Clustering                C    Hierarchical Masking
+
+                                                                                                                                                                                                         Hierarchical Clustering Dendrogram (q=0.8)
+                               1.0
+                               0.8
+                                         AUROC by Representation
+                                        1.000         1.000
+                                                                        0.955
+                                                                                           TI      1.0
+                                                                                                   0.8
+                                                                                                            1.000
+                                                                                                                 AUPRC by Representation
+                                                                                                                           1.000
+                                                                                                                                             0.833
+                                                                                                                                                                          50
+                                                                                 R      AUPRC
+           AUROC
+                               0.6                                                                 0.6
+                               0.4                                                                 0.4
+                               0.2
+                               0.0
+                                     Raw Summary
+                                                                      A
+                                                     Flat Cluster Hierarchical Masked
+                                                                                                   0.2
+                                                                                                   0.0
+                                                                                                          Raw Summary      Flat Cluster Hierarchical Masked
+                                                                                                                                                                          40
+
+
+
+
+                                                                                                                                                              Distance
+                                       Baseline     Augmentation     Augmentation                           Baseline      Augmentation     Augmentation                   30
+
+                                     Balanced Accuracy by Representation                                      F1 Score by Representation
+                                        1.000         1.000                                                 1.000          1.000
+                               1.0                                                                 1.0                                                                    20
+
+
+
+
+           Balanced Accuracy
+                               0.8                                      0.750                      0.8                                       0.667
+
+                                                                                        F1 Score
+                               0.6                                                                 0.6
+                                                                                                                                                                           10
+                               0.4                                                                 0.4
+                               0.2                                                                 0.2
+                               0.0                                                                 0.0                                                                          0
+                                     Raw Summary     Flat Cluster Hierarchical Masked                     Raw Summary      Flat Cluster Hierarchical Masked                           66   (3)   (19)      42       (2)   80     81      28   61       48     (2)      84     (33)       (22)
+                                       Baseline     Augmentation     Augmentation                           Baseline      Augmentation     Augmentation                                                                         Patient Index
+
+
+
+
+Figure 4. A representative EHRFlowBench case study showing HealthFlow’s risk-aware
+repair loop and final outputs. (a) Task profile, initial plan, first execution attempt,
+evaluator-triggered leakage review, bounded retrieval of risk-matched safeguards, planner update,
+repaired execution, final evaluator success, and reflector writeback. (b) Final figures produced by
+representative baselines, BioDSA29 and Biomni22 , which expose narrower views of the requested
+protocol. (c) HealthFlow’s final artifact set, including the required representation-wise comparison
+and the hierarchical-clustering result used in the repaired analysis.
+                                     ARTICLE IN PRESS
+
+
+
+
+guidance for negative-pair analysis. This case therefore mirrors HealthFlow’s central mechanism in
+a single task: evaluator-guided repair corrects the current analysis, and governed reflection converts
+the resolved error into bounded experience for later EHRFlowBench tasks.
+
+2.6 Blinded Expert Evaluation and Practical Utility of HealthFlow
+We additionally conducted a blinded expert evaluation to assess the practical utility of the gen-
+erated solutions. Twelve domain experts independently reviewed the same set of 20 randomly
+selected EHRFlowBench reports from the 100-task benchmark, and selected the best response under
+anonymized presentation. As summarized in Figure 2e, HealthFlow received the largest vote share
+on the broadest set of tasks. Because evaluators selected a single best complete report, closely
+matched tasks naturally produced split votes. Even so, HealthFlow led most often, while BioDSA,
+Biomni, and BioMedAgent remained competitive on a smaller subset of tasks. This practical-utility
+signal aligns with our qualitative feedback from a preliminary offline hospital pilot deployment
+in nephrology and obstetrics, where clinicians reported that HealthFlow-assisted EHR analysis
+                                                                    S
+workflows could be shortened from several hours to tens of minutes; the public system is available
+at https://healthflow.medx-pku.com/app.                      ES
+3 Discussion                                           PR
+Our results place methodological validity at the center of autonomous EHR analysis. In this
+                                              IN
+setting, failure often takes the form of “plausible invalidity”, where an analysis appears coherent
+while violating leakage control, patient-level splitting, aggregation logic, or protocol constraints.
+HealthFlow performs well because the full control loop is grounded in dataset structure, risk tags,
+                                      LE
+and prior failure evidence, so analytical intent is translated into executable workflows with tighter
+                                   C
+methodological discipline. This point is important for EHR automation: many errors emerge during
+orchestration, not at the level of medical facts alone.
+                             TI
+    The ablation, runtime, and retrieval analyses also clarify what strategic self-evolution contributes.
+                          R
+Performance improves when experience is reorganized into forms that match recurring analytical de-
+                      A
+cisions. Open-ended studies repeatedly benefit from safeguards, whereas more structured workflows
+draw on a broader mix of workflows, dataset anchors, and code snippets. Planner-evaluator control
+yields the largest gains even though execution dominates cost, which indicates that search-space
+shaping, risk diagnosis, and structured recovery have higher leverage than raw execution throughput.
+Taken together, these patterns argue for evaluating medical agents in workflow settings that expose
+implementation, recovery, and adaptation over time.
+    Several limitations remain. As experience accumulates, maintaining memory quality and
+resolving conflicts may become harder across institutions with different schemas, coding conventions,
+and outcome definitions. More broadly, a continually growing memory bank introduces a scalability
+trade-off: stale but high-confidence memories may crowd out newer institution-specific guidance,
+whereas overly aggressive retirement or confidence decay may discard rare but clinically important
+safeguards, creating a workflow-level analogue of catastrophic forgetting. Future work should
+therefore study memory compression, hierarchical indexing, recency-aware confidence updates, and
+institution-specific partitioning so that long-horizon reuse remains stable as the task count grows.
+Public, de-identified datasets and rubric-based LLM judging also do not capture the operational,
+privacy, and safety constraints of deployment, so more prospective, multi-center studies are needed.
+Expert oversight remains necessary for confounding assessment, causal interpretation, and judgments
+of clinical meaningfulness.
+                                     ARTICLE IN PRESS
+
+
+
+
+    In conclusion, HealthFlow shows that strategically self-evolving agents have the potential to
+make autonomous clinical data science more reliable by turning past analytical trajectories into
+structured, inspectable evidence with explicit scope, update rules, and retirement criteria. This
+design helps bridge raw electronic health records and actionable clinical insights by supporting
+cohort construction, feature engineering, modeling, and reporting across open-ended health-data
+workflows. Extending this framework to richer hospital tool ecosystems, multimodal data, and
+larger institutional environments will clarify how far such systems can support rigorous healthcare
+discovery.
+
+4 Methods
+4.1 Data Sources and Processing
+To rigorously evaluate HealthFlow’s capability in EHR analysis, we curated a composite suite of
+benchmarks comprising both a novel, self-constructed dataset (EHRFlowBench) and established
+                                                                   S
+external resources. Regarding ethical compliance, this study adheres to all relevant regulations. The
+                                                             ES
+research utilizes de-identified datasets (including MIMIC-IV, TJH, MedAgentsBench, CureBench,
+and HLE) that are publicly available. Consequently, Institutional Review Board (IRB) approval was
+waived for the retrospective analysis of these de-identified data. For the human evaluation component,
+                                                      PR
+informed consent was obtained from all participants prior to the evaluation, and participants were
+compensated for their professional time.
+                                              IN
+     The development of increasingly sophisticated autonomous agents necessitates benchmarks that
+can rigorously assess their ability to support complex, multi-step workflows in controlled settings. In
+the general domain, benchmarks like GAIA39 evaluate agents on tasks requiring tool use, multi-step
+                                      LE
+reasoning, and web navigation. However, a similar standard is absent in EHR data analysis. We
+therefore introduce EHRFlowBench, designed to mirror the end-to-end complexity of analyzing
+                                  C
+observational health data, with tasks systematically extracted from peer-reviewed literature and
+                             TI
+curated by human experts to ensure that they reflect valid scientific inquiry. The resulting 100-
+task evaluation subset covers 10 EHR-analysis task categories, with this task-category distribution
+                         R
+summarized in Figure 1d.
+                      A
+     The development of EHRFlowBench followed a systematic procedure involving automated
+filtering, dataset-grounded task instantiation, and expert human curation:
+• Candidate paper screening: The process begins with the collection of 51,280 papers published
+   between 2020 and July 15, 2025 from top-tier AI and data mining conferences (AAAI, ICLR,
+   ICML, NeurIPS, IJCAI, KDD, WWW), based on proceedings publicly available at the collection
+   cutoff and detailed in Supplementary Information (Supplementary Table 1). To identify EHR-
+   related papers, we use a majority-voting ensemble of LLMs to classify titles based on their
+   relevance to AI applications on EHR data, resulting in 162 candidate papers. Subsequently,
+   these candidates undergo a manual review by human experts, who verify their relevance and
+   methodology. This step culminates in a final set of 118 high-quality seed papers for task extraction.
+• Task extraction, reference construction, and sampling: We then use an advanced LLM to read the
+  full-text PDF of each seed paper and generate two self-contained EHR analysis tasks per paper:
+  one grounded in the TJH dataset and one grounded in the MIMIC-IV Public Demo Release47, 48 ,
+  available at https://physionet.org/content/mimic-iv-demo/2.2/. The TJH
+  data are obtained from https://github.com/HAIRLAB/Pre_Surv_COVID_1949 . This
+  yields 236 candidate tasks, all grounded in released EHR data. We then randomly sample 50 TJH
+  tasks and 50 MIMIC-IV tasks to form the final 100-task benchmark. The retained tasks cover
+                                         ARTICLE IN PRESS
+
+
+
+
+  10 EHR-analysis categories, spanning temporal prediction, graph- and retrieval-aware modeling,
+  representation and feature engineering, phenotyping and clustering, robustness and missingness
+  analysis, causal and counterfactual reasoning, forecasting, multi-task transfer, synthetic-data and
+  privacy settings, and natural-language querying or reporting. Every retained EHRFlowBench
+  task requires an end-to-end report. For each task, the reference solution was prepared by human
+  experts in EHR analysis and independently cross-validated by separate domain experts.
+    Overall, the construction pipeline proceeds from 51,280 conference papers to 162 EHR-relevant
+candidates, then to 118 manually retained seed papers, then to 236 dataset-grounded candidate tasks,
+and finally to a 100-task benchmark balanced as 50 TJH and 50 MIMIC-IV tasks. This construction
+yields an evaluation set that remains broad in analytical scope while staying grounded in released
+datasets and expert-validated task formulations. The candidate-paper statistics and complete list of
+seed papers are provided in Supplementary Information (Supplementary Tables 1 and 2).
+    Beyond EHRFlowBench, we incorporated four external datasets to assess distinct facets of the
+analysis workflow. We additionally used a workflow-focused MedAgentBoard42 task set constructed
+                                                                         S
+by expanding the original benchmark’s task-generation prompts, manually curating the resulting
+                                                                  ES
+tasks, and re-checking them through expert review; like EHRFlowBench, this evaluation set is
+instantiated on TJH and the MIMIC-IV Public Demo Release. It contains 100 executable tasks,
+                                                           PR
+balanced as 50 TJH tasks and 50 MIMIC-IV tasks. Within each 50-task subset, 17 tasks target data
+processing, 17 target predictive modeling, and 16 target visualization. The task set is intentionally
+designed to focus on the deterministic data-to-model-to-visualization pipeline, and all MedAgent-
+                                                  IN
+Board gold-standard answers were prepared by human experts and independently cross-validated by
+separate domain experts. To assess medical knowledge and reasoning, we used three deterministic
+multiple-choice benchmarks: the MedAgentsBench43 hard set, selected Biology/Medicine questions
+                                         LE
+from Humanity’s Last Exam (HLE)44 , and selected questions from CureBench45 (100 each). All
+datasets employed in this study are de-identified and publicly available.
+                                         C
+                                   TI
+4.2 HealthFlow’s Meta, Executor, Evaluator, and Reflector Agents
+We formalize the EHR analysis problem at step t as a task Tt , whose target output is a valid solution St
+                              R
+containing code, statistical results, and report artifacts. HealthFlow maintains a long-term experience
+                          A
+store Mt , a profiled task context ct , attempt-specific retrieved planning contexts Ri ⊆ Mt , attempt-
+specific plans Pi , execution traces τi , evaluator feedback fi , and the full task trajectory Tt . Here, t
+indexes tasks in the across-task memory-evolution process, whereas i indexes attempts within the
+current task Tt ; for readability, the task index is suppressed on within-task quantities, so Ri , Pi , τi , vi ,
+and fi all refer to the ith attempt on task t. The control loop separates within-task correction from
+across-task adaptation: evaluator feedback changes the next attempt on the current task, whereas
+reflection changes what will be reused in later tasks.
+    Central to this loop is the profiled task context ct , an EHR-aware representation of the current
+analytical setting (Supplementary Figure 1a):
+       ct = (φt , dt , Σt , ρt , ηt ),                                                                       (1)
+where φt denotes the task family, dt the dataset signature, Σt the schema-derived tags, ρt the
+actionable risk tags, and ηt the failure modes observed in earlier attempts on the same task. Together,
+these fields specify what type of analysis is required, which dataset and schema are active, which
+EHR validity risks are present, and what has already failed. In particular, Σt and ρt allow planning to
+depend on patient identifiers, temporal fields, target variables, cohort-defining columns, and active
+risks such as leakage or invalid patient-level splitting, rather than on surface similarity alone.
+                                     ARTICLE IN PRESS
+
+
+
+
+    Given the task Tt , the profiled context ct , the retrieved planning context Ri , and prior evaluator
+feedback fi−1 , the meta agent (AM ) generates an attempt-specific plan Pi . It selects the workflow,
+intermediate artifacts, validation checks, and external tool use for the current attempt. Planning
+is conditioned on retrieved memory, including safeguards, workflows, dataset anchors, and code
+snippets, together with prior evaluator feedback, so that replanning responds to earlier defects and to
+EHR-specific context such as which fields define patients, time, targets, and cohorts.
+    The plan Pi is then passed to the executor agent (AE ), which realizes it as concrete code, shell
+commands, and analytical artifacts in a sandboxed workspace and produces an auditable execution
+trace τi . HealthFlow adopts a CodeAct-style execution paradigm50 and remains backend-agnostic
+at the execution layer. The executor can invoke external command-line and MCP-based tools46 ,
+including OneEHR51 and ToolUniverse52 , as subordinate resources for carrying out the current plan.
+Before execution, HealthFlow makes available the tools that match the profiled task. MCP tools
+are embedded in compatible coding-agent backends, while CLI tools are exposed by name and
+purpose so that the executor can inspect their help messages and run the chosen command in the
+                                                                     S
+task workspace. Tool calls, terminal outputs, return status, and generated artifacts are recorded in τi .
+                                                              ES
+    After execution, the evaluator agent (AV ) reviews both τi and the generated artifacts and
+returns a structured verdict (vi , fi ) containing success status, failure type, violated constraints, and
+                                                       PR
+targeted repair guidance. It evaluates both execution correctness and EHR methodological validity,
+distinguishing runtime failure and missing artifacts from outputs that contain problems such as
+leakage, invalid patient-level splits, incoherent cohort definitions, or inconsistency between the
+                                               IN
+requested target and the implemented analysis. When the failure is recoverable and the retry budget
+is not yet exhausted, fi is returned to the meta agent so that the next plan Pi+1 addresses the diagnosed
+cause rather than repeating the same attempt.
+                                       LE
+    Once the task trajectory terminates, whether because a valid solution is found, the evaluator
+                                   C
+advises stopping, or the retry budget Nmax is exhausted, the reflector agent (AR ) revisits the full task
+trajectory Tt and determines what reusable experience should persist across tasks. It outputs both
+                              TI
+newly synthesized experience and lifecycle updates for existing memory items. These outputs are
+                          R
+written back to the memory store and become available to the meta agent in later tasks, completing
+                      A
+the plan-execute-evaluate-reflect cycle.
+    Algorithm 1 summarizes this four-agent coordination.
+
+4.3 EHR-Aware Governed Experience Memory for Strategic Self-Evolution
+HealthFlow uses a governed experience memory to store cross-task knowledge in a structured form
+rather than as free-form reflective text. The memory store, retrieval gates, conflict checks, and
+bounded planning output are summarized in Supplementary Figure 1b. Each memory item contains
+reusable guidance together with metadata describing when and how it may be reused. Concretely, a
+memory record contains a memory type, a routing category, an applicability scope, an originating
+task-family label, a dataset signature, schema tags, risk tags, a confidence score, and the outcome
+of the originating task. The routing category identifies which local analytical decision the memory
+is meant to inform, and the applicability scope defines the level at which it may compete with
+alternatives. The task-family label, dataset signature, schema tags, and risk tags determine whether
+the memory is structurally compatible with the current task context.
+    HealthFlow uses four memory types. safeguard memories encode EHR-specific method-
+ological constraints or prohibitions, such as preventing leakage or disallowing an invalid cohort
+construction rule. workflow memories encode reusable multi-step procedures for recurring
+EHR analysis patterns. dataset anchor memories encode stable dataset-specific facts needed
+                                            ARTICLE IN PRESS
+
+
+
+
+Algorithm 1 HealthFlow workflow with strategic self-evolution.
+Require: Task T , Experience Memory M , Max Attempts Nmax
+Ensure: Terminal Output Oterm , Terminal Verdict vterm
+ 1: Initialize AM , AE , AV , AR
+ 2: Initialize feedback f0 ← ∅ and trajectory history T ← 0/
+ 3: Build task context cT ← P ROFILE A ND D ETECT R ISK (T )
+ 4: for i = 1 to Nmax do
+ 5:                                               ▷ Phase 1: Experience-Guided Retrieval and Planning
+ 6:     Retrieve experience Ri ← R ETRIEVE(M , cT )
+ 7:     Generate plan Pi ← AM (T, cT , Ri , fi−1 )
+ 8:                                                                       ▷ Phase 2: Faithful Execution
+ 9:     Execute plan, get trace τi ← AE (Pi )
+10:                                                           ▷ Phase 3: Artifact-and-Trace Evaluation
+11:     Evaluate verdict (vi , fi ) ← AV (τi , T )
+12:     Append (Ri , Pi , τi , vi , fi ) to history T                                  S
+13:
+14:
+        if vi indicates success or no further retry is recommended then
+             break
+                                                                              ES
+15:     end if
+16: end for
+                                                                      PR
+17:                                        ▷ Phase 4: Trajectory-Level Synthesis and Memory Updates
+                                                         IN
+18: Let terminal output Oterm be the artifacts and logs in τi
+19: Let terminal verdict vterm ← vi
+20: Synthesize new experience and memory updates (Enew ,Unew ) ← AR (T , T, vterm )
+                                              LE
+21: Apply lifecycle updates M ← A PPLY U PDATES (M ,Unew )
+22: Save synthesized experience M ← W RITEBACK(M , Enew )
+                                         C
+23: return (Oterm , vterm )       TI
+                              R
+for correct execution, such as which column identifies patients or where timestamps are stored.
+                         A
+code snippet memories encode short implementation fragments that stabilize recurring schema-
+aware operations such as cohort filtering, temporal sorting, or artifact generation. Keeping these
+types separate is important because methodological constraints, reusable procedures, dataset facts,
+and executable fragments should not be retrieved or retired under the same rule.
+    Given the current task context ct , retrieval at attempt i selects a bounded planning context Ri
+by combining relevance and applicability. Each active memory item is scored using a normalized
+additive compatibility function:
+
+    Score(E j , ct ) =                   ∑                       wu su (E j , ct ),   su (E j , ct ) ∈ [0, 1],   ∑ wu = 1, (2)
+                         u∈{task, dataset, schema, risk, conf}                                                   u
+
+where stask measures task-family agreement, sdataset is an exact-match indicator for the active dataset
+signature, sschema and srisk are normalized overlap scores for schema-derived and risk tags, and sconf
+is the memory confidence normalized to [0, 1]. In the reference configuration we use uniform weights
+across the five terms, so the score is a bounded heuristic for ranking already eligible memories rather
+than a learned probabilistic quantity. The first four terms measure structural compatibility with the
+current task, while the confidence term prefers memories that have already proved reliable. Retrieval
+returns a bounded planning context Ri under a global retrieval budget K and a per-type budget Ktype .
+                                         ARTICLE IN PRESS
+
+
+
+
+     Eligibility is memory-type dependent. Safeguards require overlap between stored and active
+risk tags. Dataset anchors require exact dataset match because identifiers, tables, and timestamp
+semantics are dataset-specific. Workflows require task-family relevance, and code snippets require
+schema- or operation-level relevance. These gates preserve the EHR-aware character of retrieval
+and prevent it from collapsing into a generic semantic-similarity search.
+     Conflict resolution is handled after eligibility filtering and scoring. Two memories compete only
+when they have the same memory type, routing category, and applicability scope, meaning that they
+address the same local decision at the same level of context. Within each such conflict set, only the
+highest-scoring active memory is admitted into Ri , whereas memories from different conflict sets
+can coexist. This allows, for example, a safeguard and a workflow to inform the same task while
+still forcing a single choice among competing workflows for the same decision.
+     After each task, the reflector synthesizes new experience from the full trajectory Tt . Let vt⋆ denote
+the terminal evaluator verdict for task t. Define the induced outcome class as ot⋆ = Outcome(vt⋆ ),
+where ot⋆ ∈ {success, failed, recovered}. Let K (ot⋆ ) denote the set of permissible memory
+                                                                     S
+types that may be written back after task t when the terminal outcome class is ot⋆ . The permissible
+memory types are then determined by ot⋆ :
+                
+                                                               ES
+                   {workflow, dataset anchor, code snippet}, ot⋆ = success,
+                
+                
+                
+     K (ot⋆ ) = {safeguard},
+                                                            PR                   ot⋆ = failed,          (3)
+                
+                                        proc
+                
+                
+                   {safeguard} ∪ St ,                IN                          ot⋆ = recovered,
+         proc
+where St ⊆ {workflow, code snippet} denotes the subset of procedural memory types
+                                          LE
+supported by the corrected trajectory, success denotes a trajectory that completes without material
+evaluator-detected defects, failed denotes a trajectory that terminates without a valid solution,
+                                      C
+and recovered denotes a trajectory that succeeds only after evaluator-triggered repair or after
+                              TI
+exposing material EHR risks during execution. This writeback rule is outcome-aware: successful
+trajectories can contribute reusable procedures, dataset anchors, and code snippets; failed trajectories
+                          R
+contribute only safeguards; and recovered trajectories can contribute safeguards together with limited
+                       A
+procedural memory when the corrected trajectory provides clear positive evidence. This prevents
+unstable runs from writing overly optimistic procedural advice.
+    Retrieval-time competition is separated from long-term memory evolution. Later trajectories
+may explicitly validate or retire previously retrieved memories, so we write the update in three
+explicit stages using an intermediate memory state M   c t+1 :
+
+          Dt = Retire(Ut ),
+                                                    
+                                                     
+      M                        Mt \ Dt
+                                       
+       t+1 = Update                              ,Ut  ,
+       c                                             
+                             | {z }
+                          keep the old memories
+                                                                                                      (4)
+                            that are not retired
+      Mt+1 = Mt+1 ∪
+              c                  Etnew           .
+                                 |{z}
+                         add the new experience
+                           written after task t
+
+Here, Dt is the subset of existing memories that the reflector explicitly retires, and Etnew is the new
+experience written back after task t. In words: after task t, we first delete memories judged invalid
+                                    ARTICLE IN PRESS
+
+
+
+
+or outdated, then apply the non-retirement actions in Ut to the addressed surviving items, and finally
+append the new memories extracted from that task. Thus, Update(Mt \ Dt ,Ut ) applies lifecycle
+actions such as strengthening or weakening by modifying the corresponding memory attributes
+(for example, confidence) on surviving previously stored memories, while retirement actions have
+already been absorbed into Dt . Not being selected for one task, or losing one conflict-resolution
+step, is not itself grounds for deletion. Retirement requires later evidence that a memory is invalid,
+outdated, or systematically dominated within its claimed scope, whereas repeated successful reuse
+can increase its confidence. During benchmark evaluation, this writeback occurs online after each
+task, so later tasks retrieve from an updated memory store.
+
+4.4 Baseline Methods
+To evaluate HealthFlow’s efficacy, we compare against a diverse set of baselines spanning direct
+LLM use, collaborative medical agents, general-purpose agent frameworks, biomedical data-science
+agents, and bare coding-agent backends. Direct single-model baselines include DeepSeek-V3.253 ,
+                                                                  S
+DeepSeek-V3.2-Think53, 54 , HuatuoGPT-o155 , MedGemma56 , and Baichuan-M257 . Additional
+                                                            ES
+collaborative-medical baselines first introduced here are MedAgents58 , MDAgents59 , and Co-
+laCare60 . We also evaluate previously discussed agentic systems including EvoMDT24 , AFlow30 ,
+Alita31 , Biomni22 , STELLA32 , BioDSA29 , and BioMedAgent23 .
+                                                     PR
+    For the direct single-model baselines, we evaluate each model in the released inference form
+available under our common hardware setup: API-hosted models are run through the provider
+                                             IN
+endpoints, whereas locally deployed open-weight models use the quantized checkpoints listed
+in Section 4.6. For the remaining agentic baselines, we standardize the underlying model to
+DeepSeek-V3.253 whenever the framework permits, thereby isolating architectural differences from
+                                     LE
+foundation-model strength. For HealthFlow-specific runtime-configuration studies, we vary three
+                                  C
+components separately: the frontend model used by the planner, evaluator, and reflector; the backend
+model used on the executor side; and the executor backend itself. OpenCode61 is evaluated with
+                            TI
+DeepSeek-V3.253 , DeepSeek-V3.2-Think53, 54 , and Qwen3.5-Flash62 , whereas Claude Code63 and
+                         R
+Pi64 are each evaluated with DeepSeek-V3.253 as the backend model. In the specific cases of Alita31
+and EvoMDT24 , where the official implementations are unavailable, we adopt the community-
+                      A
+maintained OpenAlita65 version and the open-source OpenEvoMDT66 reproduction, respectively.
+
+4.5 Evaluation Protocol
+To rigorously assess agent performance across the diverse requirements of health data science,
+we employ a hybrid evaluation strategy combining deterministic metrics, reference-guided LLM
+judging, and expert human review. For the three knowledge-intensive deterministic multiple-choice
+benchmarks, namely the MedAgentsBench43 hard set and the selected HLE44 and CureBench45
+subsets, we report accuracy after normalizing each prediction to a single answer choice. In contrast,
+EHRFlowBench and MedAgentBoard42 require artifact-level evaluation because a single short
+answer is insufficient to capture methodological validity.
+    For artifact-generation tasks on EHRFlowBench and MedAgentBoard42 , task extraction, ref-
+erence construction, agent execution, and judging are decoupled to mitigate self-preference and
+closed-loop bias. Task extraction was supported by OpenAI GPT-5.467 and subsequently curated by
+human reviewers, whereas artifact evaluation used reference answers prepared by human experts
+and independently cross-validated by separate domain experts. Agent execution used models from
+the DeepSeek and Qwen families, and judging was conducted with Google Gemini 3.1 Flash-Lite68 .
+Specifically, on EHRFlowBench, each agent-generated markdown report is rendered to PDF and
+                                    ARTICLE IN PRESS
+
+
+
+
+compared against the reference-answer PDF using Gemini 3.1 Flash-Lite68 . The judge scores
+methodology soundness, presentation quality, and artifact generation on a 1-to-5 scale; tasks that
+fail to produce the required artifacts receive a score of 0. For variants with evaluator feedback, we
+evaluate the first attempt that meets the evaluator’s success threshold. If none does, we evaluate the
+third-attempt artifacts when available; if required assets such as the report are missing, the task is
+scored 0. MedAgentBoard42 is designed to be as deterministic as possible: data tasks are judged
+against exact or semantically equivalent structured outputs, predictive-modeling tasks are judged
+against the corresponding reference artifacts while allowing approximately 10% metric deviation
+when the reported model behavior remains materially consistent with the ground truth, and visual-
+ization tasks are counted as correct when they faithfully express the requested analytical meaning
+even if stylistic details or chart types differ. These task-specific judgments on MedAgentBoard42 are
+likewise implemented with Gemini 3.1 Flash-Lite68 as a binary success metric (0 for failure and 1
+for success). Agreement analysis in Supplementary Information (Supplementary Figure 2a,b) shows
+that Gemini 3.1 Flash-Lite closely tracks the stronger judge and the expert labels: Supplementary
+                                                                  S
+Figure 2a is dominated by adjacent-bin discrepancies on EHRFlowBench, while Supplementary
+                                                           ES
+Figure 2b shows binary agreement of 92/100 against Gemini 3.1 Pro and 89/100 against independent
+expert ratings on MedAgentBoard. Together, these results support Gemini 3.1 Flash-Lite as a
+lower-cost proxy judge.                              PR
+     For HealthFlow, each benchmark evaluation starts from the same initialized memory state,
+so memory is reset between separate benchmark runs. Within a benchmark, tasks are processed
+                                             IN
+sequentially in a fixed order with a persistent memory store. During benchmark evaluation, the
+reflector writes back validated memory after each task, and subsequent tasks retrieve from the
+updated store. Baselines without persistent memory are evaluated independently per task. For
+                                     LE
+score-based metrics, we bootstrap all evaluated samples 100 times and report the bootstrap mean
+together with the bootstrap standard deviation. Metrics of success rate and accuracy are multiplied
+                                  C
+by 100 for readability. Because LLM judges can systematically differ from human annotators69 , we
+                            TI
+interpret rubric-based scores as structured proxies rather than clinical ground truth and complement
+                         R
+them with blinded human evaluation.
+                     A
+     Complementing these automated metrics, we conduct a rigorous human evaluation to cap-
+ture the practical utility and nuance of the generated solutions. We enlisted 12 domain experts,
+consisting of researchers holding doctoral degrees in disciplines such as AI for healthcare, bio-
+statistics, and biomedical engineering, alongside licensed physicians with over two years of pro-
+fessional clinical experience. The evaluation is facilitated through a custom-built online plat-
+form, shown in Figure 5, whose code is open-sourced at https://github.com/yhzhu99/
+HealthFlow/tree/main/platform and whose public deployment is accessible at https:
+//healthflow.medx-pku.com/evaluation. Each of the 12 evaluators assesses the same
+set of 20 randomly selected reports from the 100-task EHRFlowBench benchmark, for a total of
+240 blinded preference decisions. For each evaluation item, they are shown an EHRFlowBench task
+together with a reference report and anonymized candidate reports from HealthFlow and competitive
+baselines from the main EHRFlowBench comparison. The task, reference, and anonymized reports
+are organized as separate tabs within the interface. In a blind preference setting, each evaluator
+selects the single best solution in the decision panel on the right, with a residual None/Others
+option available when no displayed method should be preferred. To mitigate bias, the identities and
+presentation order of the candidate systems are randomized for each task and evaluator. The online
+evaluation instructions are detailed in Supplementary Information (Supplementary Table 3).
+     To promote consistent preference judgments, we instruct evaluators to make a single overall
+                                         ARTICLE IN PRESS
+
+
+
+
+                                                                       S
+                                                                 ES
+                                                          PR
+Figure 5. The user interface of the open-source online human evaluation platform. Raters
+review an EHRFlowBench task together with the reference report and anonymized submission
+                                                  IN
+reports in separate tabs, then record a single preference in the decision panel on the right.
+
+
+                                          LE
+selection rather than score separate dimensions. In forming that preference, they are encouraged to
+consider whether a response is factually correct and methodologically sound, whether it adequately
+                                      C
+covers the task requirements, whether its presentation is clear and logically organized, and whether it
+                                 TI
+offers practical clinical or health-data-science value. These aspects serve as reference considerations
+for the blinded overall preference decision rather than as independent subscores.
+                              R
+                          A
+4.6 Computational Infrastructure and Model Settings
+To ensure reproducibility and computational consistency, all experiments were conducted on a uni-
+form hardware platform consisting of an Apple Mac Studio equipped with an M3 Ultra chip and 512
+GB of unified memory. The software environment was orchestrated using Python 3.12+. For local de-
+ployment, we used the 8-bit quantized versions of HuatuoGPT-o155 (QuantFactory/HuatuoGPT-o1-7B-GGUF)
+and MedGemma56 (google/medgemma-27b-text-it), together with the 4-bit quantized
+version of Baichuan-M257 (baichuan-inc/Baichuan-M2-32B-Q4 K M-GGUF) from Hug-
+gingFace; inference was served through LM Studio. API-accessed models in this study included
+DeepSeek-V370 , DeepSeek-R171 , Qwen3-235B72 (Qwen3-235B-A22B-Instruct-2507),
+DeepSeek-V3.253 , DeepSeek-V3.2-Think53, 54 , Qwen3.5-Flash62 , GPT-5.467 , and Gemini 3.1 Flash-
+Lite68 . Unless otherwise noted, all external API calls for both the proposed method and baselines
+used the default settings provided by the respective services (e.g., temperature, top p, and
+max tokens) to reflect standard usage patterns.
+          For benchmark construction, the LLM ensemble used for paper filtering comprised DeepSeek-
+    V3 , DeepSeek-R171 , and Qwen3-235B72 , while the final EHRFlowBench task-extraction model
+         70
+
+    was GPT-5.467 with medium reasoning effort.
+          For HealthFlow, the reference configuration used DeepSeek-V3.253 for the frontend agents
+                                   ARTICLE IN PRESS
+
+
+
+
+(planner, evaluator, and reflector) and for the backend model used by the executor, with OpenCode61
+as the executor backend. We compared three executor backends in our experiments: OpenCode61
+version 1.3.13, Claude Code63 version 2.1.92, and Pi64 version 0.65.0. In the runtime-configuration
+study, we varied one component at a time. The frontend model was either DeepSeek-V3.253 ,
+DeepSeek-V3.2-Think53, 54 , or Qwen3.5-Flash62 ; the backend model was either DeepSeek-V3.253 ,
+DeepSeek-V3.2-Think53, 54 , or Qwen3.5-Flash62 when OpenCode was used; and Claude Code63 and
+Pi64 were each paired with DeepSeek-V3.253 as the backend model. Within the self-correction loop,
+HealthFlow allowed up to 3 full attempts per task, used an evaluator success threshold of 0.8, and
+set the retrieval budgets to K = 6 and Ktype = 2. In the experiments, OneEHR51 and ToolUniverse52
+were connected through command-line interfaces. We additionally recorded stage-wise token usage
+and estimated cost for planning, execution, evaluation, and reflection. The reported stage-wise cost
+totals use this reference configuration and are accumulated over 100 tasks per benchmark. This setup
+isolates the contribution of HealthFlow’s EHR-aware harness, strategically self-evolving memory
+mechanisms, and tool-use layer from the standalone capability of the executor backend.
+                                                                 S
+Data Availability
+                                                          ES
+                                                    PR
+All curated benchmarks including EHRFlowBench, MedAgentBoard, MedAgentsBench, HLE,
+and CureBench are fully open-sourced and available at https://github.com/yhzhu99/
+HealthFlow. Regarding original benchmark sources, MedAgentBoard tasks are available at
+                                            IN
+https://github.com/yhzhu99/MedAgentBoard-WorkflowAutomation. The spe-
+cific evaluation subsets used for MedAgentsBench (https://github.com/gersteinlab/
+                                     LE
+medagents-benchmark), Humanity’s Last Exam (HLE) (https://huggingface.co/
+datasets/cais/hle), and CureBench (https://github.com/mims-harvard/CUREBench)
+                                 C
+are publicly available; for CureBench, the validation set was accessed via Kaggle (https:
+                            TI
+//www.kaggle.com/competitions/cure-bench/data). This study uses the public
+MIMIC-IV demo release available on PhysioNet at https://physionet.org/content/
+                        R
+mimic-iv-demo/2.2/ together with the TJH dataset available at https://github.com/
+                     A
+HAIRLAB/Pre_Surv_COVID_19. No new patient health information was collected for this
+study, and all analyses were performed in accordance with the data-usage policies of the respective
+providers.
+
+
+Code Availability
+The source code for the HealthFlow framework, including the implementation of the meta, executor,
+evaluator, and reflector agents, is available in the GitHub repository yhzhu99/HealthFlow at
+https://github.com/yhzhu99/HealthFlow. This repository also contains the scripts
+required to reproduce benchmark construction, curation, and evaluation, including the human evalua-
+tion platform at https://github.com/yhzhu99/HealthFlow/tree/main/platform.
+The public deployment provides a main homepage at https://healthflow.medx-pku.
+com/ as the entry point to the available online platforms, from which users can proceed to the eval-
+uation platform at https://healthflow.medx-pku.com/evaluation and the public
+online HealthFlow interface at https://healthflow.medx-pku.com/app; a screenshot
+of the deployed application is shown in Figure 6.
+                                   ARTICLE IN PRESS
+
+
+
+
+                                                                S
+                                                          ES
+                                                    PR
+Figure 6. The public online HealthFlow interface. The deployed web application at
+https://healthflow.medx-pku.com/app provides a browser-based workspace for
+                                            IN
+launching HealthFlow tasks and reviewing generated reports, artifacts, and workspace files. The
+root page at https://healthflow.medx-pku.com/ serves as the main homepage, from
+which users can proceed to both the evaluation platform and the app interface.
+                                    LE
+Acknowledgements                 C
+                            TI
+This work was supported by National Natural Science Foundation of China (62402017), Research
+                        R
+Grants Council of Hong Kong (27206123, 17200125, C5055-24G, and T45-401/22-N), and the Hong
+                     A
+Kong Innovation and Technology Fund (GHP/318/22GD), Beijing Traditional Chinese Medicine Sci-
+ence and Technology Development Fund (BJZYZD-2025-13), Peking University Clinical Medicine
+Plus X (Young Scholars Project-the Fundamental Research Funds for the Central Universities
+PKU2025PKULCXQ024; Pilot Program-Key Technologies Project 2024YXXLHGG007), and
+Peking University “TengYun” Clinical Research Program (TY2025015). L.M. was supported by
+Beijing Natural Science Foundation (L244063, L244025), Beijing Municipal Health Commission
+Research Ward Excellence Clinical Research Program (BRWEP2024W032150205), and Xuzhou Sci-
+entific Technological Projects (KC23143). The funders had no role in study design, data collection
+and analysis, decision to publish, or preparation of the manuscript.
+
+
+Author Contributions
+Y.Z., Z.W., Y.Q., Y.W., J.H., L.M., and L.Y. conceived the study and designed the HealthFlow
+architecture. Y.Z., Z.W., and Y.Q. developed the software framework, implemented the agents, and
+performed the primary experiments. Z.W., Y.Q., L.G., D.S., and X.Z. assisted in the curation of the
+EHRFlowBench dataset and the execution of baseline comparisons. Z.W., H.H. and Z.H. curated
+the MedAgentBoard benchmark. H.H. integrated tool-use capabilities into HealthFlow. Y.Z., Z.W.,
+and Y.Q. wrote the original draft of the manuscript. L.M. and L.Y. supervised the project, provided
+                                    ARTICLE IN PRESS
+
+
+
+
+guidance, and edited the manuscript. All authors wrote, reviewed and approved the final manuscript.
+
+Competing Interests
+Lequan Yu is an Associate Editor of npj Digital Medicine. Lequan Yu was not involved in the
+journal’s review of, or decisions related to, this manuscript. The authors declare no other competing
+financial or non-financial interests.
+
+
+
+
+                                                                  S
+                                                           ES
+                                                     PR
+                                             IN
+                                     LE
+                                 C
+                            TI
+                         R
+                     A
+                                    ARTICLE IN PRESS
+
+
+
+
+References
+ 1. Jensen, P. B., Jensen, L. J. & Brunak, S. Mining electronic health records: towards better
+    research applications and clinical care. Nature Reviews Genetics 13, 395–405 (2012). DOI
+    10.1038/nrg3208.
+ 2. Collins, F. S. & Varmus, H. A new initiative on precision medicine. New England Journal
+    Medicine 372, 793–795 (2015). DOI 10.1056/NEJMp1500523.
+ 3. Weiskopf, N. G. & Weng, C. Methods and dimensions of electronic health record data quality
+    assessment: enabling reuse for clinical research. Journal American Medical Informatics
+    Association 20, 144–151 (2013). DOI 10.1136/amiajnl-2011-000681.
+ 4. Hersh, W. R. et al. Caveats for the use of operational electronic health record data
+    in comparative effectiveness research. Medical Care 51, S30–S37 (2013).         DOI
+    10.1097/MLR.0b013e31829b1dbd.
+                                                                  S
+ 5. Kohane, I. S. et al. What every reader should know about studies using electronic health record
+                                                           ES
+    data but may be afraid to ask. Journal Medical Internet Research 23, e22219 (2021). DOI
+    10.2196/22219.
+                                                     PR
+ 6. Lewis, A. E. et al. Electronic health record data quality assessment and tools: a systematic
+    review. Journal American Medical Informatics Association 30, 1730–1740 (2023). DOI
+    10.1093/jamia/ocad120.
+                                             IN
+ 7. Sbaffi, L. & Rowley, J. Trust and credibility in web-based health information: a review and
+    agenda for future research. Journal medical Internet research 19, e218 (2017).
+                                     LE
+ 8. Birhane, A., Kasirzadeh, A., Leslie, D. & Wachter, S. Science in the age of large language
+                                 C
+    models. Nature Reviews Physics 5, 277–280 (2023).
+                            TI
+ 9. Swanson, K., Wu, W., Bulaong, N. L., Pak, J. E. & Zou, J. The virtual lab of ai agents designs
+    new sars-cov-2 nanobodies. Nature 1–3 (2025).
+                         R
+                     A
+10. Chen, Q. et al. Ai4research: A survey of artificial intelligence for scientific research. arXiv
+    preprint arXiv:2507.01903 (2025).
+11. Fahrner, L. J., Chen, E., Topol, E. & Rajpurkar, P. The generative era of medical ai. Cell 188,
+    3648–3660 (2025).
+12. Huang, J. et al. Foundation models and intelligent decision-making: Progress, challenges, and
+    perspectives. The Innovation (2025).
+13. Shi, W. et al. EHRAgent: Code empowers large language models for few-shot complex
+    tabular reasoning on electronic health records. In Al-Onaizan, Y., Bansal, M. & Chen,
+    Y.-N. (eds.) Proceedings of the 2024 Conference on Empirical Methods in Natural Lan-
+    guage Processing, 22315–22339 (Association for Computational Linguistics, Miami, Florida,
+    USA, 2024). URL https://aclanthology.org/2024.emnlp-main.1245/. DOI
+    10.18653/v1/2024.emnlp-main.1245.
+14. Gao, S. et al. Txagent: An ai agent for therapeutic reasoning across a universe of tools. arXiv
+    preprint arXiv:2503.10970 (2025).
+15. Zhang, Z. et al. Origene: A self-evolving virtual disease biologist automating therapeutic target
+    discovery. bioRxiv 2025–06 (2025).
+                                    ARTICLE IN PRESS
+
+
+
+
+16. Significant Gravitas. Autogpt. https://github.com/Significant-Gravitas/
+    AutoGPT (2023). Accessed: 2025-07-27.
+17. Yang, R. et al. GPT4tools: Teaching large language model to use tools via self-instruction. In
+    Thirty-seventh Conference on Neural Information Processing Systems (2023). URL https:
+    //openreview.net/forum?id=cwjh8lqmOL.
+18. Shen, Y. et al. Hugginggpt: Solving ai tasks with chatgpt and its friends in huggingface. In
+    Advances in Neural Information Processing Systems (2023).
+19. Hong, S. et al. MetaGPT: Meta programming for a multi-agent collaborative framework. In
+    The Twelfth International Conference on Learning Representations (2024). URL https:
+    //openreview.net/forum?id=VtmBAGCN7o.
+20. Ding, K. et al. Scitoolagent: a knowledge-graph-driven scientific agent for multitool integration.
+    Nature Computational Science 1–11 (2025).
+21. Ghareeb, A. E. et al. Robin: A multi-agent system for automating scientific discovery. arXiv
+                                                                  S
+    preprint arXiv:2505.13400 (2025).
+                                                            ES
+22. Huang, K. et al. Biomni: A general-purpose biomedical ai agent. bioRxiv 2025–05 (2025).
+                                                     PR
+23. Bu, D. et al. Empowering ai data scientists using a multi-agent llm framework with self-
+    evolving capabilities for autonomous, tool-aware biomedical data analyses. Nature Biomedical
+    Engineering 1–16 (2026).
+                                             IN
+24. Liu, Q. et al. Evomdt: a self-evolving multi-agent system for structured clinical decision-making
+    in multi-cancer. npj Digital Medicine (2026).
+                                     LE
+25. Shinn, N., Cassano, F., Gopinath, A., Narasimhan, K. & Yao, S. Reflexion: Language agents
+    with verbal reinforcement learning. Advances Neural Information Processing Systems 36,
+                                  C
+    8634–8652 (2023).
+                            TI
+26. Madaan, A. et al. Self-refine: Iterative refinement with self-feedback. In Thirty-seventh
+                         R
+    Conference on Neural Information Processing Systems (2023). URL https://openreview.
+                     A
+    net/forum?id=S37hOerQLB.
+27. Yuksekgonul, M. et al. Optimizing generative ai by backpropagating language model feedback.
+    Nature 639, 609–616 (2025).
+28. Novikov, A. et al. Alphaevolve: A coding agent for scientific and algorithmic discovery. arXiv
+    preprint arXiv:2506.13131 (2025).
+29. Wang, Z., Danek, B., Yang, Z., Chen, Z. & Sun, J. Making large language models reliable data
+    science programming copilots for biomedical research. Nature Biomedical Engineering (2026).
+    URL https://doi.org/10.1038/s41551-025-01587-2. DOI 10.1038/s41551-
+    025-01587-2.
+30. Zhang, J. et al. AFlow: Automating agentic workflow generation. In The Thirteenth Inter-
+    national Conference on Learning Representations (2025). URL https://openreview.
+    net/forum?id=z5uVAKwmjf.
+31. Qiu, J. et al. Alita: Generalist agent enabling scalable agentic reasoning with minimal predefini-
+    tion and maximal self-evolution. arXiv preprint arXiv:2505.20286 (2025).
+32. Jin, R., Zhang, Z., Wang, M. & Cong, L. Stella: Self-evolving llm agent for biomedical research.
+    arXiv preprint arXiv:2507.02004 (2025).
+                                   ARTICLE IN PRESS
+
+
+
+
+33. Wang, Z. Z., Mao, J., Fried, D. & Neubig, G. Agent workflow memory. In Forty-second
+    International Conference on Machine Learning (2025). URL https://openreview.net/
+    forum?id=NTAhi2JEEE.
+34. Tang, X. et al. Agent kb: Leveraging cross-domain experience for agentic problem solving.
+    arXiv preprint arXiv:2507.06229 (2025).
+35. Jin, D. et al. What disease does this patient have? a large-scale open domain question answering
+    dataset from medical exams. Applied Sciences 11, 6421 (2021).
+36. Jin, Q., Dhingra, B., Liu, Z., Cohen, W. & Lu, X. PubMedQA: A dataset for biomedical
+    research question answering. In Inui, K., Jiang, J., Ng, V. & Wan, X. (eds.) Proceedings
+    of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th
+    International Joint Conference on Natural Language Processing (EMNLP-IJCNLP), 2567–
+    2577 (Association for Computational Linguistics, Hong Kong, China, 2019). URL https:
+    //aclanthology.org/D19-1259/. DOI 10.18653/v1/D19-1259.
+                                                                 S
+37. Raji, I. D., Daneshjou, R. & Alsentzer, E. It’s time to bench the medical exam bench-
+                                                           ES
+    mark. NEJM AI 2, AIe2401235 (2025). URL https://ai.nejm.org/doi/full/
+    10.1056/AIe2401235. DOI 10.1056/AIe2401235. https://ai.nejm.org/doi/
+    pdf/10.1056/AIe2401235.                         PR
+38. Chen, X. et al. Evaluating large language models and agents in healthcare: key challenges in
+                                            IN
+    clinical applications. Intelligent Medicine 5, 151–163 (2025). DOI 10.1016/j.imed.2025.03.002.
+39. Mialon, G., Fourrier, C., Wolf, T., LeCun, Y. & Scialom, T. GAIA: a benchmark for general AI
+                                     LE
+    assistants. In The Twelfth International Conference on Learning Representations (2024). URL
+    https://openreview.net/forum?id=fibxvahvs3.
+                                 C
+40. Ma, M. D. et al. Clibench: A multifaceted and multigranular evaluation of large language
+                            TI
+    models for clinical decision making. arXiv preprint arXiv:2406.09923 (2024).
+                        R
+41. Schmidgall, S. et al. Agentclinic: a multimodal agent benchmark to evaluate ai in simulated
+                     A
+    clinical environments. arXiv preprint arXiv:2405.07960 (2024).
+42. Zhu, Y. et al. MedAgentBoard: Benchmarking multi-agent collaboration with conventional
+    methods for diverse medical tasks. The Thirty-nine Conference on Neural Information Process-
+    ing Systems Datasets Benchmarks Track (2025).
+43. Tang, X. et al. Medagentsbench: Benchmarking thinking models and agent frameworks for
+    complex medical reasoning. arXiv preprint arXiv:2503.07459 (2025).
+44. Center for AI Safety et al. A benchmark of expert-level academic questions to assess
+    AI capabilities. Nature 649, 1139–1146 (2026). URL https://doi.org/10.1038/
+    s41586-025-09962-4. DOI 10.1038/s41586-025-09962-4.
+45. Gao, S. et al. Cure-bench @ neurips 2025 – ai reasoning for therapeutic decision-making.
+    https://curebench.ai/ (2025). Accessed on 2025-10-06.
+46. Anthropic. Introducing the model context protocol. https://www.anthropic.com/
+    news/model-context-protocol (2024). Accessed: 2026-04-07.
+47. Johnson, A. E. et al. Mimic-iv, a freely accessible electronic health record dataset. Scientific
+    data 10, 1 (2023).
+                                   ARTICLE IN PRESS
+
+
+
+
+48. Johnson, A. et al. Mimic-iv (version 3.1) (2024). URL https://physionet.org/
+    content/mimiciv/3.1/. DOI https://doi.org/10.13026/kpb9-mt58.
+49. Yan, L. et al. An interpretable mortality prediction model for covid-19 patients. Nature machine
+    intelligence 2, 283–288 (2020).
+50. Wang, X. et al. Executable code actions elicit better llm agents. In Forty-first International
+    Conference on Machine Learning (2024).
+51. Zhu, Y. Oneehr. https://github.com/MedX-PKU/OneEHR (2026). Accessed: 2026-
+    04-06.
+52. Gao, S. et al. Democratizing ai scientists using tooluniverse. arXiv preprint arXiv:2509.23426
+    (2025).
+53. Liu, A. et al. Deepseek-v3.2: Pushing the frontier of open large language models. arXiv preprint
+    arXiv:2512.02556 (2025).
+                                                                 S
+54. DeepSeek. Your first api call — deepseek api docs. https://api-docs.deepseek.
+                                                           ES
+    com/ (2025). Accessed: 2026-04-07; documents that deepseek-chat is the non-thinking
+    mode of DeepSeek-V3.2 and deepseek-reasoner is the thinking mode of DeepSeek-V3.2.
+                                                    PR
+55. Chen, J. et al. Towards medical complex reasoning with LLMs through medical verifiable
+    problems. In Che, W., Nabende, J., Shutova, E. & Pilehvar, M. T. (eds.) Findings of the
+    Association for Computational Linguistics: ACL 2025, 14552–14573 (Association for Compu-
+                                            IN
+    tational Linguistics, Vienna, Austria, 2025). URL https://aclanthology.org/2025.
+    findings-acl.751/. DOI 10.18653/v1/2025.findings-acl.751.
+                                     LE
+56. Sellergren, A. et al. Medgemma technical report. arXiv preprint arXiv:2507.05201 (2025).
+                                 C
+57. Dou, C. et al. Baichuan-m2: Scaling medical capability with large verifier system. arXiv
+                            TI
+    preprint arXiv:2509.02208 (2025).
+58. Tang, X. et al. Medagents: Large language models as collaborators for zero-shot medical
+                        R
+    reasoning. arXiv preprint arXiv:2311.10537 (2023).
+                     A
+59. Kim, Y. et al. Mdagents: An adaptive collaboration of llms for medical decision-making.
+    Advances Neural Information Processing Systems 37, 79410–79452 (2024).
+60. Wang, Z. et al. Colacare: Enhancing electronic health record modeling through large language
+    model-driven multi-agent collaboration. In Proceedings of the ACM on Web Conference 2025,
+    2250–2261 (2025).
+61. SST. Opencode. https://opencode.ai/ (2026). Accessed: 2026-04-07.
+62. Alibaba Cloud. Supported models and capabilities overview - model studio. https://www.
+    alibabacloud.com/help/en/model-studio/models (2026). Accessed: 2026-04-
+    07; qwen3.5-flash listing in Alibaba Cloud Model Studio documentation.
+63. Anthropic. Claude code: Deep coding at terminal velocity. https://claude.com/
+    product/claude-code (2026). Accessed: 2026-04-06.
+64. Badlogic. Pi coding agent. https://github.com/badlogic/pi-mono/tree/
+    main/packages/coding-agent (2026). Accessed: 2026-04-07.
+65. ryantzr1. Openalita. https://github.com/ryantzr1/OpenAlita (2025). Accessed:
+    2025-08-01.
+                                   ARTICLE IN PRESS
+
+
+
+
+66. Zhu, Y. Openevomdt. https://github.com/yhzhu99/OpenEvoMDT (2026). Ac-
+    cessed: 2026-04-07.
+67. OpenAI.       Introducing gpt-5.4.           https://openai.com/index/
+    introducing-gpt-5-4/ (2026). Accessed: 2026-04-07.
+68. The Gemini Team.   Gemini 3.1 flash-lite: Built for intelligence at scale.
+    https://blog.google/innovation-and-ai/models-and-research/
+    gemini-models/gemini-3-1-flash-lite/ (2026). Accessed: 2026-04-07.
+69. Thakur, A. S., Choudhary, K., Ramayapally, V. S., Vaidyanathan, S. & Hupkes, D. Judging the
+    judges: Evaluating alignment and vulnerabilities in LLMs-as-judges. In Arviv, O. et al. (eds.)
+    Proceedings of the Fourth Workshop on Generation, Evaluation and Metrics (GEM²), 404–430
+    (Association for Computational Linguistics, Vienna, Austria and virtual meeting, 2025). URL
+    https://aclanthology.org/2025.gem-1.33/.
+70. Liu, A. et al. Deepseek-v3 technical report. arXiv preprint arXiv:2412.19437 (2024).
+                                                                S
+71. Guo, D. et al. Deepseek-r1 incentivizes reasoning in llms through reinforcement learning.
+    Nature 645, 633–638 (2025).
+                                                         ES
+                                                   PR
+72. Qwen Team. Qwen3-235b-a22b-instruct-2507. https://huggingface.co/Qwen/
+    Qwen3-235B-A22B-Instruct-2507 (2025). Accessed: 2025-08-01.
+
+                                           IN
+                                    LE
+                                C
+                           TI
+                        R
+                     A
+

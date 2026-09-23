@@ -1,0 +1,1128 @@
+                                                    SEMA-RAG: A Self-Evolving Multi-Agent Retrieval-Augmented
+                                                          Generation Framework for Medical Reasoning
+
+                                                                  Yongfeng Huang1 * Ruiying Chen2 * James Cheng1†
+                                                    1
+                                                        CSE, The Chinese University of Hong Kong 2 Wuhan University of Technology
+                                                             {yfhuang22,jcheng}@cse.cuhk.edu.hk 355227@whut.edu.cn
+
+
+
+                                                                   Abstract                         (RAG), which incorporates external authoritative
+                                                                                                    evidence to support the generation process, has
+
+
+
+
+arXiv:2605.17101v2 [cs.CL] 29 May 2026
+                                                 Retrieval-Augmented Generation (RAG) is            been widely adopted to mitigate these risks (Lewis
+                                                 widely employed to mitigate risks such as hallu-
+                                                                                                    et al., 2020).
+                                                 cinations and knowledge obsolescence in medi-
+                                                 cal question answering, yet its predominantly
+                                                                                                                          Average Best Baseline                   SEMA-RAG
+                                                 single-round, static retrieval paradigm mis-
+                                                 aligns with the multi-stage process of clinical           (%)
+
+                                                 reasoning. This compressed workflow induces
+                                                                                                         90             86.5
+                                                 two structural deficiencies: question-to-query                  84.3                  83.3                                         83.1
+                                                 translation often lacks clinically grounded se-         80                     77.0                                         78.3
+                                                 mantic interpretation, and retrieval lacks it-
+                                                                                                                                                        70.3
+                                                 erative sufficiency feedback, making it diffi-          70
+                                                                                                                                              64.5
+                                                 cult to form reliable evidence chains. We
+                                                 argue that both issues stem from a deeper               60                                                           56.3
+                                                 cause—overloading a single reasoning chain                                                                    50.8
+                                                 with heterogeneous tasks of interpretation, ex-         50
+
+                                                 ploration, and adjudication—and that the rem-
+                                                                                                                     LU         A-U
+                                                                                                                                                    A            A*            ASQ
+                                                 edy is to reconstruct the workflow via task                     M
+                                                                                                                  M
+                                                                                                                                Q
+                                                                                                                                   S           M
+                                                                                                                                                   CQ
+                                                                                                                                                           bM
+                                                                                                                                                                Q
+                                                                                                                                                                             Bi o
+                                                                                                                               ed             ed             ed
+                                                 decoupling and dynamic multi-round explo-                                M               M               Pu
+
+                                                 ration. To this end, we propose SEMA-RAG,          Figure 1: Benchmark-level accuracy averaged over five
+                                                 a Self-Evolving Multi-Agent RAG framework          LLM backbones.
+                                                 for medical question answering, which assigns
+                                                 these roles to three specialist agents: the In-
+                                                 terpreter Agent for clinical schema interpreta-       However, standard RAG frameworks typically
+                                                 tion, the Explorer Agent for sufficiency-driven    treat retrieval as a static, single-round auxiliary
+                                                 self-evolving retrieval, and the Arbiter Agent     step, misaligning with the multi-stage process of
+                                                 for evidence adjudication and answer selection.    clinical reasoning: clinicians often first interpret
+                                                 Across five benchmarks and five LLM back-          patient narratives as searchable clinical questions,
+                                                 bones, SEMA-RAG improves the strongest
+                                                                                                    then progressively gather and verify information
+                                                 baseline by +6.46 accuracy points on average,
+                                                 measured per backbone.                             to address evidence gaps, and weigh and integrate
+                                                                                                    redundant or contradictory evidence to ultimately
+                                         1       Introduction                                       form judgments based on relatively robust evidence
+                                                                                                    (Linn et al., 2012; Yazdani et al., 2017). In contrast,
+                                         In recent years, large language models (LLMs)              single-round static RAG compresses this process
+                                         have shown specific capabilities in understanding          into a single retrieval and generation step. This is
+                                         and reasoning about medical knowledge when ap-             akin to requiring clinicians to simultaneously ana-
+                                         plied in healthcare (Kung et al., 2023; Omar et al.,       lyze, retrieve, evaluate, and diagnose immediately
+                                         2024). However, they remain prone to hallucina-            upon receiving initial medical records, without ad-
+                                         tions and outdated information in high-stakes clini-       justing their reasoning as new evidence emerges.
+                                         cal settings (Omiye et al., 2024; Roustan and Bas-         This typically leads to two structural flaws: (i) the
+                                         tardot, 2025). Retrieval-Augmented Generation              translation from question to query lacks clini-
+                                             * These authors contributed equally to this work.      cal semantic interpretation, making implicit con-
+                                             †
+                                                 Corresponding author.                              straints difficult to articulate explicitly (Soldaini
+et al., 2017); and (ii) the retrieval process lacks        sentative baselines in terms of average accuracy on
+mechanisms for sufficiency assessment and feed-            each benchmark when averaged over multiple un-
+back, hindering self-evolving iterative convergence        derlying LLMs. Across five benchmarks and five
+under insufficient evidence and thus weakening reli-       LLM backbones, it improves the strongest base-
+able evidence-chain formation (Mallen et al., 2023;        line by an average of +6.46 accuracy points, vali-
+Shi et al., 2023).                                         dating convergent evidence-chain construction via
+   These shortcomings, we argue, are not indepen-          task decoupling, role specialization, and evidence
+dent issues but rather symptoms of a deeper prob-          sufficiency-driven self-evolving retrieval. Our main
+lem: overloading heterogeneous tasks into a sin-           contributions are as follows:
+gle reasoning chain. When question interpretation,         • We propose SEMA-RAG, a multi-agent RAG
+evidence exploration, and answer adjudication are            framework for medical question answering,
+tightly coupled, the cognitive load increases and the        which models clinical reasoning processes via
+steps become interdependent, making it hard for the          role division and collaboration.
+model to promptly adjust retrieval and reasoning           • We develop a self-evolving Explorer Agent that
+when evidence is insufficient or conflicting (Wang           updates queries based on evidence gaps, steering
+et al., 2023; Liu et al., 2024). Thus, the key is not to     retrieval toward medical reasoning objectives.
+intensify single-round reasoning, but to restructure       • We validate SEMA-RAG on five medical Q&A
+RAG to better match the phased clinical workflow             benchmarks across multiple underlying LLMs,
+by extending single-round queries into multi-round           achieving consistent improvements over base-
+iterative exploration. After each retrieval round,           lines.
+the system evaluates whether the evidence covers
+key constraints and then chooses the next action:          2     Preliminaries
+terminate exploration and proceed to decision inte-
+gration if sufficient, or generate targeted follow-up      2.1    Task Formulation of Medical RAG
+queries to fill gaps if insufficient. This mechanism,      Given a medical question Q, the system selects the
+which continuously updates the direction of queries        final answer ỹ from the discrete candidate set Y
+and retrieval based on the evaluation results of each      (y ∈ Y). Under question-only retrieval conditions,
+round, enables the system to adjust and converge as        the system may only retrieve evidence from the
+evidence accumulates progressively. In this sense,         medical corpus C. The core RAG consists of a
+the process constitutes a form of intra-test-time          retrieval operator Ret(·) and a generation operator:
+self-evolution, in which the system adaptively up-         C = Ret(Q), and predicts accordingly:
+dates its query and retrieval trajectory during task
+execution while remaining tightly coupled to the                       ỹ = arg max p(y | Q, C).
+                                                                                 y∈Y
+current problem instance (Gao et al., 2026). For
+simplicity, we use the term "self-evolving" in the re-     2.2    Multi-Agent Roles and Abstraction
+mainder of the paper to refer to this intra-test-time
+                                                           We employ role-based division of labor, with three
+setting.
+                                                           agents collaborating to complete the medical ques-
+   To this end, we propose SEMA-RAG (Self-
+                                                           tion answering process: I-Agent handles question
+Evolving Multi-Agent RAG). This framework sim-
+                                                           interpretation, E-Agent manages evidence explo-
+ulates clinical workflows through task decoupling
+                                                           ration, and A-Agent oversees answer adjudication.
+and role specialization, decomposing complex
+                                                              Three agents share the same underlying lan-
+clinical reasoning into three collaborative mod-
+                                                           guage model, differentiated solely by role-specific
+ules: Interpreter Agent (I-Agent) maps unstruc-
+                                                           prompts. We denote the output of the shared LLM
+tured inputs to structured clinical semantics; Ex-
+                                                           conditioned on a role prompt P mtr and an input
+plorer Agent (E-Agent) implements self-evolving,
+                                                           X as Agentr (P mtr , X), where X may be a set
+evidence-sufficiency-driven retrieval for conver-
+                                                           containing multiple elements.
+gent exploration; Arbiter Agent (A-Agent) per-
+forms comprehensive adjudication based on closed-          3     Method
+loop evidence.
+   We evaluate SEMA-RAG on five medical                    Figure 2 illustrates the overall SEMA-RAG frame-
+question-answering benchmarks. As shown in Fig-            work, which comprises three role-based agents
+ure 1, SEMA-RAG consistently outperforms repre-            with responsibilities described below.
+Figure 2: Overview of SEMA-RAG: (i) I-Agent structures the input question Q into a clinical schema tuple Q′
+for retrieval; (ii) E-Agent conducts sufficiency-driven self-evolving multi-round retrieval to obtain a converged
+evidence set C ∗ ; (iii) A-Agent adjudicates evidence into a traceable report R and selects the final answer grounded
+in R.
+
+
+3.1     I-Agent as a Question Interpreter                   where ⊕ denotes a semicolon separator. Here,
+I-Agent does not merely rephrase the input medical          Linearize(·) is a parameter-free function without
+question Q; instead, it semantically structures Q           field-specific weights or additional control tokens.
+and projects it onto an explicit Clinical Schema.           It preserves qinit as the core query while explicitly
+This process externalizes latent clinical intent and        incorporating oint , oent , and ocons , making clini-
+key constraints, providing stable anchors for subse-        cally important but implicit constraints more visi-
+quent retrieval and reasoning.                              ble to the retriever and reducing semantic drift in
+   Specifically, I-Agent produces a clinical schema         the initial retrieval stage. The resulting query q̂init
+tuple Q′ with four components: (i) clinical intent          is used to initialize E-Agent, while Q′ remains the
+oint , describing the implied task type (e.g., diagno-      clinical anchor for subsequent coordination.
+sis, treatment, dosage); (ii) medical entities oent ,
+identifying core medical objects (e.g., diseases,           3.2    E-Agent as a Knowledge Explorer
+drugs); (iii) clinical constraints ocons , specifying
+applicability conditions (e.g., pregnant, renal im-         E-Agent begins with the linearized schema query
+pairment, adult); and (iv) an initial retrieval query       q̂init generated by I-Agent and progressively com-
+qinit , a concise, search-oriented question distilled       pletes the evidence through a self-evolving iterative
+from the above schema.                                      retrieval process, ultimately constructing the final
+   Formally, I-Agent maps Q to the schema tuple:            evidence set C ∗ .
+             Q′ = ⟨oint , oent , ocons , qinit ⟩
+                 = AgentI (P mtI , Q).                      Retrieval Space Initialization We construct a
+                                                            dense vector retrieval space based on the medi-
+   To make the schema tuple usable by the dense             cal corpus C. Using a parameter-frozen medical
+retriever, we further linearize Q′ into a retrieval-        dual encoder, we map queries and documents to
+ready query string:                                         the same vector space, where Eqry (·) and Edoc (·)
+                 q̂init = Linearize(Q′ )                    denote the query and document encoders, respec-
+                                                            tively. Given a query q, its Top-k candidate doc-
+      = Concat(qinit , ⊕, oint , ⊕, oent , ⊕, ocons ),      uments (passages/chunks) are retrieved based on
+vector similarity as follows:                              Evidence Adjudication and Report Construc-
+                                                           tion Given redundant and potentially conflicting
+       TopK(q) = Top-k ⟨Eqry (q), Edoc (D)⟩ .              evidence, A-Agent first adjudicates C ∗ by remov-
+                      D∈C
+                                                           ing irrelevant or duplicated content, identifying
+where Top-k returns the k documents with the               consistencies and conflicts, and organizing support-
+largest similarity scores.                                 ing and refuting clues into a structured evidence
+                                                           report R. For traceability, we retain the original
+Self-Evolving Evidence Retrieval Loop Using                document identifier for each retrieved document
+the linearized schema query q̂init as the initial query,   Di ∈ C ∗ , forming the source set
+we set Q1 = {q̂init } and C0 = ∅, where Qt is the
+query set for the tth retrieval round and Ct is the                  S ∗ = {(ID(Di ), Di ) | Di ∈ C ∗ }.
+accumulated evidence set after round t. Each re-
+trieved document Di is associated with a determin-         A-Agent then generates the evidence report
+istic document identifier ID(Di ), which is retained
+throughout the pipeline for exact deduplication and                 R = AgentA (P mtadj , [Q, C ∗ , S ∗ ]),
+source tracing. At round t, E-Agent performs re-
+trieval for each query in Qt and updates the evi-          where R explicitly organizes key conclusions rele-
+dence set:                                                 vant to the question along with their source indices,
+                       [                                   provides a reconciled synthesis of conflicting ev-
+                Dt =       TopK(q),                        idence, and offers a stable basis for final answer
+                         q∈Qt                              selection.
+
+Ct = Ct−1 ∪ {Di ∈ Dt : ID(Di ) ∈
+                               / IDs(Ct−1 )}.              Evidence-Grounded Answering Upon obtain-
+                                                           ing the evidence report R, A-Agent performs dis-
+   Conditioned on clinical anchors Q′ , the current
+                                                           crete answer selection over the candidate answer
+textual query set Qt , and the evidence set Ct , E-
+                                                           set Y:
+Agent predicts a sufficiency flag st , a gap descrip-
+tion gt , and the next query set Qt+1 :                               ỹ = AgentA (P mtans , [Q, R]),
+ [st , gt , Qt+1 ] = AgentE P mtE , [Q′ , Qt , Ct ] ,
+                                                   
+                     n                 o                   where ỹ is the final predicted answer.
+                       ⟨1⟩         ⟨m⟩
+            Qt+1 = qt+1 , . . . , qt+1 .
+                                                           4     Experiments
+where st ∈ {0, 1} indicates evidence sufficiency:          4.1     Experimental Setup
+if st = 1, the evidence is sufficient and we set
+Qt+1 = ∅; otherwise (st = 0), evidence gaps                4.1.1    Evaluation Benchmarks
+remain, and gt identifies missing conditions or rea-       To systematically evaluate SEMA-RAG’s perfor-
+soning steps, from which Qt+1 generates m candi-           mance and generalisation capabilities across di-
+date follow-up queries targeting these gaps.               verse medical question-answering scenarios, we
+   When st = 0, the generated Qt+1 is issued in            select five widely used datasets from the MIRAGE
+the next round to retrieve additional evidence, and        benchmark (Xiong et al., 2024): three medical ex-
+the results are incorporated into the update of Ct+1 .     amination datasets (MMLU-Med (Hendrycks et al.,
+   Iteration terminates when st = 1, t = Tmax , or         2021), MedQA-US (Jin et al., 2020), MedMCQA
+stagnation occurs (i.e., Qt+1 = ∅). Upon termina-          (Pal et al., 2022)) and two biomedical research
+tion, we obtain the closed evidence set, record the        QA datasets (PubMedQA* (Jin et al., 2019) and
+actual number of iterations T ≤ Tmax , and store           BioASQ-Y/N (Tsatsaronis et al., 2015; Krithara
+the self-evolving trajectory:                              et al., 2023)). Together, they cover general medical
+                                                           knowledge, clinical examinations, and biomedi-
+      C ∗ = CT , τ = {[Q1 , C1 ], . . . , [QT , CT ]} .    cal literature inference. Following MIRAGE’s fil-
+                                                           tering and preprocessing pipeline, we retain only
+3.3     A-Agent as an Evidence Arbiter                     discrete biomedical classification questions, use
+A-Agent adjudicates evidence by organizing the             PubMedQA* (with the original evidence context
+converged set C ∗ into a traceable evidence report         removed), and apply question-only retrieval for all
+and generating a discrete answer from it.                  tasks.
+ Model                               MMLU-Med   MedQA-US        MedMCQA    PubMedQA*   BioASQ-Y/N    Average
+ deepseek-v3.1 (DeepSeek-AI et al., 2025)
+   + CoT (Wei et al., 2022)             88.15     77.53           71.69       38.40        80.10      71.17
+   + MedCPT (Jin et al., 2023)          85.12     73.84           62.66       43.20        76.38      68.24
+   + MedRAG (Xiong et al., 2024)        88.61     77.14           67.99       44.60        78.48      71.36
+   + i-MedRAG (Xiong et al., 2025)      85.86     74.78           65.65       50.60        80.58      71.49
+   + SEMA-RAG (Ours)                    91.46     89.95           75.09       59.20        82.85      79.71
+ kimi-k2 (Team et al., 2025b)
+   + CoT (Wei et al., 2022)             84.39     77.85           72.08       53.60        85.76      74.74
+   + MedCPT (Jin et al., 2023)          89.81     80.68           73.85       50.20        81.39      75.19
+   + MedRAG (Xiong et al., 2024)        91.37     81.54           73.20       52.60        85.60      76.86
+   + i-MedRAG (Xiong et al., 2025)      91.28     81.78           74.13       54.60        83.17      76.99
+   + SEMA-RAG (Ours)                    91.46     86.41           76.07       55.80        88.67      79.68
+ qwen3-coder-plus (Yang et al., 2025)
+   + CoT (Wei et al., 2022)             89.26     76.90           73.06       47.20        81.72      73.63
+   + MedCPT (Jin et al., 2023)          87.42     75.26           67.44       46.60        75.89      70.52
+   + MedRAG (Xiong et al., 2024)        89.44     81.54           69.26       49.20        72.33      72.35
+   + i-MedRAG (Xiong et al., 2025)      89.26     77.38           70.26       48.60        82.52      73.60
+   + SEMA-RAG (Ours)                    92.10     86.17           74.23       56.00        83.01      78.30
+ gemini-2.0-flash (Google, 2025)
+   + CoT (Wei et al., 2022)             58.22     65.12           41.33       40.20        68.45      54.66
+   + MedCPT (Jin et al., 2023)          62.35     70.54           44.90       42.80        70.06      58.13
+   + MedRAG (Xiong et al., 2024)        74.29     83.19           50.87       44.20        72.65      65.04
+   + i-MedRAG (Xiong et al., 2025)      65.47     77.69           46.78       51.20        77.99      63.83
+   + SEMA-RAG (Ours)                    80.99     90.42           71.60       59.20        88.19      78.08
+ glm-4.0-flash (GLM et al., 2024)
+   + CoT (Wei et al., 2022)             68.14     50.43           48.22       40.00        58.90      53.14
+   + MedCPT (Jin et al., 2023)          73.00     58.21           50.63       42.20        60.84      56.98
+   + MedRAG (Xiong et al., 2024)        77.59     60.88           52.59       46.80        62.78      60.13
+   + i-MedRAG (Xiong et al., 2025)      73.28     53.57           51.47       48.40        64.72      58.29
+   + SEMA-RAG (Ours)                    76.68     63.79           54.34       51.20        72.98      63.80
+
+Table 1: Accuracy (%) comparison of SEMA-RAG and baselines on five medical QA benchmarks across different
+LLMs. Bold indicates the best result within each model block and underline indicates the second-best.
+
+
+4.1.2   Models and Baselines                              dence.
+To assess SEMA-RAG’s robustness across back-
+                                                          4.1.3    Implementation Details
+bones, we instantiate the framework on five pub-
+licly accessible LLMs: deepseek-v3.1 (DeepSeek-           Following i-MedRAG (Xiong et al., 2025) and
+AI et al., 2025), kimi-k2 (Team et al., 2025b),           MedRAG (Xiong et al., 2024), we retrieve from
+qwen3-coder-plus (Yang et al., 2025), gemini-2.0-         Textbooks (Jin et al., 2021) and StatPearls (Stat-
+flash (Google, 2025), and glm-4.0-flash (GLM              Pearls Publishing, 2025) on all benchmarks. We
+et al., 2024). These models originate from different      use MedCPT (Jin et al., 2023) as the dense retriever
+providers, encompass diverse pretraining configu-         and perform FAISS-based retrieval over these cor-
+rations and capability focuses.                           pora.
+   We selected three representative methods for              All methods are evaluated in a zero-shot setting.
+comparison to characterize performance differ-            Unless stated otherwise, SEMA-RAG uses Tmax =
+ences across no retrieval, single-round retrieval,        2, k = 16, and m = 3. We set temperature to 1.0
+and iterative retrieval. The no-retrieval setting em-     for I/E-Agent and 0.0 for A-Agent. Other baselines
+ploys CoT (Wei et al., 2022), relying solely on           follow their official settings.
+model-internal knowledge for chain-of-reasoning.
+The single-round retrieval setting employs Med-           4.2     Main Results: Consistent and Significant
+CPT (Jin et al., 2023) as the medical domain re-                  Improvements
+triever, further contrasting it with MedRAG (Xiong        Table 1 reports results on five medical QA bench-
+et al., 2024)’s retrieval-fusion framework. The iter-     marks across five underlying LLMs. Overall,
+ative retrieval setting utilizes i-MedRAG (Xiong          SEMA-RAG achieves the best average accuracy
+et al., 2025), which generates subsequent queries         within every model block, indicating that the im-
+to drive multi-round retrieval and accumulate evi-        provement is backbone-agnostic rather than tied to
+a particular LLM.                                           As shown in Table 4 (Step 1), I-Agent makes
+   A consistent pattern is that the gains are larger     hospital day 7 retrieval-actionable, anchoring ev-
+on benchmarks where premature commitment un-             idence in the late-onset inpatient context and en-
+der incomplete evidence is costly. This matches          abling option-level discrimination for S. aureus. By
+SEMA-RAG’s self-evolving exploration: it checks          extracting a structured clinical schema and making
+evidence sufficiency, performs targeted follow-up        such key conditions retrievable, I-Agent keeps re-
+retrieval when needed, and only then moves to adju-      trieval aligned with the intended clinical scenario
+dication, leading to more reliable evidence chains.      and provides a cleaner substrate for subsequent
+   Overall, this consistent and substantial advan-       exploration and adjudication.
+tage is not accidental. It directly stems from SEMA-
+RAG’s successful simulation of expert clinical rea-      4.3.2                Achieving Dynamic Reasoning with
+soning by decoupling interpretation, exploration,                             E-Agent
+and adjudication, thereby alleviating the cogni-         Table 2 shows that removing E-Agent causes the
+tive overload bottleneck diagnosed in the Introduc-      largest performance drop, highlighting that the core
+tion. To unpack the source of these gains, we next       gain comes from a self-evolving, sufficiency-driven
+present a core component analysis.                       closed-loop retrieval rather than static retrieval.
+                                                         Without E-Agent, the system loses explicit suffi-
+4.3     Core Component Analysis                          ciency feedback and is more prone to stop with
+In this section, we quantitatively evaluate the con-     partially covered evidence, leaving key constraints
+tributions of the three roles in SEMA-RAG via            unresolved.
+role-wise removal analysis. Specifically, we com-           To configure this loop, we vary the maximum
+pare the full framework with three variants: (i)         exploration depth Tmax with m = 3. Figure 3 sug-
+w/o I-Agent, which removes the question inter-           gests that most of the benefit is captured within
+pretation module and directly uses the raw ques-         two rounds, with performance peaking around
+tion as the initial retrieval query; (ii) w/o E-Agent,   Tmax ∈ {2, 3}; beyond that, deeper exploration
+which removes the self-evolving retrieval mecha-         saturates and can introduce noise. Notably, the
+nism and performs only a single round of static          two-round setting already outperforms our repro-
+retrieval based on the linearized schema query gen-      duced i-MedRAG baseline (which uses three fixed
+erated by I-Agent; and (iii) w/o A-Agent, which          retrieval rounds), suggesting that the gain comes
+removes the answer adjudication module and di-           from self-evolving, sufficiency-driven closed-loop
+rectly generates answers from the final evidence         exploration rather than simply increasing the num-
+set. The results are summarized in Table 2.              ber of iterations.
+I-Agent E-Agent A-Agent MedQA-US PubMedQA*                                    91
+   ✗       ✓       ✓      85.47     54.20                                                        90.10
+                                                                                         89.95            89.87
+   ✓       ✗       ✓      83.58     50.80                                     90
+   ✓       ✓       ✗
+
+
+                                                               Accuracy (%)
+                          86.49     53.60
+   ✓       ✓       ✓      89.95     59.20                                     89                                   88.45
+
+
+
+Table 2: Role-wise removal results of SEMA-RAG on                             88                                           87.67
+
+
+MedQA-US and PubMedQA* (deepseek-v3.1).
+                                                                              87 86.57
+                                                                                                            SEMA-RAG (m = 3)
+4.3.1    Resolving Ambiguous Queries with                                     86
+                                                                                   1      2       3        5        7          9
+         I-Agent
+                                                                                                 Max Iterations (Tmax )
+Table 2 shows that removing the I-Agent con-
+sistently degrades performance, indicating that          Figure 3: Impact of max iterations Tmax (fix m = 3) on
+question-to-query translation benefits from clini-       MedQA-US (deepseek-v3.1).
+cally grounded semantic interpretation. Without
+this step, queries often remain underspecified and       4.4         Further Analysis
+fail to surface implicit constraints, which increases
+the chance that retrieval drifts toward generic,         4.4.1 Synergy of the Multi-Agent Architecture
+symptom-level evidence rather than the decision-         Table 2 shows that the full SEMA-RAG consis-
+critical clinical setting.                               tently performs best across both MedQA-US and
+       Variant               MedQA-US (%)              hospital-acquired spectra and performs targeted
+                                                       follow-up retrieval, and the A-Agent consolidates
+       SEMA-m1 (m = 1)            86.72
+       SEMA-m2 (m = 2)            89.00                the resulting evidence and maps it to the candidate
+       SEMA-m3 (m = 3)            89.95                set, yielding the correct choice Staphylococcus au-
+                                                       reus (Option D). Overall, the case shows how task
+Table 3: Effect of query breadth m (fix Tmax = 2) on   decoupling with sufficiency-driven self-evolving
+MedQA-US (deepseek-v3.1).                              retrieval helps form a more reliable evidence chain
+                                                       and prevents premature decisions under insufficient
+PubMedQA*. Ablating any single agent leads to a        evidence.
+clear drop, suggesting that the gains do not come
+                                                       4.6    Cost and Efficiency Analysis
+from one isolated module but from role-specialized
+collaboration that mirrors the staged clinical work-   Table 5 compares methods in terms of both accu-
+flow: I-Agent anchors clinically grounded interpre-    racy and inference cost. Calls denotes the num-
+tation, E-Agent drives sufficiency-driven evidence     ber of LLM invocations per question, while Retr.
+completion, and A-Agent consolidates and adjudi-       counts the number of vector retrieval operations;
+cates evidence for option selection.                   Time reports the average end-to-end latency per
+                                                       question; Tok./Q denotes the average total token
+4.4.2 Impact of Query Breadth                          consumption per question. Because SEMA-RAG
+Building on the depth analysis in Figure 3, we         employs sufficiency-driven early stopping, we re-
+examine how the per-round query breadth m af-          port per-question averages over the MedQA-US
+fects E-Agent’s exploration. With Tmax = 2 fixed,      set.
+Table 3 shows a clear monotonic trend: increas-
+ing m improves accuracy, but the gains quickly             Method     Calls   Retr.   Time    Acc.    Tok./Q
+taper. This suggests that expanding the query set                       (#)    (#)      (s)    (%)        (#)
+helps cover complementary evidence gaps in early           CoT          1.0     0.0     2.5   77.53     713.7
+                                                           MedRAG       1.0     1.0     3.2   77.14    2264.9
+exploration, while additional branches beyond a            i-MedRAG     3.0     9.0     8.8   74.78   21516.6
+moderate breadth tend to introduce overlapping or          SEMA-RAG     4.8     3.4     9.5   89.95   19488.4
+low-yield retrievals. We therefore use Tmax = 2
+and m = 3 as the default setting in subsequent         Table 5: Efficiency comparison on MedQA-US
+experiments, balancing coverage and efficiency.        (deepseek-v3.1).
+
+4.5   Qualitative Case Study: A Head-to-Head              The results reveal three main patterns. First,
+      Comparison                                       SEMA-RAG consistently improves decision qual-
+Table 4 shows a representative MedQA-US case           ity over single-round baselines. Second, these gains
+comparing MedRAG and SEMA-RAG, where the               come with a moderate overhead relative to single-
+decisive cue is the temporal constraint (hospital      pass methods, as expected from multi-agent, multi-
+day 7), pointing to a hospital-acquired rather than    round inference. Third, compared with the iterative
+community-acquired etiology.                           baseline i-MedRAG, SEMA-RAG achieves a more
+   In the Baseline block, MedRAG relies on a sin-      favorable accuracy–efficiency trade-off, indicating
+gle round of static retrieval. Its evidence remains    that sufficiency-driven early stopping allocates ad-
+centered on generic pneumonia cues and aspiration      ditional computation more effectively than fixed-
+risk, without explicitly anchoring retrieval to the    step iteration. Taken together, these results suggest
+hospital day 7 condition. This shifts the evidence     that SEMA-RAG improves decision quality in a
+toward typical community-acquired pathogens and        practically affordable regime, making the added
+leads to an incorrect selection of Streptococcus       overhead worthwhile for high-stakes medical QA.
+pneumoniae (Option A), which mismatches the in-
+patient, late-onset setting in the question.           5     Related Work
+   In contrast, SEMA-RAG makes the temporal con-
+straint retrieval-actionable and carries it through    5.1    Retrieval-Augmented Medical Reasoning
+to option selection. The I-Agent surfaces hospi-       Early medical LLMs systems largely depended
+tal day 7 as a key constraint, the E-Agent detects     on parametric knowledge or single-round retrieval
+the missing distinction between community- and         (Luo et al., 2022; Singhal et al., 2023). Methods
+                                                 MedQA-US Question 0024
+ Context: A 62-year-old patient has been hospitalized for a week due to a stroke. On hospital day 7, he develops a fever
+ (38.4°C) and purulent cough. Vitals: HR 88, RR 20, BP 110/85. Physical exam: right basal crackles. Chest X-ray: new
+ right-sided consolidation.
+ Labs (Selected): WBC 8,900/mm³ (Neutrophils 72%, Bands 4%), Hb 16 g/dL, Platelets 280,000/mm³.
+ Question: What is the most likely causal microorganism?
+ A. Streptococcus pneumoniae B. Mycobacterium tuberculosis C. Haemophilus influenzae D. Staphylococcus aureus
+                                                  BASELINE : M ED RAG
+ Retrieved Evidence:
+ "Community-acquired pneumonia (CAP) is most frequently caused by Streptococcus pneumoniae..." ; "Stroke patients are at
+ risk for aspiration pneumonia..."
+ Analysis & Answer:
+ The patient presents with typical signs of pneumonia. Given that S. pneumoniae is the most common cause, it is the likely
+ pathogen...
+ Prediction: A ✗
+                                                     O URS : SEMA-RAG
+ 1. I-Agent (Interpretation)
+ Structured Schema:
+ Clinical Intent: Infectious etiology & pathogen identification
+ Medical Entities: stroke; HAP/aspiration pneumonia; right-basal crackles; new right consolidation; fever + purulent cough
+ Clinical Constraints: 62y; hospital day 7 ; post-stroke aspiration risk; neutrophil predominance
+ Initial Query: "hospital day 7 post-stroke pneumonia right consolidation most likely causative organism"
+ 2. E-Agent (Exploration)
+ Iteration 1:
+    Evidence: "...Post-stroke patients have high risk of aspiration... pneumonia causes include anaerobes and streptococci..."
+    Gap: Evidence does not distinguish pathogens based on hospitalization duration (day 7).
+    Sufficiency: s1 = 0 (Insufficient) → Next Query: "most likely pathogen hospital-acquired pneumonia vs
+ community-acquired"
+ Iteration 2:
+    Evidence: "...Hospital-acquired pneumonia (HAP) is defined as pneumonia ≥ 48h after admission..."
+    Key Find: "For late-onset HAP (≥ 5 days), common pathogens include Staphylococcus aureus (MRSA) and
+ Pseudomonas..."
+    Sufficiency: s2 = 1 (Sufficient)
+ 3. A-Agent (Adjudication)
+ Report: ... Hospital day 7 indicates HAP rather than CAP under standard definitions; combined with the candidate set, the
+ evidence most consistently supports S. aureus. Among the provided options, S. aureus is the only matching HAP pathogen.
+ Prediction: D ✓
+
+Table 4: A case of how SEMA-RAG helps deepseek-v3.1 find the correct answer on MedQA-US (Question 0024) by
+making the key clinical constraint explicit and retrieving decision-critical evidence, while MedRAG’s single-round
+retrieval leads to a misleading rationale.
+
+
+such as MedRAG (Xiong et al., 2024) and Med-                      yielding inefficient retrieval, drift, and uncontrolled
+CPT (Jin et al., 2023) improve domain retrieval                   expansion (Zhao et al., 2024; Zhu et al., 2026).
+with medical dual encoders and RAG pipelines,
+yet still follow a retrieve-once-then-answer pattern,             5.2    Agentic Collaboration in Medicine
+which often falls short on questions requiring multi-             Multi-agent systems enhance complex-task solving
+hop evidence integration and clinically constrained               through role specialization and coordination (Guo
+reasoning (Jiang et al., 2023; Trivedi et al., 2023).             et al., 2024; Zong et al., 2024; Tran et al., 2025)
+   Recent work has shifted from one-shot retrieval                (e.g., CAMEL (Li et al., 2023), MetaGPT (Hong
+to iterative RAG (Gao et al., 2024; Zhao et al.,                  et al., 2024)). ReAct (Yao et al., 2023) further
+2024). In general domains, Self-RAG (Asai et al.,                 couples reasoning with tool use, allowing agents
+2023) and CRAG (Yan et al., 2024) use self-                       to act and retrieve information during inference.
+reflection to trigger re-retrieval, while in healthcare           In healthcare, MedAgents (Tang et al., 2024) and
+i-MedRAG (Xiong et al., 2025) iteratively refines                 Agent-Hospital (Li et al., 2025) similarly show that
+queries via follow-up questions. However, with-                   multi-role clinical collaboration improves diagno-
+out explicit clinical intent and constraints model-               sis and decision quality.
+ing, iterations may devolve into shallow rewrites,                   However, prior healthcare multi-agent work
+largely centers on deliberation under the assump-        higher than single-round methods. The current
+tion that key evidence is already in-context, leav-      design also lacks explicit relevance filtering dur-
+ing evidence acquisition unsystematic (Chen et al.,      ing evidence accumulation, making performance
+2025; Gorenshtein et al., 2025; Wang et al., 2025).      sensitive to stopping criteria and exploration hyper-
+In particular, gap identification, sufficiency-driven    parameters.
+termination, and evidence adjudication/integration
+are often missing, weakening reliable external ev-
+idence grounding and closed evidence-chain for-          References
+mation in real clinical tasks (Li, 2025; Amugongo        Lameck Mbangula Amugongo, Pietro Mascheroni,
+et al., 2025).                                             Steven Brooks, Stefan Doering, and Jan Seidel. 2025.
+                                                           Retrieval augmented generation for large language
+                                                           models in healthcare: A systematic review. PLOS
+6   Conclusion                                             Digital Health, 4(6):e0000877.
+We propose SEMA-RAG, a self-evolving multi-              Rahul K. Arora, Jason Wei, Rebecca Soskin Hicks, Pre-
+agent framework for medical question answering             ston Bowman, Joaquin Quiñonero-Candela, Foivos
+that restructures retrieval-augmented generation ac-       Tsimpourlas, Michael Sharman, Meghan Shah, An-
+cording to the staged process of clinical reasoning,       drea Vallone, Alex Beutel, Johannes Heidecke, and
+                                                           Karan Singhal. 2025. HealthBench: Evaluating
+with the I-Agent for clinical schema interpretation,       Large Language Models Towards Improved Human
+the E-Agent for sufficiency-driven evidence explo-         Health. arXiv preprint. ArXiv:2505.08775 [cs].
+ration, and the A-Agent for evidence adjudication
+and final answer selection. Across five medical          Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and
+                                                           Hannaneh Hajishirzi. 2023. Self-RAG: Learning
+QA benchmarks and five LLM backbones, SEMA-                to Retrieve, Generate, and Critique through Self-
+RAG consistently outperforms strong baselines,             Reflection. arXiv preprint. ArXiv:2310.11511 [cs].
+improving the strongest baseline by an average of
++6.46 accuracy points, while ablations verify the ne-    Xiaolan Chen, Jiayang Xiang, Shanfu Lu, Yexin Liu,
+                                                           Mingguang He, and Danli Shi. 2025. Evaluating
+cessity of the interpret–explore–adjudicate loop for       large language models and agents in healthcare:
+reliable evidence-chain construction. Additional           key challenges in clinical applications. Intelligent
+experiments further support its robustness across          Medicine, 5(2):151–163.
+retrievers, smaller models, and more open-ended          DeepSeek-AI, Aixin Liu, Bei Feng, Bing Xue, Bingx-
+interactive settings. These findings suggest that          uan Wang, Bochao Wu, Chengda Lu, Chenggang
+medical RAG should move beyond static single-              Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan,
+round retrieval toward more adaptive and reliable          Damai Dai, Daya Guo, Dejian Yang, Deli Chen,
+                                                           Dongjie Ji, Erhang Li, Fangyun Lin, Fucong Dai,
+evidence construction.
+                                                           and 181 others. 2025. DeepSeek-V3 Technical Re-
+                                                           port. arXiv preprint. ArXiv:2412.19437 [cs].
+Limitations
+                                                         Huan-ang Gao, Jiayi Geng, Wenyue Hua, Mengkang
+Although we extend the evaluation beyond discrete-         Hu, Xinzhe Juan, Hongzhang Liu, Shilong Liu, Ji-
+choice medical QA with additional open-ended and           ahao Qiu, Xuan Qi, Yiran Wu, Hongru Wang, Han
+multi-turn benchmarks, the current study is still          Xiao, Yuhang Zhou, Shaokun Zhang, Jiayi Zhang,
+                                                           Jinyu Xiang, Yixiong Fang, Qiwen Zhao, Dongrui
+limited to benchmark-based settings rather than re-        Liu, and 8 others. 2026. A Survey of Self-Evolving
+alistic clinical workflows such as longitudinal EHR        Agents: What, When, How, and Where to Evolve
+reasoning or record-grounded decision support.             on the Path to Artificial Super Intelligence. arXiv
+   Our framework also depends on the quality and           preprint. ArXiv:2507.21046 [cs].
+coverage of the retrieval corpus. If critical evidence   Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia,
+is missing, outdated, or only partially retrieved, the     Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, Meng Wang,
+self-evolving loop may still converge to incomplete        and Haofen Wang. 2024. Retrieval-Augmented Gen-
+grounding. In addition, the current sufficiency cri-       eration for Large Language Models: A Survey. arXiv
+                                                           preprint. ArXiv:2312.10997 [cs].
+terion is not explicitly designed for option-level
+separability or generative completeness.                 Team GLM, Aohan Zeng, Bin Xu, Bowen Wang, Chen-
+   Finally, SEMA-RAG introduces additional infer-          hui Zhang, Da Yin, Dan Zhang, Diego Rojas, Guanyu
+                                                           Feng, Hanlin Zhao, Hanyu Lai, Hao Yu, Hongning
+ence cost due to role specialization and multi-round       Wang, Jiadai Sun, Jiajie Zhang, Jiale Cheng, Jiayi
+exploration. Although this overhead is more effi-          Gui, Jie Tang, Jing Zhang, and 39 others. 2024. Chat-
+cient than fixed-step iterative baselines, it remains      GLM: A Family of Large Language Models from
+  GLM-130B to GLM-4 All Tools. arXiv preprint.             Anastasia Krithara, Anastasios Nentidis, Konstantinos
+  ArXiv:2406.12793 [cs].                                     Bougiatiotis, and Georgios Paliouras. 2023. BioASQ-
+                                                             QA: A manually curated corpus for Biomedical Ques-
+Linlu Gong, Ante Wang, Yunghwei Lai, Weizhi Ma,              tion Answering. Scientific Data, 10(1):170.
+  and Yang Liu. 2025. The Dialogue That Heals: A
+  Comprehensive Evaluation of Doctor Agents’ Inquiry       Tiffany H. Kung, Morgan Cheatham, Arielle Medenilla,
+  Capability. arXiv preprint. ArXiv:2509.24958 [cs].          Czarina Sillos, Lorie De Leon, Camille Elepaño,
+                                                              Maria Madriaga, Rimel Aggabao, Giezel Diaz-
+Google. 2025. Gemini 2.0 flash: Model card. Accessed          Candido, James Maningo, and Victor Tseng. 2023.
+  2025-12-28.                                                 Performance of ChatGPT on USMLE: Potential for
+                                                              AI-assisted medical education using large language
+Alon Gorenshtein, Mahmud Omar, Benjamin S Glicks-             models. PLOS Digital Health, 2(2):e0000198.
+  berg, Girish N Nadkarni, and Eyal Klang. 2025. AI
+  Agents in Clinical Medicine: A Systematic Review.        Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+                                                             Petroni, Vladimir Karpukhin, Naman Goyal, Hein-
+Taicheng Guo, Xiuying Chen, Yaqi Wang, Ruidi Chang,          rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-
+   Shichao Pei, Nitesh V. Chawla, Olaf Wiest, and Xi-        täschel, Sebastian Riedel, and Douwe Kiela. 2020.
+   angliang Zhang. 2024. Large language model based          Retrieval-augmented generation for knowledge-
+   multi-agents: a survey of progress and challenges. In     intensive nlp tasks. In Proceedings of the 34th Inter-
+  Proceedings of the Thirty-Third International Joint        national Conference on Neural Information Process-
+  Conference on Artificial Intelligence, IJCAI ’24.          ing Systems, NIPS ’20, Red Hook, NY, USA. Curran
+                                                             Associates Inc.
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou,
+  Mantas Mazeika, Dawn Song, and Jacob Steinhardt.         Guohao Li, Hasan Hammoud, Hani Itani, Dmitrii
+  2021. Measuring Massive Multitask Language Un-             Khizbullin, and Bernard Ghanem. 2023. CAMEL:
+  derstanding. arXiv preprint. ArXiv:2009.03300 [cs].        Communicative Agents for "Mind" Exploration of
+                                                             Large Language Model Society. In Advances in
+Sirui Hong, Mingchen Zhuge, Jiaqi Chen, Xiawu Zheng,         Neural Information Processing Systems, volume 36,
+   Yuheng Cheng, Ceyao Zhang, Jinlin Wang, Zili              pages 51991–52008. Curran Associates, Inc.
+   Wang, Steven Ka Shing Yau, Zijuan Lin, Liyang
+   Zhou, Chenyu Ran, Lingfeng Xiao, Chenglin Wu,           Junkai Li, Yunghwei Lai, Weitao Li, Jingyi Ren, Meng
+   and Jürgen Schmidhuber. 2024. MetaGPT: Meta Pro-          Zhang, Xinhui Kang, Siyu Wang, Peng Li, Ya-Qin
+   gramming for A Multi-Agent Collaborative Frame-           Zhang, Weizhi Ma, and Yang Liu. 2025. Agent Hos-
+   work. arXiv preprint. ArXiv:2308.00352 [cs].              pital: A Simulacrum of Hospital with Evolvable Med-
+                                                             ical Agents. arXiv preprint. ArXiv:2405.02957 [cs].
+Zhengbao Jiang, Frank Xu, Luyu Gao, Zhiqing Sun,
+  Qian Liu, Jane Dwivedi-Yu, Yiming Yang, Jamie            Xinzhe Li. 2025. A review of prominent paradigms
+  Callan, and Graham Neubig. 2023. Active retrieval          for LLM-based agents: Tool use, planning (includ-
+  augmented generation. In Proceedings of the 2023           ing RAG), and feedback learning. In Proceedings of
+  Conference on Empirical Methods in Natural Lan-            the 31st International Conference on Computational
+  guage Processing, pages 7969–7992, Singapore. As-          Linguistics, pages 9760–9779, Abu Dhabi, UAE. As-
+  sociation for Computational Linguistics.                   sociation for Computational Linguistics.
+Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng,       Andrew Linn, Carole Khaw, Hugh Kildea, and Anne
+  Hanyi Fang, and Peter Szolovits. 2020. What Disease        Tonkin. 2012. Clinical reasoning: A guide to im-
+  does this Patient Have? A Large-scale Open Domain          proving teaching and practice. Australian Family
+  Question Answering Dataset from Medical Exams.             Physician, 41(1-2):18–20. January/February issue.
+  arXiv preprint. ArXiv:2009.13081 [cs].
+                                                           Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paran-
+Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng,         jape, Michele Bevilacqua, Fabio Petroni, and Percy
+  Hanyi Fang, and Peter Szolovits. 2021. What disease        Liang. 2024. Lost in the middle: How language mod-
+  does this patient have? a large-scale open domain          els use long contexts. Transactions of the Association
+  question answering dataset from medical exams. Ap-         for Computational Linguistics, 12:157–173.
+  plied Sciences, 11(14).
+                                                           Renqian Luo, Liai Sun, Yingce Xia, Tao Qin, Sheng
+Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William W.          Zhang, Hoifung Poon, and Tie-Yan Liu. 2022.
+  Cohen, and Xinghua Lu. 2019. PubMedQA: A                   BioGPT: Generative Pre-trained Transformer for
+  Dataset for Biomedical Research Question Answer-           Biomedical Text Generation and Mining. Briefings in
+  ing. arXiv preprint. ArXiv:1909.06146 [cs].                Bioinformatics, 23(6):bbac409. ArXiv:2210.10341
+                                                             [cs].
+Qiao Jin, Won Kim, Qingyu Chen, Donald C Comeau,
+  Lana Yeganova, W John Wilbur, and Zhiyong Lu.            Alex Mallen, Akari Asai, Victor Zhong, Rajarshi Das,
+  2023. MedCPT: Contrastive Pre-trained Transform-           Daniel Khashabi, and Hannaneh Hajishirzi. 2023.
+  ers with large-scale PubMed search logs for zero-          When not to trust language models: Investigating
+  shot biomedical information retrieval. Bioinformat-        effectiveness of parametric and non-parametric mem-
+  ics, 39(11):btad651.                                       ories. In Proceedings of the 61st Annual Meeting of
+  the Association for Computational Linguistics (Vol-       Cideron, Jean-bastien Grill, Sabela Ramos, Edouard
+  ume 1: Long Papers), pages 9802–9822, Toronto,            Yvinec, Michelle Casbon, Etienne Pot, Ivo Penchev,
+  Canada. Association for Computational Linguistics.        and 197 others. 2025a. Gemma 3 Technical Report.
+                                                            arXiv preprint. ArXiv:2503.19786 [cs].
+Mahmud Omar, Girish N. Nadkarni, Eyal Klang, and
+ Benjamin S. Glicksberg. 2024. Large language mod-        Kimi Team, Yifan Bai, Yiping Bao, Guanduo Chen, Jia-
+ els in medicine: A review of current clinical trials       hao Chen, Ningxin Chen, Ruijue Chen, Yanru Chen,
+ across healthcare applications. PLOS Digital Health,       Yuankun Chen, Yutian Chen, Zhuofu Chen, Jialei
+ 3(11):e0000662.                                            Cui, Hao Ding, Mengnan Dong, Angang Du, Chen-
+                                                            zhuang Du, Dikang Du, Yulun Du, Yu Fan, and 150
+Jesutofunmi A. Omiye, Haiwen Gui, Shawheen J.               others. 2025b. Kimi K2: Open Agentic Intelligence.
+   Rezaei, James Zou, and Roxana Daneshjou. 2024.           arXiv preprint. ArXiv:2507.20534 [cs].
+   Large Language Models in Medicine: The Potentials
+   and Pitfalls: A Narrative Review. Annals of Internal   Khanh-Tung Tran, Dung Dao, Minh-Duong Nguyen,
+   Medicine, 177(2):210–220.                                Quoc-Viet Pham, Barry O’Sullivan, and Hoang D.
+Ankit Pal, Logesh Kumar Umapathi, and Malaikan-             Nguyen. 2025. Multi-Agent Collaboration Mech-
+  nan Sankarasubbu. 2022. MedMCQA : A Large-                anisms: A Survey of LLMs. arXiv preprint.
+  scale Multi-Subject Multi-Choice Dataset for Med-         ArXiv:2501.06322 [cs].
+  ical domain Question Answering. arXiv preprint.
+  ArXiv:2203.14371 [cs].                                  Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot,
+                                                            and Ashish Sabharwal. 2023. Interleaving retrieval
+Dimitri Roustan and François Bastardot. 2025. The           with chain-of-thought reasoning for knowledge-
+  Clinicians’ Guide to Large Language Models: A             intensive multi-step questions. In Proceedings of
+  General Perspective With a Focus on Hallucinations.       the 61st Annual Meeting of the Association for Com-
+  Interactive Journal of Medical Research, 14:e59823.       putational Linguistics (Volume 1: Long Papers),
+                                                            pages 10014–10037, Toronto, Canada. Association
+Freda Shi, Xinyun Chen, Kanishka Misra, Nathan              for Computational Linguistics.
+  Scales, David Dohan, Ed Chi, Nathanael Schärli, and
+  Denny Zhou. 2023. Large language models can be          George Tsatsaronis, Georgios Balikas, Prodromos
+  easily distracted by irrelevant context. In Proceed-      Malakasiotis, Ioannis Partalas, Matthias Zschunke,
+  ings of the 40th International Conference on Machine      Michael R Alvers, Dirk Weissenborn, Anastasia
+  Learning, ICML’23. JMLR.org.                              Krithara, Sergios Petridis, Dimitris Polychronopou-
+                                                            los, Yannis Almirantis, John Pavlopoulos, Nico-
+Karan Singhal, Shekoofeh Azizi, Tao Tu, S. Sara             las Baskiotis, Patrick Gallinari, Thierry Artiéres,
+  Mahdavi, Jason Wei, Hyung Won Chung, Nathan               Axel-Cyrille Ngonga Ngomo, Norman Heino, Eric
+  Scales, Ajay Tanwani, Heather Cole-Lewis, Stephen         Gaussier, Liliana Barrio-Alvers, and 3 others. 2015.
+  Pfohl, Perry Payne, Martin Seneviratne, Paul Gam-         An overview of the BIOASQ large-scale biomedical
+  ble, Chris Kelly, Abubakr Babiker, Nathanael Schärli,     semantic indexing and question answering competi-
+  Aakanksha Chowdhery, Philip Mansfield, Dina               tion. BMC Bioinformatics, 16(1):138.
+  Demner-Fushman, and 13 others. 2023. Large lan-
+  guage models encode clinical knowledge. Nature,         Lei Wang, Wanyu Xu, Yihuai Lan, Zhiqiang Hu, Yunshi
+  620(7972):172–180.                                        Lan, Roy Ka-Wei Lee, and Ee-Peng Lim. 2023. Plan-
+                                                            and-solve prompting: Improving zero-shot chain-of-
+Luca Soldaini, Andrew Yates, and Nazli Goharian.            thought reasoning by large language models. In Pro-
+  2017. Learning to reformulate long queries for clin-      ceedings of the 61st Annual Meeting of the Associa-
+  ical decision support. J. Assoc. Inf. Sci. Technol.,      tion for Computational Linguistics (Volume 1: Long
+  68(11):2602–2619.                                         Papers), pages 2609–2634, Toronto, Canada. Associ-
+StatPearls Publishing. 2025. Statpearls [internet].         ation for Computational Linguistics.
+   NCBI Bookshelf. NCBI Bookshelf ID: NBK430685.
+  Accessed 2026-01-04.                                    Wenxuan Wang, Zizhan Ma, Zheng Wang, Chenghan
+                                                           Wu, Jiaming Ji, Wenting Chen, Xiang Li, and Yix-
+Xiangru Tang, Anni Zou, Zhuosheng Zhang, Ziming            uan Yuan. 2025. A survey of LLM-based agents
+  Li, Yilun Zhao, Xingyao Zhang, Arman Cohan, and          in medicine: How far are we from baymax? In
+  Mark Gerstein. 2024. MedAgents: Large language           Findings of the Association for Computational Lin-
+  models as collaborators for zero-shot medical rea-       guistics: ACL 2025, pages 10345–10359, Vienna,
+  soning. In Findings of the Association for Com-          Austria. Association for Computational Linguistics.
+  putational Linguistics: ACL 2024, pages 599–621,
+  Bangkok, Thailand. Association for Computational        Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+  Linguistics.                                               Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V. Le,
+                                                             and Denny Zhou. 2022. Chain-of-thought prompt-
+Gemma Team, Aishwarya Kamath, Johan Ferret, Shreya           ing elicits reasoning in large language models. In
+  Pathak, Nino Vieillard, Ramona Merhej, Sarah Perrin,       Proceedings of the 36th International Conference on
+  Tatiana Matejovicova, Alexandre Ramé, Morgane              Neural Information Processing Systems, NIPS ’22,
+  Rivière, Louis Rouillard, Thomas Mesnard, Geoffrey         Red Hook, NY, USA. Curran Associates Inc.
+Guangzhi Xiong, Qiao Jin, Zhiyong Lu, and Aidong         Appendix
+  Zhang. 2024. Benchmarking retrieval-augmented
+  generation for medicine. In Findings of the Asso-
+  ciation for Computational Linguistics: ACL 2024,       A     Algorithm Pseudocode
+  pages 6233–6251, Bangkok, Thailand. Association
+  for Computational Linguistics.                         Algorithm 1 formally describes the inference flow
+                                                         of SEMA-RAG, highlighting the interaction be-
+Guangzhi Xiong, Qiao Jin, Xiao Wang, Minjia Zhang,       tween agents.
+  Zhiyong Lu, and Aidong Zhang. 2025. Improving
+  Retrieval-Augmented Generation in Medicine with        Algorithm 1 Inference Process of SEMA-RAG
+  Iterative Follow-up Questions. Pacific Symposium on
+  Biocomputing. Pacific Symposium on Biocomputing,       Require: Question Q, corpus C, max iterations
+  30:199–214.                                                Tmax
+                                                         Ensure: Final answer ỹ
+Shi-Qi Yan, Jia-Chen Gu, Yun Zhu, and Zhen-Hua Ling.
+  2024. Corrective Retrieval Augmented Generation.        1: Stage 1: I-Agent
+  arXiv preprint. ArXiv:2401.15884 [cs].                  2: Q′          =         ⟨oint , oent , ocons , qinit ⟩ ←
+                                                             AgentI (P mtI , Q)
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,          3: q̂init ← Linearize(Q′ )
+  Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao,
+                                                          4: C0 ← ∅
+  Chengen Huang, Chenxu Lv, Chujie Zheng, Dayi-
+  heng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge,         5: Q1 ← {q̂init }
+  Haoran Wei, Huan Lin, Jialong Tang, and 41 oth-         6: Stage 2: E-Agent
+  ers. 2025. Qwen3 Technical Report. arXiv preprint.      7: for t = 1 to Tmax do
+  ArXiv:2505.09388 [cs].                                                   S
+                                                          8:     Dt ← q∈Qt TopK(q)
+Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak          9:     Ct ← Dedup(Ct−1 ∪ Dt )
+  Shafran, Karthik Narasimhan, and Yuan Cao. 2023.       10:     [st , gt , Qt+1 ]                                ←
+  ReAct: Synergizing Reasoning and Acting in Lan-                AgentE (P mtE , [Q′ , Qt , Ct ])
+  guage Models. arXiv preprint. ArXiv:2210.03629
+                                                         11:     if st = 1 then
+  [cs].
+                                                         12:        break
+Shahram Yazdani, Mohammad Hosseinzadeh, and              13:     end if
+  Fakhrolsadat Hosseini. 2017. Models of clinical rea-   14:     if Qt+1 = ∅ then
+  soning with a focus on general practice: A critical    15:        break
+  review. Journal of Advances in Medical Education
+  & Professionalism, 5(4):177–184.                       16:     end if
+                                                         17: end for
+Yanzhao Zhang, Mingxin Li, Dingkun Long, Xin Zhang,      18: T ← t
+  Huan Lin, Baosong Yang, Pengjun Xie, An Yang,          19: C ∗ ← Ct
+  Dayiheng Liu, Junyang Lin, Fei Huang, and Jingren
+                                                         20: Stage 3: A-Agent
+  Zhou. 2025. Qwen3 Embedding: Advancing Text
+  Embedding and Reranking Through Foundation Mod-        21: S ∗ ← {(ID(Di ), Di ) | Di ∈ C ∗ }
+  els. arXiv preprint. ArXiv:2506.05176 [cs].            22: R ← AgentA (P mtadj , [Q, C ∗ , S ∗ ])
+                                                         23: ỹ ← AgentA (P mtans , [Q, R])
+Siyun Zhao, Yuqing Yang, Zilong Wang, Zhiyuan He,
+                                                         24: return ỹ
+  Luna K. Qiu, and Lili Qiu. 2024. Retrieval Aug-
+  mented Generation (RAG) and Beyond: A Com-
+  prehensive Survey on How to Make your LLMs
+  use External Data More Wisely. arXiv preprint.         B     Dataset Details
+  ArXiv:2409.14924 [cs].
+                                                         We evaluate SEMA-RAG on five standard medi-
+Yutao Zhu, Huaying Yuan, Shuting Wang, Jiongnan          cal question-answering benchmarks from the MI-
+  Liu, Wenhan Liu, Chenlong Deng, Haonan Chen,           RAGE suite: MMLU-Med, MedQA-US, MedM-
+  Zheng Liu, Zhicheng Dou, and Ji-Rong Wen. 2026.        CQA, PubMedQA*, and BioASQ-Y/N. Table 6
+  Large Language Models for Information Retrieval: A
+  Survey. ACM Transactions on Information Systems,
+                                                         summarizes the dataset sizes and answer formats
+  44(1):1–54. ArXiv:2308.07107 [cs].                     used in our experiments, and we briefly describe
+                                                         each benchmark below.
+Chang Zong, Yuchen Yan, Weiming Lu, Jian Shao, Eliot
+  Huang, Heng Chang, and Yueting Zhuang. 2024.           B.1    MMLU-Med
+  Triad: A Framework Leveraging a Multi-Role LLM-
+  based Agent to Solve Knowledge Base Question An-       The MMLU-Med dataset is a subset of the Mas-
+  swering. arXiv preprint. ArXiv:2402.14320 [cs].        sive Multitask Language Understanding (MMLU)
+benchmark (Hendrycks et al., 2021). It covers six              Dataset        #Samples      Task
+distinct subtasks: Clinical Knowledge, Medical Ge-             MMLU-Med         1089        4-choice MCQ
+netics, Anatomy, Professional Medicine, College                MedQA-US         1273        4-choice MCQ
+Biology, and College Medicine. The questions are               MedMCQA          4183        4-choice MCQ
+designed to measure knowledge acquired during                  PubMedQA*         500        3-choice Y/N/M
+preclinical and clinical medical training, formatted           BioASQ-Y/N        618        2-choice Y/N
+as 4-choice multiple-choice questions.
+                                                           Table 6: Statistics of the medical QA datasets from
+B.2   MedQA-US                                             MIRAGE used in our experiments.
+
+MedQA-US (Jin et al., 2020) is derived from
+the United States Medical Licensing Examination            C    Retrieval Corpus Details
+(USMLE). It represents highly complex clinical
+                                                           Following i-MedRAG (Xiong et al., 2025) and
+case studies that require multi-hop reasoning and
+                                                           MedRAG (Xiong et al., 2024), we employ a hy-
+domain-specific knowledge to solve. Following the
+                                                           brid retrieval corpus that combines medical text-
+standard setting in MIRAGE, we use the 4-option
+                                                           books with point-of-care clinical summaries, cov-
+English version of the dataset. The questions typi-
+                                                           ering both foundational concepts and practical clin-
+cally present a patient vignette followed by a query
+                                                           ical knowledge.
+about diagnosis, prognosis, or pharmacology.
+                                                           Textbooks This component is the released medi-
+B.3   MedMCQA
+                                                               cal textbook collection used in prior medical
+MedMCQA (Pal et al., 2022) is a large-scale                    QA benchmarks (Jin et al., 2021). It contains
+dataset collected from Indian medical entrance                 widely used reference textbooks spanning
+examinations (AIIMS and NEET-PG). It covers                    core biomedical sciences and clinical special-
+a wide range of 21 medical subjects, including                 ties, and is particularly helpful for queries re-
+surgery, pediatrics, and pharmacology. The ques-               quiring standard definitions, canonical mecha-
+tions vary significantly in difficulty and length, test-       nisms, and established medical principles.
+ing both memorization of medical facts and appli-
+cation of concepts in clinical scenarios.                  StatPearls StatPearls (StatPearls Publishing,
+                                                               2025) is a point-of-care clinical review
+B.4   PubMedQA*                                                resource that provides high-yield summaries
+PubMedQA (Jin et al., 2019) is a biomedical re-                across diseases, diagnostics, and treat-
+search question-answering dataset. The task re-                ments. In our setup, we use the publicly
+quires answering "Yes", "No", or "Maybe" to a re-              available StatPearls articles (e.g., via the
+search question based on a provided abstract. Pub-             NCBI Bookshelf releases) as in prior work,
+MedQA* refers to the setting where the original                which complements textbooks with concise,
+context (abstract) is removed, forcing the model to            practice-oriented evidence for retrieval.
+retrieve external evidence to answer the question.
+This setting tests the system’s ability to find rel-
+                                                           D    Error Analysis
+evant biomedical literature to support a scientific        To probe where SEMA-RAG can still fail, we ana-
+conclusion.                                                lyze a representative MedQA-US error (Question
+                                                           0060) in Table 7. This case is informative because
+B.5   BioASQ-Y/N                                           the system retrieves the correct biochemical cue at
+BioASQ-Y/N is a subset of the BioASQ Task B                the class level, yet still makes an incorrect discrete
+benchmark (Tsatsaronis et al., 2015; Krithara et al.,      choice among the remaining candidates.
+2023). It consists of biomedical questions that               Here, I-Agent identifies the decision anchors
+require a strict "Yes" or "No" answer. These ques-         from both presentation and assay. The clinical
+tions are expert-constructed and reflect real-world        picture indicates severe sepsis with a pelvic infec-
+information needs of biomedical researchers. The           tious focus, accompanied by DIC-like abnormali-
+task is challenging because it often involves spe-         ties. The phenol-heating assay reveals a phospho-
+cific gene-disease associations or protein interac-        rylated N-acetylglucosamine dimer with multiple
+tions that require precise fact-checking.                  fatty acids, which strongly suggests a Lipid A–type
+             Error Case (MedQA-US Q0060)                       E     Additional Implementation Details
+ Question (brief): Septic shock with pelvic infectious         Computational Resources All experiments
+ focus; phenol/90◦ C assay indicates a Lipid A–like motif
+ ⇒ Gram-negative signal.                                       were executed in an API-based inference setting.
+ Options:                                                      The dense retrieval index was constructed and
+ A. Coagulase-positive, Gram-positive cocci                    queried locally, while all LLM calls were served
+ B. Encapsulated, Gram-negative coccobacilli                   by the corresponding model providers.
+ C. Spore-forming, Gram-positive bacilli
+ D. Lactose-fermenting, Gram-negative rods                     Retriever Settings We use the MedCPT Query
+ 1) I-Agent: Extracts anchors (pelvic source,                  Encoder and Article Encoder to embed queries and
+ shock/DIC-like labs) and treats the biochemical clue as the   passages, respectively. We then perform FAISS-
+ key discriminator.
+ 2) E-Agent: Retrieves evidence consistent with an             based dense retrieval over Textbooks and StatPearls
+ LPS/Lipid A signature and correctly narrows the class to      and globally rank the retrieved candidates.
+ Gram-negative, ruling out A/C . . .
+ 3) A-Agent: Commits among the remaining candidates            F     Additional Robustness and Transfer
+ without enforcing option-separating evidence (rod vs.
+ coccobacillus; lactose fermentation) . . .                          Experiments
+ Prediction: B ✗        Ground Truth: D
+                                                               F.1   Retriever Robustness
+Table 7: A representative failure where retrieval sup-         To examine whether SEMA-RAG depends strongly
+ports only class-level elimination, while option-level         on a specific retriever, we further compare
+discrimination remains under-supported
+                                                               the domain-specific retriever MedCPT with the
+                                                               general-purpose retriever qwen3-embedding-4b
+                                                               (Zhang et al., 2025) on MedQA-US, using
+structure. Guided by these anchors, E-Agent re-                deepseek-v3.1 as the backbone. Table 8 shows
+trieves evidence linking Lipid A to LPS and there-             that SEMA-RAG consistently improves over the
+fore to Gram-negative organisms, which is suffi-               corresponding single-round retrieval baseline un-
+cient to eliminate the Gram-positive distractors.              der both retrievers. Meanwhile, MedCPT remains
+   The failure arises when moving from class identi-           the stronger default choice in this clinical setting,
+fication to option selection. The retrieved evidence           suggesting that domain-specific retrieval is still ad-
+supports ruling out the Gram-positive options, but it          vantageous for medical QA.
+does not provide option-separating signals within
+the remaining Gram-negative candidates. When                                          qwen3-
+                                                                       Method                    MedCPT
+                                                                                    embedding-4b
+the evidence report lacks an explicit bridge from
+                                                                       CoT              77.53        77.53
+the clinical setting to the discriminative phenotype                   MedRAG           76.43        77.14
+expected in blood culture, A-Agent can be pulled                       SEMA-RAG         87.43        89.95
+toward salient surface descriptors and commit to
+an unsupported candidate.                                      Table 8: Accuracy (%) on MedQA-US with different
+                                                               retrievers (deepseek-v3.1).
+   This exposes a limitation of the current suffi-
+ciency and adjudication design. The loop may
+stop once it reaches a correct coarse conclusion,              F.2   Smaller-Model Robustness
+even though an additional round is still needed to             To assess whether the gains of SEMA-RAG rely
+uniquely determine the answer option. A practi-                mainly on strong large-scale backbones, we fur-
+cal implication is that sufficiency should be judged           ther evaluate the framework on MedQA-US using
+against option-level separability, not only against            a much smaller open-source model, gemma3:4b
+class-level plausibility. A simple fix is to tighten           (Team et al., 2025a). All other settings remain
+E-Agent’s stopping rule by requiring evidence that             the same as in the main experiments. Table 9
+supports one remaining option while directly ex-               shows that although the absolute performance of all
+cluding the other plausible candidates. If this con-           methods drops on the smaller model, SEMA-RAG
+dition is not met, the system should issue a final             still maintains a clear advantage over the strongest
+follow-up query targeting discriminative attributes            single-round baseline. This result suggests that task
+and then re-adjudicate. We leave such option-aware             decoupling remains beneficial even when the base
+sufficiency calibration to future work.                        model has weaker instruction-following ability.
+            Method           Acc. (%)                  vant, and contextually appropriate responses across
+            CoT                 51.77                  iterative interactions.
+            MedRAG              56.01                     To test whether SEMA-RAG remains effective
+            SEMA-RAG            60.41
+                                                       in interactive settings, we evaluate deepseek-v3.1
+                                                       on 200 randomly sampled MAQuE test cases us-
+Table 9: Results on MedQA-US using gemma3:4b as
+the backbone.                                          ing the official evaluation script, and report four
+                                                       communication-oriented metrics: Accuracy, Ro-
+                                                       bustness, Relevance, and Empathy. Table 11
+F.3   Beyond Discrete QA: Open-Ended and
+                                                       shows that SEMA-RAG maintains clear gains
+      Interactive Settings
+                                                       over MedRAG on all four metrics. This improve-
+To examine whether SEMA-RAG generalizes be-            ment suggests that sufficiency-driven exploration
+yond discrete-choice medical QA, we further evalu-     remains beneficial in interactive clinical scenarios,
+ate it on two benchmarks covering open-ended gen-      where the system must sustain grounded response
+eration and multi-turn medical dialogue. In these      generation over multiple turns.
+experiments, we keep the I-Agent and E-Agent
+unchanged, and only adapt the final stage of the             Method        Acc.   Rob.    Rel.    Emp.
+A-Agent to generate free-text outputs instead of             MedRAG       52.50   64.86   74.00   66.40
+selecting a discrete option. This setting isolates           SEMA-RAG     61.50   75.38   82.00   72.00
+the contribution of the evidence loop under more
+open-ended output formats.                             Table 11: Results on MAQuE for multi-turn clinical
+                                                       response generation using deepseek-v3.1.
+HealthBench. HealthBench is an open-ended
+health-domain benchmark designed to assess re-            Overall, these results suggest that the SEMA-
+sponse quality under clinician-authored rubrics        RAG framework generalizes beyond discrete medi-
+(Arora et al., 2025). To test whether SEMA-RAG         cal QA to more open-ended and interactive forms
+can transfer to grounded free-text generation with     of clinical response generation.
+minimal modification, we evaluate deepseek-v3.1
+on 500 randomly sampled English questions from         G    Prompt Templates
+HealthBench main using the official scoring script,
+                                                       To facilitate reproducibility, we provide the system
+and report the overall score together with three
+                                                       instructions used for the three agents in SEMA-
+rubric dimensions: accuracy, completeness, and
+                                                       RAG. Note that the A-Agent uses two prompts for
+instruction following.
+                                                       evidence adjudication and final answer selection,
+   As shown in Table 10, SEMA-RAG consistently
+                                                       respectively.
+outperforms MedRAG across all reported metrics.
+This suggests that the evidence completion loop
+remains effective when the target output shifts from
+option selection to grounded free-text generation,
+providing a stronger factual basis for open-ended
+responses.
+
+                                          Instr.
+      Method      Avg.   Acc.   Comp.
+                                         Follow.
+      MedRAG   26.87 31.34       30.17   41.66
+      SEMA-RAG 33.64 37.22       38.30   47.58
+
+Table 10: Results on HealthBench for grounded open-
+ended response generation using deepseek-v3.1.
+
+
+MAQuE. MAQuE is a multi-turn medical dia-
+logue benchmark that evaluates response quality in
+simulated clinical communication settings (Gong
+et al., 2025). Compared with single-turn QA, it
+places greater emphasis on maintaining robust, rele-
+I-Agent Prompt (Clinical Schema Interpreter).
+
+
+Role:
+You are an expert clinician.
+
+
+Goal:
+Given an unstructured medical question, extract an explicit Clinical Schema that makes the implied intent and constraints
+searchable. Focus on what must be retrieved and do not answer the question itself.
+
+
+Input:
+Medical Question: {research_topic}
+
+
+Task:
+Identify:
+1. clinical intent (task type),
+2. core medical entities (salient concepts from the question),
+3.   key constraints (time course, demographics, setting, comorbidities, severity, contraindications, risk factors,
+anatomical or functional qualifiers),
+4. a concise retrieval query aligned with the schema (q_init).
+
+
+Key Instructions:
+- Entities should be small, focused, and primarily grounded in the question itself.
+- Include only the most retrieval-relevant concepts; avoid broad, redundant, or unnecessary enumeration.
+- Merge obvious synonyms, near-duplicates, or simple morphological variants into one canonical medical expression when
+possible.
+- Prefer the main clinical concept, condition, mechanism, finding, test, treatment, population, anatomical target, or
+other decision-critical concept that is necessary for retrieval.
+- If the question provides candidate answers or options, do not mechanically include all of them as entities; include an
+option only if needed for retrieval or candidate discrimination.
+- For multiple-choice, judgment, or open-ended questions, center the schema on the stem and its decision-critical medical
+concepts rather than listing answer choices.
+- Constraints should capture only decision-relevant qualifiers explicitly stated or strongly implied by the question.
+- Preserve key medical relations when they are essential for retrieval, such as derivation, origin, cause, association,
+indication, or contraindication.
+- q_init should retrieve the knowledge needed to answer the question, remain neutral, and avoid prematurely inferring a
+conclusion.
+- q_init should be short, medically precise, and should not simply concatenate all entities or options.
+- Use precise medical terminology.
+- Do not add explanations, rationale, or extra keys.
+
+
+Output JSON:
+{
+"intent": "<short clinical task type>",
+"entities": ["<entity1>", "<entity2>"],
+"constraints": ["<constraint1>", "<constraint2>"],
+"q_init": "<one concise neutral search-style query>"
+}
+
+
+
+                    Figure 4: Prompt template for the I-Agent clinical schema interpreter.
+E-Agent Prompt (Self-Evolving Explorer).
+
+
+Role:
+You are an evidence sufficiency auditor and query refiner for medical question answering.
+
+
+Goal:
+Determine whether the current retrieved evidence is sufficient to answer the medical question under the given Clinical
+Schema. Do not answer the question itself.
+
+
+Input:
+Clinical Schema: {clinical_schema}
+Current Query Set: {query_list}
+Retrieved Evidence Summaries: {summaries}
+
+
+Key Instructions:
+- Assess whether the current evidence sufficiently covers the key intent, entities, and constraints in the Clinical
+Schema.
+- Judge sufficiency based on whether the evidence is enough to support final answer selection, or to distinguish among
+competing candidate answers when relevant.
+- Evidence may be relevant yet still insufficient; do not mark sufficiency = 1 unless the evidence is adequate for
+confident answer selection.
+- If the evidence is insufficient, identify the single most important missing fact, missing distinction, or unresolved
+clinical criterion.
+- Generate 1 to 3 follow-up queries that directly target this gap.
+- Follow-up queries must be specific, self-contained, non-redundant, and explicitly grounded in the Clinical Schema.
+- For questions with candidate answers, prioritize queries that help distinguish among candidates rather than broad
+background expansion.
+- Prefer targeted refinement over broad exploratory expansion.
+- Do not repeat an existing query unless revision is necessary.
+- If the current evidence is already sufficient, return no follow-up queries.
+
+
+Rules:
+- If sufficiency = 1, set "gap" to "N/A" and "queries" to [].
+- If sufficiency = 0, "gap" must be specific, concrete, and decision-relevant rather than generic.
+- Queries should target missing clinical distinctions, time conditions, population constraints, contraindications,
+severity, mechanisms, diagnostic criteria, or option-level discrimination when relevant.
+- Return JSON only.
+
+
+Output JSON:
+{
+"sufficiency": 0 or 1,
+"gap": "<short concrete description of the most important missing evidence>",
+"queries": ["<query1>", "<query2>", "<query3>"]
+}
+
+
+
+                         Figure 5: Prompt template for the E-Agent self-evolving explorer.
+A-Agent Prompt (Phase 1: Evidence Adjudicator).
+
+
+Role:
+You are a medical evidence adjudicator.
+
+
+Goal:
+Synthesize the final retrieved evidence into a concise, traceable report that can support final answer selection. Do not
+directly answer the question. Only organize, adjudicate, and summarize the evidence.
+
+
+Input:
+Medical Question: {research_topic}
+Clinical Schema: {clinical_schema}
+Final Query Set: {query_list}
+Retrieved Evidence Summaries: {summaries}
+
+
+Key Instructions:
+- Review the retrieved evidence in light of the medical question and Clinical Schema.
+- Focus on the most decision-relevant evidence and remove redundancy.
+- Identify which evidence directly supports a candidate conclusion, which evidence conflicts with it, and which evidence
+is only background, indirect, or weakly relevant.
+- When multiple pieces of evidence overlap, merge them into one concise statement.
+- When evidence is incomplete, uncertain, indirect, or conflicting, make that explicit rather than resolving it
+prematurely.
+- Preserve traceability by attaching source identifiers or summary indices whenever available.
+- Every claim in the report must be supported by the provided summaries; do not infer unsupported medical facts.
+- Do not introduce external medical knowledge.
+- Do not perform final answer selection.
+
+
+
+                       Figure 6: Prompt template for the A-Agent evidence adjudicator.
+A-Agent Prompt (Phase 1: Evidence Adjudicator) (continued).
+
+
+Rules:
+- Keep the report concise, traceable, and decision-oriented.
+- Prefer evidence that is directly relevant to the question over general background knowledge.
+- If there is no real conflicting evidence, return an empty list for "key_conflicting_or_limiting_evidence".
+- If source identifiers are unavailable, use summary indices or short summary labels consistently.
+- Do not repeat the same evidence across multiple fields unless necessary.
+- Return JSON only.
+
+
+Output JSON:
+{
+"question_focus": "<one short sentence stating what must be decided>",
+"key_supporting_evidence": [
+{
+"claim": "<concise evidence-supported statement>",
+"source_ids": ["<source1>", "<source2>"]
+}
+],
+"key_conflicting_or_limiting_evidence": [
+{
+"claim": "<concise conflicting, uncertain, or limiting statement>",
+"source_ids": ["<source1>", "<source2>"]
+}
+],
+"evidence_synthesis": "<short integrated synthesis of what the evidence supports, what remains uncertain, and what
+distinction matters most for final answer selection>"
+}
+
+
+
+                       Figure 7: Prompt template for the A-Agent evidence adjudicator.
+A-Agent Prompt (Phase 2: Evidence-Grounded Answering).
+
+
+Role:
+You are a medical AI assistant.
+
+
+Goal:
+Answer the multiple-choice medical question using the provided evidence adjudication report.
+
+
+Input:
+Medical Question: {research_topic}
+Evidence Adjudication Report: {adjudication_report}
+
+
+Key Instructions:
+- Select exactly one final answer: A, B, C, or D.
+- First rely on the evidence adjudication report.
+- If the report contains relevant evidence, choose the option best supported by that evidence.
+- If the report is incomplete, weak, or lacks directly relevant evidence, use medical knowledge to reason and choose the
+most appropriate answer.
+- Do not output reasoning, JSON, code blocks, or any extra text.
+
+
+Output Format:
+Final Answer: [A/B/C/D]
+
+
+
+                    Figure 8: Prompt template for the A-Agent evidence-grounded answerer.
+

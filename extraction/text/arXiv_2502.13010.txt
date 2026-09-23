@@ -1,0 +1,1033 @@
+                                         Agentic Medical Knowledge Graphs Enhance Medical Question Answering:
+                                            Bridging the Gap Between LLMs and Evolving Medical Knowledge
+
+           Mohammad R. Rezaei1,2∗ , Reza Saadati Fard3 ,Jayson L. Parker1 , Rahul G. Krishnan1,2 , Milad Lankarany1
+                                                   1
+                                                     University of Toronto
+                                                      2
+                                                        Vector Institute
+                                              3
+                                                 Worcester Polytechnic Institute
+                                              *
+                                                mr.rezaei@mail.utoronto.ca
+
+
+                                                              Abstract
+                                             Large Language Models (LLMs) have greatly
+
+
+
+
+arXiv:2502.13010v3 [cs.CL] 29 Jun 2025
+                                             advanced medical Question Answering (QA)
+                                             by leveraging vast clinical data and medical
+                                             literature. However, the rapid evolution of
+                                             medical knowledge and the labor-intensive pro-
+                                             cess of manually updating domain-specific re-
+                                             sources can undermine the reliability of these
+                                             systems. We address this challenge with
+                                             Agentic Medical Graph-RAG (AMG-RAG),
+                                             a comprehensive framework that automates
+                                             the construction and continuous updating of
+                                             Medical Knowledge Graphs (MKGs), inte-
+                                             grates reasoning, and retrieves current exter-
+                                             nal evidence from the MKGs for medical
+                                             QA. Evaluations on the MEDQA and MEDM-
+                                             CQA benchmarks demonstrate the effective-
+                                             ness of AMG-RAG, achieving an F1 score of
+                                             74.1% on MEDQA and an accuracy of 66.34%
+                                             on MEDMCQA—surpassing both comparable
+                                             models and those 10 to 100 times larger. By
+                                             dynamically linking new findings and com-
+                                             plex medical concepts, AMG-RAG not only
+                                             boosts accuracy but also enhances interpretabil-       Figure 1: Performance versus parameter count on the MEDQA
+                                                                                                    and MEDMCQA benchmarks. Our system, Agentic Medi-
+                                             ity for medical queries, which has a critical          cal Graph-RAG (AMG-RAG), attains an F1 of 74.1 % on
+                                             impact on delivering up-to-date, trustworthy           MEDQA and an accuracy of 66.34 % on MEDMCQA, outper-
+                                             medical insights (GitHub: https://github.              forming models that contain 10–100× more parameters. See
+                                             com/MrRezaeiUofT/AMG-RAG).                             Tables 1 and 2 for details.
+
+                                         1   Introduction
+                                                                                                    the intricate relationships among medical entities.
+                                         Medical knowledge is growing at an unprecedented           Knowledge Graph (KG) provide a structured and
+                                         rate: every day brings new research findings, re-          interconnected view that supports nuanced reason-
+                                         vised clinical guidelines, and updated treatment           ing (Huang et al., 2021), yet creating and maintain-
+                                         protocols. Recent work shows that Large Lan-               ing them by hand is costly—especially in medicine,
+                                         guage Models (LLMs) can already harness this               where new insights rapidly invalidate older facts
+                                         ever-expanding corpus for medical Question An-             (Yang et al., 2024).
+                                         swering (QA) (Nazi and Peng, 2024; Liu et al.,                We introduce an automated framework that con-
+                                         2023).                                                     structs and continuously refines Medical Knowl-
+                                            Despite their promise, LLMs face two persis-            edge Graphs (MKGs) for QA. Our LLM-driven
+                                         tent challenges. First, they must remain factually         agents, assisted by domain-specific search tools,
+                                         current in a field where knowledge can become              generate graph entities enriched with metadata,
+                                         obsolete almost overnight (Rohanian et al., 2024;          confidence scores, and relevance indicators. This
+                                         Yu et al., 2024). Second, they must correctly model        automation sharply reduces manual curation while
+
+                                                                                                1
+keeping the graph aligned with the latest discover-           and MedPaLM (Singhal et al., 2023) adapt trans-
+ies. In contrast to Retrieval Augmented Generation            former pre-training to biomedical corpora, deliv-
+(RAG) systems that rely solely on vector similar-             ering strong gains on entity recognition, relation
+ity (Lewis et al., 2020), our graph-centric retrieval         extraction, and multiple-choice QA (Nazi and Peng,
+leverages explicit relationships to synthesise infor-         2024; Liu et al., 2023). Yet, even these specialised
+mation across domains such as drug interactions,              models struggle to synthesise multi-hop relations
+clinical trials, patient histories, and guidelines.           (e.g. rare comorbidities or drug–gene interactions)
+   The AMG-RAG combines dynamically synthe-                   and must be re-trained to absorb new discoveries
+sised MKG with multi-step reasoning, guided by                (Rohanian et al., 2024; Yu et al., 2024).
+confidence scores and adaptive traversal strate-
+gies (Trivedi et al., 2022). This design yields               Retrieval-Augmented Generation (RAG).
+more accurate and complete answers without incur-             RAG pipelines couple an LLM with an external ev-
+ring additional fine-tuning or inference costs. On            idence retriever, injecting fresh context at inference
+the MEDQA and MEDMCQA benchmarks—both                         time (Lewis et al., 2020). Vendi-RAG (Rezaei and
+of which test evidence retrieval, complex reason-             Dieng, 2025) and MMED-RAG(Xia et al., 2024)
+ing, and multiple-choice comprehension—AMG-                   extend this idea to biomedical and multimodal
+RAG achieves an F1 of 74.1% and an accuracy                   sources, respectively. Chain-of-Thought (CoT)
+of 66.34%, respectively (Fig. 1). These results               prompting further boosts reasoning: IRCoT
+surpass those of similarly sized RAG approaches               (Trivedi et al., 2022) interleaves iterative retrieval
+and even much larger state-of-the-art models, un-             with step-wise justification. Gemini’s long-context
+derscoring the benefits of a dynamically evolving             model recently pushed MedQA scores beyond
+MKG for medical QA. Our findings highlight the                GPT-4 (Saab et al., 2024). Nevertheless, most
+potential of automated, relationally enriched knowl-          RAG systems rely on static vector stores and
+edge retrieval to enhance clinical decision-making            cannot explain answers in terms of explicit
+by delivering timely and trustworthy insights (Zhou           biomedical relations.
+et al., 2023).
+                                                              Knowledge-graph reasoning. KG-Rank (Huang
+Contributions. Our contributions are threefold:               et al., 2021) and related work such as KG-
+                                                              RAG(Sanmartin, 2024) harness ontologies to
+    1. We developed a autonomous search and graph-
+                                                              re-rank evidence or enforce logical constraints,
+       building process powered by specialized LLM
+                                                              improving factual consistency in long-form QA
+       agents that continuously generate and refine
+                                                              (Yang et al., 2024). However, constructing and cu-
+       MKGs through integrated workflows using
+                                                              rating a high-coverage, up-to-date MKG remains
+       search engines and medical textbooks.
+                                                              labour-intensive, limiting scalability and freshness.
+    2. Our system embeds confidence scoring mech-
+       anisms that explicitly model information un-           3   Method
+       certainty, providing transparent reliability as-
+       sessments for medical information.                     We propose our framework, Agentic Medical
+                                                              Graph-RAG (AMG-RAG), bridges these threads
+    3. We created an adaptive graph traversal system          by dynamically generating a confidence-scored
+       that transcends traditional retrieval methods,         Medical Knowledge Graph (MKG) that is tightly
+       enabling dynamic contextualization of medi-            coupled to a Retrieval Augmented Generation
+       cal knowledge.                                         (RAG)+CoT pipeline. AMG-RAG features au-
+                                                              tonomous Knowledge Graph (KG) evolution
+2     Related Work                                            through Large Language Model (LLM) agents ex-
+Medical QA has progressed through three comple-               tracting entities and relations from live sources with
+mentary lines of research: (i) domain-specific lan-           provenance tracking; graph-conditioned retrieval
+guage models, (ii) retrieval-augmented generation,            that maps queries onto the MKG to guide evidence
+and (iii) knowledge-graph reasoning.                          selection; and reasoning over structured context
+                                                              where the answer generator utilizes both textual
+Domain-specific language models. BioBERT                      passages and traversed sub-graphs for transparent,
+(Lee et al., 2020), PubMedBERT (Gu et al., 2021),             multi-hop reasoning.
+
+                                                          2
+3.1   Retrieval Augmented Generation (RAG)                     Algorithm 1 KG-Based QA Inference Pipeline
+                                                               Require: Query q, Knowledge Graph KG, Confidence
+RAG is a framework designed to enhance Question                    Threshold τ , Max Iterations N
+Answering (QA) by integrating relevant external                Ensure: Final Answer â with Confidence s
+knowledge into the generation process.In the RAG                1: Extract medical terms:           {n1 , n2 , . . . , nm } ←
+                                                                   ExtractTerms(q)
+approach, the retriever fetches a fixed number of               2: Initialize reasoning traces: C ← ∅
+relevant documents, {d1 , d2 , . . . , dn } ∈ D, based          3: Initialize confidence: si ← 1.0 for all terms ni
+on the query q. Here, D represents the set of all               4: for i = 1 to m do            ▷ Iterate over extracted terms
+                                                                5:     Explore KG: Retrieve relevant nodes {dj } and rela-
+domain-specific documents utilized. These docu-                    tionships rij for ni
+ments are concatenated and passed directly to a                 6:     for each child node nj of ni in KG do
+                                                                7:          Compute child confidence: sj ← si · rij
+LLM-based text generator, G, which produces the                 8:          if sj ≥ τ then
+answer â:                                                      9:              Include nj in exploration set
+                                                               10:          end if
+                                                               11:      end for
+              â = G(q, {d1 , . . . , dn }).                   12:      Generate Reasoning Trace: ci ← LLM(ni , {dj })
+                                                               13:      Add ci to reasoning traces: C ← C ∪ {ci }
+                                                               14: end for
+This approach is simple and computationally ef-                15: Synthesize Answer: â, ŝ ← G(C)
+ficient but may struggle with domain-specific or               16: return â, ŝ       ▷ Return final answer with confidence
+complex queries that require additional supporting
+evidence.
+                                                               3.2    Medical QA with AMG-RAG
+RAG with Chain-of-Thought (CoT). Enhanc-                        In scenarios requiring domain expertise, such as
+ing RAG’s performance can be achieved by inte-                 medical or scientific QA, traditional methods of-
+grating intermediate reasoning steps prior to pro-             ten fail due to their inability to capture intricate
+ducing the final response. The generator produces              domain-specific relationships or handle ambiguous
+a chain of thought, c, which serves as an explicit             queries. KG-driven approaches overcome these
+reasoning trace:                                               challenges by integrating explicit relationships and
+                                                               structured knowledge representations. This marks
+         {d1 , . . . , dk } = Retriever(q; D),                 a significant advancement in intelligent QA sys-
+                                                               tems, ensuring robustness and scalability across
+      c = G(q, {d1 , . . . , dk }),       â = G(c).           various applications.
+                                                                  The suggested AMG-RAG framework dynami-
+This step-by-step approach enhances reasoning and              cally creates a MKG and incorporates sophisticated
+interpretability, leading to improved accuracy in              reasoning abilities, overcoming the shortcomings
+multi-hop reasoning tasks.                                     of traditional methods. Our system utilizes struc-
+                                                               tured medical knowledge and reasoning, ensuring
+RAG with Search. The RAGs’s performance can                    flexibility to accommodate new data.
+improved further by incorporating additional re-                  The AMG-RAG pipeline begins with question
+lated documents retrieved from external sources,               parsing, where an LLM agent extracts medical
+such as the internet, through a search tool. This              terms {n1 , n2 , . . . , nm } from the user query q:
+variant integrates external search capabilities into
+the retrieval process. For a query q, the retriever’s            {n1 , n2 , . . . , nm } = LLM(q, M ),          m ≤ M.
+results are combined with those from external
+search engines, providing more comprehensive evi-                 During node exploration, the system queries the
+dence for the LLM to generate a response:                      KG for each term ni , applying a confidence thresh-
+                                                               old that filters relationships based on their relia-
+                                                               bility scores. The system propagates confidence
+         {d′1 , . . . , d′m } = Search(q; D′ ),
+                                                               through the KG by computing child confidence as:
+
+      â = G(q, {d1 , . . . , dn , d′1 , . . . , d′m }).          s(nj ) = s(ni ) · s(rij ),      ∀j ∈ children of i.
+
+This additional search step significantly enhances               Our framework supports both breadth-first and
+performance, particularly in scenarios that require            depth-first exploration strategies, enabling flexible
+access to extensive and diverse knowledge.                     knowledge traversal based on query characteristics.
+
+                                                           3
+Figure 2: Model Schema. A) The pipeline for creating the MKG using search tools and an LLM agent. B) An example of the
+generated MKG in Neo4J, illustrating nodes and relationships derived from search results and contextual information. Our model
+successfully retrieved and utilized recent knowledge to accurately answer a medical question, highlighting the practical benefit
+of continuously updating the knowledge graph. Furthermore, we extended this evaluation by providing additional examples
+retrieved by our system using recent publications in Table 11. C) The AMG-RAG pipeline. D) A simplified RAG pipeline.
+
+
+The exploration continues until either cumulative                  of dynamically synthesized knowledge representa-
+confidence meets threshold τ or document limit                     tions. Unlike traditional static knowledge bases,
+M is reached, ensuring comprehensive yet focused                   our method allows the graph structure to adapt
+information gathering.                                             continuously in response to new queries and the
+   The chain-of-thought generation phase synthe-                   evidence they uncover. Furthermore, it assigns a
+sizes reasoning traces ci for each entity by integrat-             confidence score to each edge in the graph, indi-
+ing information from connected nodes:                              cating the reliability of each relationship, which is
+                                                                   crucial given the uncertainty inherent in medical
+ ci = LLM(ni , {d(nj ) | j ∈ connected nodes}).                    evidence.
+  Finally, answer synthesis aggregates these rea-                  Node Extraction. Our Medical Entity Recog-
+soning traces to produce the final output â with an               nizer (MER) agent identifies domain-specific terms
+associated confidence score:                                       within user queries, establishing them as founda-
+                                                                   tional nodes {n1 , n2 , . . . , nm } in the knowledge
+             â, ŝ = G({c1 , c2 , . . . , cm }).                  graph. For each identified entity, specialized med-
+                                                                   ical search tools retrieve contextual descriptions
+This approach ensures that answers are comprehen-
+                                                                   d(ni ):
+sive, interpretable, and anchored in reliable medical
+knowledge.                                                              d(ni ) = Search(ni ; knowledge source).
+
+3.3   Dynamic Generation of the Medical                            These descriptions provide rich semantic context
+      Knowledge Graph                                              for the knowledge graph, ensuring accurate repre-
+                                                                   sentation of medical concepts and their attributes.
+The development of the MKG marks a pivotal
+advancement within our AMG-RAG framework,                          Relationship Inference. The power of our ap-
+facilitating organized reasoning through the use                   proach lies in its ability to dynamically infer rela-
+
+                                                               4
+tionships between medical entities. An LLM agent                This study employed the MEDQA and MedM-
+analyzes pairs of nodes (ni , nj ) to determine poten-       CQA datasets to benchmark and evaluate medical
+tial relationships rij and quantify their reliability:       QA systems. These datasets serve as challenging
+                                                             testbeds for open-domain QA tasks due to their de-
+          rij , sij = LLM(d(ni ), d(nj )).                   mands for multi-hop reasoning and the integration
+                                                             of domain-specific knowledge. The relevance of
+This process generates not just connection types             MEDQA in the real world, together with the di-
+(e.g., causation, correlation, contraindication) but         verse question styles and extensive development
+also confidence scores that propagate through                set of MedMCQA make them ideal for advancing
+subsequent reasoning steps, enabling evidence-               the development of robust QA models capable of
+weighted inference.                                          addressing medical inquiries. We utilize GPT-4o-
+                                                             mini as the backbone of the implementation for
+Knowledge Graph Construction. The resulting
+                                                             both MKG and AMG-RAG, leveraging its capabil-
+MKG integrates extracted entities, their descrip-
+                                                             ities with approximately ∼ 8B parameters. This
+tions, inferred relationships, and confidence met-
+                                                             model serves as the core component, enabling ad-
+rics into a cohesive structure. This graph serves as
+                                                             vanced reasoning, RAG, and structured knowledge
+both a repository of medical knowledge and a com-
+                                                             integration.
+putational framework for reasoning. By attaching
+reliability scores to every edge, downstream com-            4.1   Medical Knowledge Graph
+ponents can appropriately weight evidence during
+inference, enhancing both accuracy and explain-              To address the challenges of inaccurate knowledge
+ability. The graph’s dynamic nature allows it to             updating—such as those stemming from noisy re-
+continuously incorporate new information and re-             trieval results or LLM hallucinations—our AMG-
+fine existing connections, addressing the staleness          RAG introduces a robust and dynamic approach to
+issues that plague traditional knowledge-based sys-          MKG construction. This is particularly critical in
+tems.                                                        healthcare applications, where the absence of error
+                                                             detection and correction mechanisms in automated
+4   Experiments                                              KG generation can compromise system reliability.
+                                                                The dynamic update mechanism encompasses
+The MEDQA dataset is a free-form, multiple-                  strategies resilient to errors, defined by the con-
+choice open-domain QA dataset specifically de-               fidence level of the medical information retained
+signed for medical QA. Derived from professional             within the MKG and among nodes i and j, denoted
+medical board exams, this dataset presents a sig-            as sij . This approach facilitates monitoring and
+nificant challenge as it requires both the retrieval         reduces the spread of erroneous information dur-
+of relevant evidence and sophisticated reasoning             ing the refinement or reasoning stages. These pro-
+to answer questions accurately. Each question is             tective measures allow the system to identify and
+accompanied by multiple-choice answers that de-              rectify inconsistencies that may arise from external
+mand a deep understanding of medical concepts                retrieved information.
+and logical inference, often relying on evidence                The MKG is dynamically constructed for each
+found in medical textbooks. For this study, the              question by integrating search items, contextual
+test partition of the MEDQA dataset, comprising              information, and relationships extracted from
+approximately 1,200 samples, was used (Jin et al.,           medical textbooks and search tools, including
+2021).                                                       Wikipedia (Wiki-MKG) and PubMed (PubMed-
+   The MedMCQA dataset is another multiple-                  MKG) queries. The ablation in Table 3 demon-
+choice question-answering dataset tailored for med-          strates that the created MKG based on PubMed
+ical QA. Unlike MEDQA, which is derived from                 (PubMed-MKG) is more effective in enhancing the
+board exam questions, MedMCQA offers a broader               performance of the AMG-RAG. This data is pro-
+variety of question types, encompassing both foun-           cessed and structured within a Neo4j database. Key
+dational and clinical knowledge across diverse med-          innovations in the knowledge graph include:
+ical specialties. In this study, the MedMCQA devel-
+opment set, containing approximately 4,000 ques-               1. Dynamic Node and Relationship Creation:
+tions, was used to benchmark against other models                 Nodes are instantiated based on retrieved enti-
+(Pal et al., 2022a).                                              ties and search terms, while relationships are
+
+                                                         5
+     constructed using predefined semantic tem-            or WikiSearch. This approach significantly re-
+     plates aligned with medical ontologies.               duces latency during question answering since the
+                                                           system frequently retrieves information from the
+  2. Bidirectional Relationships: The graph in-            pre-populated MKG rather than performing new
+     cludes both forward and reverse relationships         searches. By maintaining an updated MKG, AMG-
+     between nodes to allow flexible traversal and         RAG achieves a balanced minimum dependency
+     comprehensive context understanding.                  on computational resources and search tools during
+  3. Confidence-Based Relevance Scoring: Each              the test phase.
+     relationship is enriched with textual anno-              Despite having only 8B parameters, it delivers
+     tations and a quantitative confidence score           competitive results compared to much larger mod-
+     that measures the reliability of the connec-          els like Med-Gemini (1800B) and GPT-4 (1760B).
+     tion. This confidence score enables the system        Even in worst-case scenarios where relevant in-
+     to down-rank or filter out uncertain associa-         formation is absent from the MKG, the additional
+     tions, thereby mitigating the effects of noisy        search cost is still significantly lower than the re-
+     retrievals.                                           source requirements of much larger models.
+
+  4. Summarization with Reliability Indicators:            4.2   Performance Comparison
+     Each search item is paired with a concise sum-        Table 1 presents a comprehensive comparison of
+     mary derived from contextual sources. These           state-of-the-art language models on the MEDQA
+     summaries are accompanied by confidence               benchmark. The results highlight the critical role of
+     scores that indicate their trustworthiness, al-       advanced reasoning strategies in achieving higher
+     lowing nuanced uncertainty modeling.                  performance, such as CoT reasoning and the inte-
+                                                           gration of search tools. While larger models like
+  5. Thresholding for Quality Control: In our              Med-Gemini and GPT-4 achieve the highest ac-
+     experiments, we applied a confidence thresh-          curacy and F1 scores, their performance comes
+     old of 8 (on a 10-point scale) to retain only         at the cost of significantly larger parameter sizes.
+     high-reliability nodes and edges. This value          These models exemplify the power of scaling com-
+     was empirically found to yield the best results       bined with sophisticated reasoning and retrieval
+     in benchmark performance.                             techniques.
+  6. Integration with Neo4j: The complete graph               Significantly, AMG-RAG, despite having just 8
+     is stored in a Neo4j database, leveraging its         billion parameters, attains an F1 score of 74.1%
+     powerful graph query engine for efficient re-         on the MEDQA benchmark, surpassing models
+     trieval and analysis during inference.                like Meditron, which possess 70 billion parame-
+                                                           ters without needing any fine tuning. This high-
+   A partial visualization of the MKG structure is         lights AMG-RAG’s exceptional efficiency and pro-
+shown in Figure 2.B. Additional complete exam-             ficiency in utilizing CoT reasoning and external
+ples with retrieved papers are provided in Table 11.       evidence retrieval. The model leverages tools such
+This MKG forms the core knowledge source for               as PubMedSearch and WikiSearch to dynamically
+the AMG-RAG inference pipeline.                            integrate domain-specific knowledge dynamically,
+   As discussed in Appendix B, extensive valida-           thereby improving its ability to address medical
+tion was conducted through both human and ma-              questions. Examples of QA interactions, including
+chine evaluators. Clinical experts verified the cor-       detailed search items and reasoning for question
+rectness of the knowledge graph, and expert LLMs           samples, are provided in Appendix C. These exam-
+such as GPT-4 achieved high accuracy (e.g., 9/10)          ples are organized in Tables 7, 8, 9, and 10, drawn
+in validating the extracted knowledge. These re-           from the MEDQA benchmark.
+sults underscore the MKG’s ability to support re-             On the MedMCQA benchmark, as shown in Ta-
+liable and explainable medical reasoning within            ble 2, AMG-RAG achieves an accuracy of 66.34%,
+AMG-RAG.                                                   even outperforming larger models like Meditron-
+   The knowledge graph creation process in AMG-            70B and better than Codex 5-shot CoT. This result
+RAG operates independently from the QA process,            underscores AMG-RAG’s adaptability and robust-
+allowing for continuous background updates of              ness, demonstrating that it can deliver competitive
+the MKG via search tools such as PubMedSearch              performance even against significantly larger mod-
+
+                                                       6
+Model                                         Model Size     Acc. (%)    F1 (%)   Fine-Tuned   Uses CoT    Uses Search
+Med-Gemini (Saab et al., 2024)                 ∼1800B          91.1       89.5         ✓           ✓            ✓
+GPT-4 (Nori et al., 2023)                      ∼1760B          90.2       88.7         ✓           ✓            ✓
+Med-PaLM 2 (Singhal et al., 2025)              ∼340B           85.4       82.1         ✓           ✓            ✗
+Med-PaLM 2 (5-shot)                            ∼340B           79.7       75.3         ✗           ✓            ✗
+AMG-RAG                                         ∼8B            73.9       74.1         ✗           ✓            ✓
+Meerkat(Kim et al., 2024)                        7B            74.3       70.4         ✓           ✓            ✗
+Meditron (Chen et al., 2023)                     70B           70.2       68.3         ✓           ✓            ✓
+Flan-PaLM (Singhal et al., 2023)                540B           67.6       65.0         ✓           ✓            ✗
+LLAMA-2 (Chen et al., 2023)                      70B           61.5       60.2         ✓           ✓            ✗
+Shakti-LLM (Shakhadri et al., 2024)             2.5B           60.3       58.9         ✓           ✗            ✗
+Codex 5-shot CoT (Liévin et al., 2024)            –            60.2       57.7         ✗           ✓            ✓
+BioMedGPT (Luo et al., 2023)                     10B           50.4       48.7         ✓           ✗            ✗
+BioLinkBERT (base) (Singhal et al., 2023)         –            40.0       38.4         ✓           ✗            ✗
+
+Table 1: Comparison of LLM models on the MEDQA Benchmark. Additional comparison with RAGs are provided
+in Table B
+
+
+els. Its ability to maintain high accuracy on diverse
+datasets further highlights the effectiveness of its
+design, which combines CoT reasoning with struc-
+tured knowledge graph integration and retrieval
+mechanisms.
+
+Model                                Model Size    Acc. (%)
+AMG-RAG                                ∼8B           66.34
+Meditron (Chen et al., 2023)            70B          66.0
+Codex 5-shot (Liévin et al., 2024)       –           59.7
+VOD (Liévin et al., 2023)                –           58.3
+Flan-PaLM (Singhal et al., 2022)       540B          57.6
+PaLM                                   540B          54.5
+GAL                                    120B          52.9
+PubmedBERT (Gu et al., 2021)             –           40.0
+SciBERT (Pal et al., 2022b)              –           39.0
+BioBERT (Lee et al., 2020)               –           38.0
+BERT (Devlin, 2018)                      –           35.0
+
+ Table 2: Comparison of Models on the MedMCQA.
+
+   Overall, AMG-RAG’s results on MEDQA and
+MedMCQA benchmarks solidify its position as a
+highly efficient and effective model for medical
+QA. By leveraging reasoning, dynamically gener-
+ated MKG, and external knowledge sources, AMG-                    Figure 3: Confusion matrix for AMG-RAG with and with-
+RAG not only closes the gap with much larger mod-                 out CoT and Knowledge Graph integration on the MEDQA
+                                                                  dataset.
+els but also sets a new standard for performance
+among smaller-sized models.
+Impact of Search Tools on MKG creation and                        outperforms Wiki-MKG, likely due to its focused,
+CoT Reasoning on AMG-RAG Performance.                             domain-specific content that aligns closely with the
+Figure 3 and Table 3 demonstrate the effect of                    specialized nature of medical QA tasks.
+integrating different search tools for creating the                  In addition to the integration of the dynamical
+MKG on the performance of the AMG-RAG sys-                        MKG, the reasoning module plays a pivotal role
+tem applied to the MEDQA benchmark. Incorpo-                      in performance. As highlighted in Figure 3, ab-
+rating these external retrieval capabilities signifi-             lating either CoT or MKG integration causes a
+cantly enhances both accuracy and F1 scores, as                   considerable degradation in accuracy and F1 score.
+they allow the model to access relevant and up-                   This demonstrates that structured multi-hop reason-
+to-date evidence critical for answering complex                   ing and medical knowledge grounding through the
+medical questions. Among the two search tools                     MKG are indispensable for the system’s ability to
+for creating the MKG, PubMed-MKG consistently                     deliver accurate and evidence-based answers."
+
+                                                              7
+Comparison Against Traditional RAG Models.
+Table 3 presents a comprehensive comparison of
+various RAG models evaluated on the MEDQA
+benchmark. This includes models with different
+retrieval mechanisms and model sizes, enabling a
+head-to-head evaluation of AMG-RAG with other
+state-of-the-art baselines such as Self-RAG (Asai
+et al., 2023), HyDE (Gao et al., 2022), GraphRAG
+(Edge et al., 2024), and MedRAG (Zhao et al.,
+2025). The results clearly show that AMG-RAG
+configured with the PubMed-MKG and an 8B LLM
+backbone achieves the highest accuracy of 73.92%,           Figure 4: Performance comparison across different question
+                                                            domains in the Neurology and Genetics fields.
+surpassing all competing models. Notably, ablation
+results indicate that removing search functionality
+or CoT reasoning significantly degrades accuracy            when using the same retrieval pipeline. These re-
+(dropping to 67.16% and 66.69%, respectively),              sults reinforce the importance of synergy between
+confirming the essential role of structured retrieval       the language model and the retrieval mechanism.
+and reasoning components in complex question                Larger models do not necessarily guarantee higher
+answering. Other baseline models such as Gemini-            accuracy—domain alignment and reasoning ability,
+pro and PMC-LLaMA demonstrate weaker perfor-                such as that of GPT4o-mini, are crucial for success
+mance, further validating the efficacy of domain-           on high-stakes tasks like medical QA.
+aware retrieval and reasoning modules proposed
+                                                                Model            Config-Size         Accuracy (%)
+in AMG-RAG. Importantly, the domain specificity                 GPT4o-mini    PubMed-MKG-8B             73.92
+and freshness of PubMedSearch provide a signif-                              No-MKG & CoT-8B            66.69
+icant advantage in retrieving relevant knowledge                LLaMA 3.1     PubMed-MKG-8B              66.5
+                                                                                 No-MKG-8B               62.6
+that general-purpose search modules often fail to               Mixtral      PubMed-MKG-8×7B             61.4
+deliver.                                                                       No-MKG-8×7B               53.2
+                                                                GPT 3.5         PubMed-MKG               65.2
+ Model                  Size         Accuracy (%)                                 No-MKG                 58.4
+ AMG-RAG          PubMed-MKG-8B         73.92
+                   Wiki-MKG-8B          70.62               Table 4: AMG-RAG performance across different LLM
+                     No-MK-8B           67.16
+                                                            backbones on the MEDQA benchmark.
+                 No-MKG & CoT-8B        66.69
+ Self-RAG                8B             67.32
+                     HyDE-8B            68.32
+ RAG                 Gemini-pro          64.5               Improving QA in Rapidly Changing Medical Do-
+                        70B              56.2               mains with AMG-RAG. Figure 4 shows AMG-
+                        8B               64.3
+ GraphRAG            Gemini-pro          65.1
+                                                            RAG’s superior performance in rapidly evolving
+                        70B              55.1               subfields like Neurology and Genetics. This ad-
+                        8B               64.8               vantage stems from real-time PubMed integration
+ MedRag                 70B             49.57
+                        13B             42.58               during inference, combined with structured rea-
+ PMC-LLaMA              13B             44.38               soning and knowledge graph grounding, enabling
+                                                            precise answers to complex medical questions with
+Table 3: Comparison of MEDQA accuracy across vari-          enhanced interpretability and trustworthiness.
+ous RAG models and retrieval strategies.
+                                                            5     Conclusion
+Comparison Against LLM Backbones. In ad-                    We introduce AMG-RAG, an advanced QA system
+dition to evaluating different retrieval strategies,        that dynamically constructs MKG while integrating
+we assess how the choice of LLM backbone in-                sophisticated structured reasoning for medical QA.
+fluences performance in Table 4. This compari-              The system demonstrates significant improvements
+son highlights that AMG-RAG built on GPT4o-                 in accuracy and reasoning capabilities, particularly
+mini with PubMed-MKG achieves the best perfor-              for medical question-answering tasks, outperform-
+mance (73.92%). In contrast, performance declines           ing other approaches of similar model size or 10 to
+when switching to LLaMA 3.1 or Mixtral, even                100 times larger.
+
+                                                        8
+6   Limitations                                                   Jacob Devlin. 2018. Bert: Pre-training of deep bidi-
+                                                                     rectional transformers for language understanding.
+Despite AMG-RAG’s advancements, our approach                         arXiv preprint arXiv:1810.04805.
+has certain limitations. Firstly, it relies on exter-             Darren Edge, Ha Trinh, Newman Cheng, Joshua
+nal search tools which introduce latency during the                 Bradley, Alex Chao, Apurva Mody, Steven Truitt,
+creation of the MKG. However, this occurs only                      Dasha Metropolitansky, Robert Osazuwa Ness, and
+once, when the MKG is built from scratch for the                    Jonathan Larson. 2024. From local to global: A
+                                                                    graph rag approach to query-focused summarization.
+first time. Additionally, while the system performs                 arXiv preprint arXiv:2404.16130.
+exceptionally well in medical domains, its applica-
+bility to non-medical tasks remains unexplored.                   Luyu Gao, Xueguang Ma, Jimmy Lin, and Jamie
+                                                                    Callan. 2022. Precise zero-shot dense retrieval
+   Another limitation is the need for structured, au-               without relevance labels, 2022. URL https://arxiv.
+thoritative sources of medical knowledge. Cur-                      org/abs/2212.10496.
+rently, AMG-RAG retrieves information from di-
+                                                                  Yu Gu, Robert Tinn, Hao Cheng, Michael Lucas, Naoto
+verse sources, including research articles and medi-                Usuyama, Xiaodong Liu, Tristan Naumann, Jianfeng
+cal textbooks. However, as emphasized in clinical                   Gao, and Hoifung Poon. 2021. Domain-specific lan-
+decision-making, treatment guidelines serve as es-                  guage model pretraining for biomedical natural lan-
+sential references for standardized diagnosis and                   guage processing. ACM Transactions on Computing
+                                                                    for Healthcare (HEALTH), 3(1):1–23.
+treatment protocols (Hager et al., 2024). Future
+work on AMG-RAG should focus on integrating                       Paul Hager, Friederike Jungmann, Robbie Holland, Ku-
+structured access to these sources to ensure compli-                nal Bhagat, Inga Hubrecht, Manuel Knauer, Jakob
+                                                                    Vielhauer, Marcus Makowski, Rickmer Braren, Geor-
+ance with evidence-based medicine.                                  gios Kaissis, et al. 2024. Evaluation and mitigation
+                                                                    of the limitations of large language models in clini-
+7   Ethics Statement                                                cal decision-making. Nature medicine, 30(9):2613–
+                                                                    2622.
+The development of LLMs for medical QA requires
+careful ethical consideration due to risks of inaccu-             Hongcheng Huang and Ziyu Dong. 2013. Research
+                                                                    on architecture and query performance based on dis-
+racy and bias. Ensuring the reliability of retrieved                tributed graph database neo4j. In 2013 3rd Interna-
+content is crucial, especially when integrating ex-                 tional Conference on Consumer Electronics, Commu-
+ternal knowledge sources. To mitigate these risks,                  nications and Networks, pages 533–536. IEEE.
+we implement a confidence scoring mechanism                       Xiaofeng Huang, Jixin Zhang, Zisang Xu, Lu Ou, and
+into the MKG to validate the information. How-                      Jianbin Tong. 2021. A knowledge graph based ques-
+ever, bias detection and mitigation remain active                   tion answering method for medical domain. PeerJ
+research areas.                                                     Computer Science, 7:e667.
+                                                                  Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng,
+Acknowledgements                                                    Hanyi Fang, and Peter Szolovits. 2021. What disease
+                                                                    does this patient have? a large-scale open domain
+References                                                          question answering dataset from medical exams. Ap-
+                                                                    plied Sciences, 11(14):6421.
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and
+  Hannaneh Hajishirzi. 2023. Self-rag: Learning to                Hyunjae Kim, Hyeon Hwang, Jiwoo Lee, Sihyeon
+  retrieve, generate, and critique through self-reflection.         Park, Dain Kim, Taewhoo Lee, Chanwoong Yoon,
+  In The Twelfth International Conference on Learning               Jiwoong Sohn, Donghee Choi, and Jaewoo Kang.
+  Representations.                                                  2024. Small language models learn enhanced rea-
+                                                                    soning skills from medical textbooks. arXiv preprint
+Maciej Besta, Robert Gerstenberger, Emanuel Peter,                  arXiv:2404.00376.
+ Marc Fischer, Michał Podstawski, Claude Barthels,                Jinhyuk Lee, Wonjin Yoon, Sungdong Kim, Donghyeon
+ Gustavo Alonso, and Torsten Hoefler. 2023. Demys-                   Kim, Sunkyu Kim, Chan Ho So, and Jaewoo Kang.
+ tifying graph databases: Analysis and taxonomy of                   2020. Biobert: a pre-trained biomedical language
+ data organization, system designs, and graph queries.               representation model for biomedical text mining.
+ ACM Computing Surveys, 56(2):1–40.                                  Bioinformatics, 36(4):1234–1240.
+Zeming Chen, Alejandro Hernández Cano, Angelika                   Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+  Romanou, Antoine Bonnet, Kyle Matoba, Francesco                   Petroni, Vladimir Karpukhin, Naman Goyal, Hein-
+  Salvi, Matteo Pagliardini, Simin Fan, Andreas Köpf,               rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-
+  Amirkeivan Mohtashami, et al. 2023. Meditron-70b:                 täschel, et al. 2020. Retrieval-augmented generation
+  Scaling medical pretraining for large language mod-               for knowledge-intensive nlp tasks. Advances in Neu-
+  els. arXiv preprint arXiv:2311.16079.                             ral Information Processing Systems, 33:9459–9474.
+
+
+                                                              9
+Valentin Liévin, Christoffer Egeberg Hother, An-              Syed Abdul Gaffar Shakhadri, Kruthika KR, and Rak-
+  dreas Geert Motzfeldt, and Ole Winther. 2024. Can             shit Aralimatti. 2024. Shakti: A 2.5 billion pa-
+  large language models reason about medical ques-              rameter small language model optimized for edge
+  tions? Patterns, 5(3).                                        ai and low-resource environments. arXiv preprint
+                                                                arXiv:2410.11331.
+Valentin Liévin, Andreas Geert Motzfeldt, Ida Riis
+  Jensen, and Ole Winther. 2023. Variational open-            Karan Singhal, Shekoofeh Azizi, Tao Tu, S Sara Mah-
+  domain question answering. In International Con-              davi, Jason Wei, Hyung Won Chung, Nathan Scales,
+  ference on Machine Learning, pages 20950–20977.               Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl,
+  PMLR.                                                         et al. 2022. Large language models encode clinical
+                                                                knowledge. arXiv preprint arXiv:2212.13138.
+Jialin Liu, Changyu Wang, and Siru Liu. 2023. Utility
+   of chatgpt in clinical practice. Journal of Medical        Karan Singhal, Shekoofeh Azizi, Tao Tu, S Sara Mah-
+   Internet Research, 25:e48568.                                davi, Jason Wei, Hyung Won Chung, Nathan Scales,
+                                                                Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl,
+Yizhen Luo, Jiahuan Zhang, Siqi Fan, Kai Yang,                  et al. 2023. Large language models encode clinical
+  Yushuai Wu, Mu Qiao, and Zaiqing Nie. 2023.                   knowledge. Nature, 620(7972):172–180.
+  Biomedgpt: Open multimodal generative pre-trained
+  transformer for biomedicine.    arXiv preprint              Karan Singhal, Tao Tu, Juraj Gottweis, Rory Sayres,
+  arXiv:2308.09442.                                             Ellery Wulczyn, Mohamed Amin, Le Hou, Kevin
+                                                                Clark, Stephen R Pfohl, Heather Cole-Lewis, et al.
+Zabir Al Nazi and Wei Peng. 2024. Large language
+                                                                2025. Toward expert-level medical question answer-
+  models in healthcare and medical domain: A review.
+                                                                ing with large language models. Nature Medicine,
+  In Informatics, volume 11, page 57. MDPI.
+                                                                pages 1–8.
+Harsha Nori, Yin Tat Lee, Sheng Zhang, Dean Carig-
+  nan, Richard Edgar, Nicolo Fusi, Nicholas King,             Harsh Trivedi, Niranjan Balasubramanian, Tushar
+  Jonathan Larson, Yuanzhi Li, Weishung Liu, et al.             Khot, and Ashish Sabharwal. 2022. Interleav-
+  2023. Can generalist foundation models outcom-                ing retrieval with chain-of-thought reasoning for
+  pete special-purpose tuning? case study in medicine.          knowledge-intensive multi-step questions. arXiv
+  arXiv preprint arXiv:2311.16452.                              preprint arXiv:2212.10509.
+
+Ankit Pal, Logesh Kumar Umapathi, and Malaikan-               Peng Xia, Kangyu Zhu, Haoran Li, Tianze Wang, Wei-
+  nan Sankarasubbu. 2022a. Medmcqa: A large-scale               jia Shi, Sheng Wang, Linjun Zhang, James Zou,
+  multi-subject multi-choice dataset for medical do-            and Huaxiu Yao. 2024. Mmed-rag: Versatile multi-
+  main question answering. In Proceedings of the Con-           modal rag system for medical vision language mod-
+  ference on Health, Inference, and Learning, volume            els. arXiv preprint arXiv:2410.13085.
+  174 of Proceedings of Machine Learning Research,
+                                                              Rui Yang, Haoran Liu, Edison Marrese-Taylor,
+  pages 248–260. PMLR.
+                                                                Qingcheng Zeng, Yu He Ke, Wanxin Li, Lechao
+Ankit Pal, Logesh Kumar Umapathi, and Malaikan-                 Cheng, Qingyu Chen, James Caverlee, Yutaka
+  nan Sankarasubbu. 2022b. Medmcqa: A large-scale               Matsuo, et al. 2024. Kg-rank: Enhancing large
+  multi-subject multi-choice dataset for medical do-            language models for medical qa with knowledge
+  main question answering. In Conference on health,             graphs and ranking techniques. arXiv preprint
+  inference, and learning, pages 248–260. PMLR.                 arXiv:2403.05881.
+
+Mohammad Reza Rezaei and Adji Bousso Dieng. 2025.             Huizi Yu, Lizhou Fan, Lingyao Li, Jiayan Zhou, Zihui
+ Vendi-rag: Adaptively trading-off diversity and qual-          Ma, Lu Xian, Wenyue Hua, Sijia He, Mingyu Jin,
+ ity significantly improves retrieval augmented gener-          Yongfeng Zhang, et al. 2024. Large language mod-
+ ation with llms. Preprint, arXiv:2502.11228.                   els in biomedical and health informatics: A review
+                                                                with bibliometric analysis. Journal of Healthcare
+Omid Rohanian, Mohammadmahdi Nouriborji,                        Informatics Research, pages 1–54.
+ Samaneh Kouchaki, Farhad Nooralahzadeh, Lei
+ Clifton, and David A Clifton. 2024. Exploring the            Xuejiao Zhao, Siyan Liu, Su-Yin Yang, and Chun-
+ effectiveness of instruction tuning in biomedical              yan Miao. 2025. Medrag: Enhancing retrieval-
+ language processing.      Artificial intelligence in           augmented generation with knowledge graph-elicited
+ medicine, 158:103007.                                          reasoning for healthcare copilot. arXiv preprint
+                                                                arXiv:2502.04413.
+Khaled Saab, Tao Tu, Wei-Hung Weng, Ryutaro Tanno,
+  David Stutz, Ellery Wulczyn, Fan Zhang, Tim                 Hongjian Zhou, Fenglin Liu, Boyang Gu, Xinyu Zou,
+  Strother, Chunjong Park, Elahe Vedadi, et al. 2024.           Jinfa Huang, Jinge Wu, Yiru Li, Sam S Chen, Peilin
+  Capabilities of gemini models in medicine. arXiv              Zhou, Junling Liu, et al. 2023. A survey of large
+  preprint arXiv:2404.18416.                                    language models in medicine: Progress, application,
+                                                                and challenge. arXiv preprint arXiv:2311.05112.
+Diego Sanmartin. 2024. Kg-rag: Bridging the gap
+  between knowledge and creativity. arXiv preprint
+  arXiv:2405.12035.
+
+
+                                                         10
+A    Confidence Scoring for the                               8.5/10 for the clarity and precision of node sum-
+     Relationships in the MKG                                 maries. Confidence scores generally aligned well
+                                                              with the LLMs’s assessments, as illustrated in Ta-
+A confidence score, sij , is assigned to each inferred        bles 5 and 6, which highlight strong relationships
+relationship, reflecting its strength and relevance.          across domains such as ophthalmology, cardiovas-
+The scoring criteria are as follows:                          cular treatments, and dermatology.
+    • 10: The target is directly and strongly re-                In the second phase, blind testing was conducted
+      lated to the item, with clear, unambiguous              to evaluate usability and human-readability. Expert
+      relevance.                                              LLMs were tasked with answering complex med-
+                                                              ical queries requiring multi-hop reasoning, such
+    • 7-9: The target is moderately to highly rele-           as managing comorbidities or determining multi-
+      vant to the item but may have some ambiguity            drug treatment protocols. As shown in Table 5,
+      or indirect association.                                relationships such as the co-usage of Ketotifen and
+                                                              Fluorometholone for allergic conjunctivitis or La-
+    • 4-6: The target has some relevance to the item          betalol and Nitroglycerin for acute hypertension
+      but is weak or only tangentially related.               demonstrated the MKG’s ability to model clini-
+                                                              cally relevant associations effectively. The LLMs
+    • 1-3: The target has minimal or no meaningful
+                                                              achieved a 89% accuracy rate in these test scenar-
+      connection to the item.
+                                                              ios. Additionally, the LLMs rated the MKG 9.4/10
+B    Evaluating the Accuracy and                              for interpretability and usability, underscoring its
+     Robustness of the Medical Knowledge                      strength in visually and contextually representing
+     Graph                                                    complex medical relationships.
+                                                                 To further ensure the clinical relevance and prac-
+The quality and reliability of the dynamically gen-           tical applicability of the MKG, medical experts,
+erated MKG are critical for its effectiveness in              including practicing physicians and clinical re-
+enhancing medical QA systems. To validate the                 searchers, were involved in evaluating the gener-
+accuracy, robustness, and usability of the MKG,               ated relationships and summaries. Unlike LLMs,
+a structured evaluation involving expert LLMs in              medical experts provided qualitative assessments,
+the medical domain, such as GPT medical model,                identifying potential discrepancies, overlooked nu-
+was conducted. This section outlines the method-              ances, and contextual dependencies that automated
+ology used to evaluate the MKG, emphasizing in-               models might miss. The medical experts particu-
+terpretability, clinical relevance, and robustness in         larly assessed:
+real-world applications. Additionally, the role of
+                                                                1. The correctness and completeness of medical
+medical experts in verifying the accuracy and ap-
+                                                                   relationships, ensuring they align with estab-
+plicability of the MKG is discussed, underscoring
+                                                                   lished clinical knowledge and best practices.
+the necessity of human expertise in validating AI-
+driven medical knowledge representations.                       2. The validity of multi-hop reasoning paths, ver-
+    To assess accuracy and robustness, a two-phase                 ifying whether inferred relationships reflected
+evaluation process was employed. In the first phase,               logical clinical decision-making processes.
+a group of expert LLMs specialists in medical do-
+                                                                3. The utility of the MKG in real-world medical
+mains reviewed a subset of the MKG, including
+                                                                   applications, particularly in aiding diagnostic
+dynamically generated nodes, relationships, confi-
+                                                                   and treatment decision-making.
+dence scores, and summaries for various medical
+queries. They evaluated the accuracy of medical                  The feedback from medical experts was instru-
+terms and concepts, the relevance of relationships            mental in refining the graph, addressing inconsis-
+between nodes, the reliability of node summaries,             tencies, and enhancing the confidence scores to bet-
+and the alignment of confidence scores with the per-          ter reflect real-world medical reliability. Notably,
+ceived strength and reliability of the connections.           medical expert ratings aligned well with LLM eval-
+Each LLM independently rated the graph compo-                 uations but provided deeper insights into the con-
+nents on a scale of 1 to 10. The results showed               textual limitations of the graph. For example, while
+an average accuracy score of 8.9/10 for node iden-            LLMs accurately linked Diltiazem and Nitroglyc-
+tification, 8.8/10 for relationship relevance, and            erin in cardiovascular treatment, medical experts
+
+                                                         11
+highlighted additional considerations such as con-           D     Implementation Details for Dataset
+traindications in specific patient populations, which              Ingestion and Vector Database
+were subsequently incorporated into the MKG.
+                                                             This section outlines the pipeline for dataset in-
+  The detailed evaluations in Tables 5 and 6 pro-            gestion and vector database creation for efficient
+vide further insights into the graph’s performance           medical question-answering. The process involves
+across diverse medical domains. For instance, the            document chunking, embedding generation, and
+accurate representation of relationships between             storage in a vector database to facilitate semantic
+beta-blockers like Labetalol and Propranolol or              retrieval.
+the integration of treatments such as Diltiazem
+and Nitroglycerin for cardiovascular care highlight          D.1    Dataset Processing and Chunking
+the MKG’s capacity to support intricate clinical
+                                                             The dataset, sourced from medical textbooks in
+decision-making.
+                                                             the MEDQA benchmark, is provided in plain text
+  These results confirm that the MKG is both                 format. Each document is segmented into smaller
+human-readable and usable by advanced LLMs,                  chunks with a maximum size of 512 tokens and a
+making it an invaluable tool for medical QA and              100-token overlap. This overlap ensures context
+decision-making. The graph’s structured format,              preservation across chunk boundaries, supporting
+enriched with confidence scores and summaries,               multi-hop reasoning for long documents.
+ensures a clear and interpretable representation of
+medical knowledge while enhancing the efficiency             D.2    Embedding Model and Vector Storage
+and accuracy of QA systems in addressing real-               The system utilizes the SentenceTransformer
+world medical scenarios. Moreover, the involve-              model, specifically all-mpnet-base-v2, for gen-
+ment of medical experts in the evaluation process            erating dense vector representations of text chunks
+enhances the credibility of the MKG, ensuring that           and queries. To optimize storage and retrieval,
+AI-driven insights align with clinical expertise and         the embeddings are indexed in the Chroma vector
+practical healthcare applications.                           database. Metadata, such as document filenames
+                                                             and chunk IDs, is also stored to maintain document
+                                                             traceability.
+C    QA Samples with reasoning from
+     MEDQA benchmark                                         D.3    Batch Processing and Vector Database
+                                                                    Population
+This section presents a set of QA samples demon-             To manage memory efficiently during ingestion,
+strating the reasoning paths generated by our pro-           document chunks are processed in batches of up to
+posed AMG-RAG model when applied to the                      10,000. This ensures a smooth ingestion pipeline
+MEDQA dataset. These examples highlight how                  while preventing memory overflow. Each pro-
+the model retrieves relevant content, structures key         cessed file is logged to avoid redundant computa-
+information, and formulates reasoning to guide an-           tions, and error handling mechanisms are in place
+swer selection.                                              to manage failed processing attempts.
+   Table 7 provides an example of how the model
+                                                             D.4    Query Answering Workflow
+processes a clinical case question related to the
+management of acute coronary syndrome (ACS).                 For retrieval, user queries (e.g., "What are the symp-
+The search items retrieved for possible answer               toms of drug-induced diabetes?") are embedded
+choices (e.g., Nifedipine, Enoxaparin, Clopidogrel,          using the all-mpnet-base-v2 model. The top-
+Spironolactone, Propranolol) are accompanied by              ranked relevant chunks are retrieved based on their
+key content excerpts relevant to their roles in ACS          semantic similarity to the query using Chroma’s
+treatment. Additionally, the reasoning pathways il-          similarity search mechanism. The system retrieves
+lustrate how the model synthesizes evidence-based            the top k relevant passages, which can be further
+knowledge to justify the selection of the correct            processed in downstream QA models.
+answer (Clopidogrel), while also explaining why
+the alternative options are not suitable. Additional         D.5    Key Configuration Details
+examples are also provided in Tables 8, 9, and 10            The system is configured with the following param-
+                                                             eters:
+
+                                                        12
+ Source Node        Relationship Type            Target Node          LLM Expert Analysis           Blind Analysis              Medical Expert Analy-
+                                                                                                                                sis
+ Botulism           Directly related as it is    Myasthenia           Rated 9.2/10 for rel-         Demonstrated effective      Rated 9.5/10 for rele-
+                    the target concept.          gravis               evance and clinical           multi-hop reasoning         vance and accuracy, con-
+                                                                      importance, considered        with a 92% accuracy         sidered highly accurate.
+                                                                      highly accurate.              in identifying related
+                                                                                                    conditions.
+ Levodopa           Levodopa is a primary        Parkinson’s dis-     Evaluated as highly re-       Increases       accuracy    Rated 10/10 for rele-
+                    treatment for Parkin-        ease                 liable (9.6/10) for sum-      by 24% in answering         vance and accuracy, con-
+                    son’s disease.                                    marizing medical treat-       queries about Parkin-       sidered highly accurate.
+                                                                      ments and relationships.      son’s treatments and
+                                                                                                    comorbidities.
+ Zidovudine         Zidovudine is an antivi-     HIV/AIDS             Experts rated it 9.4/10       Provided contextually       Rated 10/10 for rele-
+                    ral drug used for HIV                             for interpretability, high-   accurate responses re-      vance and accuracy, con-
+                    treatment.                                        lighting the clear repre-     garding drug interac-       sidered highly accurate.
+                                                                      sentation of the relation-    tions and side effects in
+                                                                      ship.                         queries.
+ Inhibition    of   Cross-linking of DNA         Cross-linking        Rated 9.2/10 for rele-        Demonstrated high ac-       Rated 9/10 for relevance
+ thymidine          is directly related to       of DNA               vance to nucleic acid         curacy in answering         and accuracy, consid-
+ synthesis          thymidine synthesis as                            metabolism and DNA            multi-hop queries re-       ered accurate.
+                    both involve nucleic                              replication.                  lated to DNA synthesis
+                    acid metabolism.                                                                pathways.
+ Hyperstabilization Cross-linking of DNA         Cross-linking        Rated 9.0/10 for high-        Increases the accuracy      Rated 8/10 for moder-
+ of microtubules can be related to the           of DNA               lighting structural modi-     by 20% in scenarios in-     ated relevance.
+                    stabilization of micro-                           fications affecting cellu-    volving cellular struc-
+                    tubules.                                          lar functions.                ture interactions.
+ Generation of Free radicals can lead            Cross-linking        Rated 8.5/10 for its rele-    Accurate in providing       Rated 7.5/10 for rele-
+ free radicals      to oxidative damage, af-     of DNA               vance to oxidative stress     causal explanations for     vance.
+                    fecting DNA integrity                             and DNA damage mech-          oxidative stress and
+                    and function.                                     anisms.                       DNA cross-linking.
+ Renal papillary Allergic         interstitial   Allergic intersti-   Rated 9.0/10 for ex-          Effective in multi-hop      Rated 10/10 for rele-
+ necrosis           nephritis can lead to        tial nephritis       plaining the clinical pro-    reasoning for renal         vance and accuracy, con-
+                    renal damage.                                     gression of renal com-        damage-related queries,     sidered highly accurate.
+                                                                      plications.                   achieving 91% accu-
+                                                                                                    racy.
+
+      Table 5: Examples from the Medical Knowledge Graph (MKG) with Expert and Blind Analysis (Part 1)
+
+
+    • Embedding Model: all-mpnet-base-v2                                        Graph databases, like Neo4j, address this challenge
+      from SentenceTransformer.                                                 by efficiently modeling and processing complex,
+                                                                                evolving data structures using nodes, relationships,
+    • Vector Database: Chroma, stored persis-                                   and properties (Besta et al., 2023).
+      tently on disk for reusability.                                              Neo4j, an open-source NoSQL graph database,
+    • Chunk Size: 512 tokens per chunk, with a                                  enables constant-time traversals by explicitly stor-
+      100-token overlap for contextual consistency.                             ing relationships, making it ideal for large-scale
+                                                                                applications such as social networks, recommen-
+    • Batch Size: Up to 10,000 chunks per batch to                              dation systems, and biomedical research. Unlike
+      optimize ingestion efficiency.                                            relational models, Neo4j avoids costly table joins
+                                                                                and optimizes deep relationship queries, enhancing
+D.6     Implementation and System Execution                                     scalability and performance (Besta et al., 2023).
+The ingestion and query process is implemented us-                                 Neo4j’s architecture is centered around the prop-
+ing Python, leveraging sentence-transformers                                    erty graph model, which includes(Huang and Dong,
+for embeddings and Chroma for vector storage. The                               2013):
+ingestion pipeline reads and processes text files,
+splits them into chunks, generates embeddings, and                                  • Nodes: Entities representing data points.
+stores them efficiently in the vector database. The                                 • Relationships: Directed, named connections
+querying process retrieves the top k most relevant                                    between nodes that define how entities are
+text chunks to respond to user queries.                                               related.
+E     Components Definition                                                         • Properties: Key-value pairs associated with
+E.1     Neo4j                                                                         both nodes and relationships, providing addi-
+                                                                                      tional metadata.
+As data complexity increases, traditional rela-
+tional databases struggle with highly intercon-                                    This model allows for intuitive representation
+nected datasets where relationships are crucial.                                of complex data structures and supports efficient
+
+                                                                          13
+ Source Node       Relationship Type          Target Node         LLM Expert Analysis         Blind Analysis              Medical Expert Analy-
+                                                                                                                          sis
+ Ketotifen   eye Ketotifen eye drops          Fluorometholone Rated 9.2/10 for rele-          Demonstrated 93% ac-        Rated 10/10 for rele-
+ drops           are       antihistamines     eye drops       vance in managing aller-        curacy in multi-hop rea-    vance and accuracy, con-
+                 used for allergic con-                       gic conjunctivitis.             soning for ophthalmo-       sidered highly accurate.
+                 junctivitis, which may                                                       logical conditions.
+                 be used alongside
+                 Fluorometholone for
+                 managing eye allergies.
+ Ketotifen eye Latanoprost eye drops          Latanoprost eye     Rated 9.0/10 for dis-       Effective in identifying    Rated 10/10 for rele-
+ drops           are used to lower in-        drops               tinct yet complementary     separate ophthalmic ap-     vance and accuracy, con-
+                 traocular pressure in                            roles in ophthalmology.     plications with 92% ac-     sidered highly accurate.
+                 glaucoma, while Keto-                                                        curacy.
+                 tifen treats allergic con-
+                 junctivitis.
+ Diltiazem       Nitroglycerin is relevant    Nitroglycerin       Rated 8.8/10 for contex-    Increases the accuracy      Rated 9.5/10 for rele-
+                 in discussions of car-                           tual relevance to cardio-   for    treatment-based      vance and accuracy, con-
+                 diovascular treatments                           vascular management.        queries by 20%.             sidered highly accurate.
+                 alongside Diltiazem.
+ Labetalol       Labetalol is closely re-     Propranolol         Rated 9.5/10 for direct     Highly interpretable re-    Rated 10/10 for rele-
+                 lated to Propranolol,                            relevance in cardiovas-     sponses for hyperten-       vance and accuracy, con-
+                 both managing hyper-                             cular treatment proto-      sion management, with       sidered highly accurate.
+                 tension.                                         cols.                       95% accuracy.
+ Nitroglycerin   Nitroglycerin and La-        Labetalol           Rated 8.7/10 for strong     Supported     effective     Rated 9/10 for relevance
+                 betalol are often used                           relevance in acute hyper-   multi-drug      therapy     and accuracy, consid-
+                 in conjunction for man-                          tension protocols.          reasoning with 90%          ered highly accurate.
+                 aging hypertension and                                                       accuracy.
+                 heart conditions.
+ Nitroglycerin   Nitroglycerin is often       Propranolol         Rated 9.0/10 for its im-    Demonstrated robust         Rated 10/10 for rele-
+                 used with Propranolol                            portance in cardiovascu-    performance in connect-     vance and accuracy, con-
+                 in managing cardiovas-                           lar multi-drug therapy.     ing treatment protocols,    sidered highly accurate.
+                 cular conditions like hy-                                                    with 93% query accu-
+                 pertension and angina.                                                       racy.
+ Fluorometholone Fluorometholone              Ketotifen     eye   Rated 8.8/10 for their      Improved query rele-        Rated 9.5/10 for rele-
+ eye drops       eye drops are corti-         drops               combined application in     vance for multi-drug        vance and accuracy, con-
+                 costeroids that treat                            managing inflammation       therapy in eye care by      sidered highly accurate.
+                 inflammation, comple-                            and allergies.              19%.
+                 menting Ketotifen for
+                 allergic conjunctivitis.
+ Lanolin         Lanolin is used for          Fluorometholone Rated     8.5/10     for        Demonstrated effective      Rated 9/10 for relevance
+                 skin care, particularly      eye drops       highlighting        non-        differentiation of clini-   and accuracy, consid-
+                 for sore nipples during                      overlapping yet clini-          cal uses with high inter-   ered highly accurate.
+                 breastfeeding.                               cally useful contexts.          pretability.
+
+     Table 6: Examples from the Medical Knowledge Graph (MKG) with Expert and Blind Analysis (Part 2)
+
+
+querying and analysis. The system’s internal mech-                         prising approximately 76,681 nodes and 354,299
+anisms facilitate rapid traversal of relationships, en-                    edges. These nodes encompass a comprehensive
+abling swift query responses even in large datasets                        range of medical entities including diseases, symp-
+(Huang and Dong, 2013).                                                    toms, treatments, drugs, anatomical structures, and
+                                                                           clinical findings, all interconnected through seman-
+Does Neo4j-Based Storage scale well? Neo4j’s                               tically meaningful, typed relationships. This sub-
+scalability for our medical knowledge graph stor-                          stantial scale not only reflects the intricate nature
+age is strategically robust, offering several key                          of medical knowledge but also enables more nu-
+advantages for large-scale, relationship-intensive                         anced, multi-hop reasoning capabilities across di-
+medical data. Its graph-based architecture is                              verse medical queries. The graph’s architecture al-
+particularly well-suited for handling highly in-                           lows for dynamic expansion and refinement, ensur-
+terconnected medical knowledge networks, sup-                              ing that the knowledge representation remains both
+porting horizontal scaling that enables efficient                          comprehensive and adaptable to emerging medical
+performance even as the knowledge base grows.                              research and understanding.
+The cloud-based accessibility further enhances the
+framework’s flexibility, allowing seamless knowl-                          F     Additional Results
+edge sharing and distributed access without local
+storage constraints.
+
+How large were the knowledge graphs? Our au-
+tomatically constructed medical knowledge graphs
+demonstrate significant complexity and depth, com-
+
+                                                                      14
+               Search Item/ Ques- Key Content Highlighted          Reasoning Guiding the
+               tion Options                                        Answer
+               Nifedipine         Not typically used for           Nifedipine is a calcium
+                                  acute coronary syndrome          channel blocker effective
+                                  (ACS). Associated with re-       for hypertension but does
+                                  flex tachycardia.                not address the antiplatelet
+                                                                   needs of ACS patients.
+               Enoxaparin               Used for anticoagulation Enoxaparin is not contin-
+                                        in ACS but mainly during ued after discharge when
+                                        hospitalization.           aspirin and another an-
+                                                                   tiplatelet drug are pre-
+                                                                   scribed.
+               Clopidogrel              Standard for dual an- Clopidogrel complements
+                                        tiplatelet therapy (DAPT) aspirin in preventing
+                                        in ACS, especially post- thrombotic events post-
+                                        percutaneous coronary in- angioplasty. Its use is
+                                        tervention (PCI).          supported by evidence-
+                                                                   based guidelines.
+               Spironolactone           Useful in heart failure or This patient’s EF is 58%,
+                                        reduced ejection fraction so spironolactone is not
+                                        but not indicated for ACS necessary. Focus should
+                                        management when EF is be on antiplatelet therapy.
+                                        normal.
+               Propranolol              Effective for reducing my- While beneficial for stress-
+                                        ocardial oxygen demand related heart issues, it
+                                        but not part of standard does not address throm-
+                                        DAPT.                      botic risks in ACS man-
+                                                                   agement.
+
+Table 7: Examples of Summary of search items for the question "A 65-year-old man is brought to the emergency
+department 30 minutes after the onset of acute chest pain. He has hypertension and asthma. Current medications
+include atorvastatin, lisinopril, and an albuterol inhaler. He appears pale and diaphoretic. His pulse is 114/min, and
+blood pressure is 130/88 mm Hg. An ECG shows ST-segment depressions in leads II, III, and aVF. Laboratory
+studies show an increased serum troponin T concentration. The patient is treated for acute coronary syndrome and
+undergoes percutaneous transluminal coronary angioplasty. At the time of discharge, echocardiography shows a left
+ventricular ejection fraction of 58%. In addition to aspirin, which of the following drugs should be added to this
+patient’s medication regimen?" and Their Influence on the Correct Answer (Clopidogrel) and the reasoning paths
+
+
+
+
+                                                         15
+              Search Item/ Ques-      Key Content Highlighted        Reasoning Guiding the
+              tion Options                                           Answer
+              A history of stroke     Contraindicated for hor-       Copper IUDs do not carry
+              or venous throm-        monal contraceptives due       the same thrombotic risk,
+              boembolism              to increased risk of throm-    making this option irrele-
+                                      bosis.                         vant for contraindication
+                                                                     in IUD placement.
+              Current tobacco         Increases cardiovascular       Tobacco use does not
+              use                     risk with hormonal contra-     contraindicate IUD place-
+                                      ceptives but not with cop-     ment, though it may influ-
+                                      per IUDs.                      ence other contraceptive
+                                                                     choices.
+              Active    or    re-     Direct contraindication for    Insertion of an IUD can
+              current      pelvic     IUD placement due to the       worsen active PID, lead-
+              inflammatory            risk of exacerbating infec-    ing to infertility or other
+              disease (PID)           tion and complications.        severe complications.
+              Past medical his-       Contraindicates hormonal       This option does not con-
+              tory of breast can-     contraceptives, but copper     traindicate copper IUD
+              cer                     IUDs are considered safe.      placement, as it is non-
+                                                                     hormonal and unrelated to
+                                                                     breast cancer.
+              Known liver neo- Contraindicates hormonal              Copper IUDs are safe for
+              plasm            contraceptives but not cop-           patients with liver neo-
+                               per IUDs.                             plasms as they are free of
+                                                                     systemic hormones.
+
+Table 8: Examples of Summary of Search Items for the Question "A 37-year-old-woman presents to her primary
+care physician requesting a new form of birth control. She has been utilizing oral contraceptive pills (OCPs) for
+the past 8 years, but asks to switch to an intrauterine device (IUD). Her vital signs are: blood pressure 118/78
+mm Hg, pulse 73/min and respiratory rate 16/min. She is afebrile. Physical examination is within normal limits.
+Which of the following past medical history statements would make copper IUD placement contraindicated in this
+patient?" and Their Influence on the Correct Answer (Active or recurrent pelvic inflammatory disease (PID)) and
+the Reasoning Paths
+
+
+
+
+                                                      16
+              Search Item/ Ques- Key Content Highlighted               Reasoning Guiding the
+              tion Options                                             Answer
+              Dementia           Typically presents as a               The sudden onset of symp-
+                                 gradual decline in cogni-             toms after surgery and
+                                 tive function.                        acute confusion makes de-
+                                                                       mentia less likely.
+              Alcohol         with- Requires significant and           The patient’s weekly con-
+              drawal                sustained alcohol use to           sumption of one to two
+                                    cause withdrawal symp-             glasses of wine is insuffi-
+                                    toms.                              cient to support this diag-
+                                                                       nosis.
+              Opioid   intoxica- Oxycodone can cause se-               While oxycodone use is
+              tion               dation and confusion, but             relevant, the observed fluc-
+                                 stable vital signs and lack           tuating agitation and im-
+                                 of severe respiratory de-             pulsivity are more consis-
+                                 pression are inconsistent.            tent with delirium.
+              Delirium           Characterized by acute                The patient’s recent
+                                 changes in attention and              surgery, medication use,
+                                 cognition with fluctuating            and fluctuating symptoms
+                                 levels of consciousness.              align strongly with a
+                                                                       diagnosis of delirium.
+              Urinary tract in- Confusion in elderly pa-               The absence of urinary
+              fection (UTI)     tients can result from                 findings on examination
+                                UTIs, but a normal urine               makes UTI less likely as
+                                dipstick test does not sup-            the cause of symptoms.
+                                port this.
+
+Table 9: Examples of Search Items for the Question: "Six days after undergoing surgical repair of a hip fracture, a
+79-year-old woman presents with agitation and confusion. Which of the following is the most likely cause of her
+current condition?" and Their Influence on the Correct Answer (Delirium) and the Reasoning Paths.
+
+
+
+
+                                                        17
+               Search Item/ Ques- Key Content Highlighted                   Reasoning Guiding the
+               tion Options                                                 Answer
+               Primary sperma- Nondisjunction events dur-                   Klinefelter      syndrome
+               tocyte             ing meiosis I often occur                 (47,XXY) is typically due
+                                  at this stage, leading to                 to nondisjunction during
+                                  chromosomal abnormali-                    meiosis, specifically at
+                                  ties.                                     this stage.
+               Secondary sper- Meiosis II occurs here, di-                  The chromosomal abnor-
+               matocyte           viding chromosomes into                   mality associated with
+                                  haploid cells, but errors at              Klinefelter syndrome usu-
+                                  this stage are less likely to             ally arises before this
+                                  lead to 47,XXY.                           stage.
+               Spermatid          Spermatids are post-                      Errors at this stage would
+                                  meiotic cells where                       not result in a cytogenetic
+                                  genetic material is already               abnormality like 47,XXY.
+                                  finalized.
+               Spermatogonium     Errors here affect the                     While germline mutations
+                                  germline but are less likely               can occur, meiotic nondis-
+                                  to cause specific meiotic                  junction leading to Kline-
+                                  nondisjunction errors.                     felter syndrome occurs
+                                                                             later.
+               Spermatozoon              These are fully mature              By this stage, chromoso-
+                                         sperm cells that inherit            mal errors have already
+                                         abnormalities from earlier          been established.
+                                         stages.
+
+Table 10: Examples of Search Items for the Question: "A 29-year-old man with infertility, tall stature, gynecomastia,
+small testes, and an elevated estradiol:testosterone ratio is evaluated. Genetic studies reveal a cytogenetic abnormality
+inherited from the father. At which stage of spermatogenesis did this error most likely occur?" and Their Influence
+on the Correct Answer (Primary spermatocyte) and the Reasoning Paths.
+
+ Example 1      Question: A 29-year-old man presents with infertility. He has been trying to conceive for over 2 years. His
+                wife has no fertility issues. Exam shows tall stature, long limbs, sparse body hair, gynecomastia, and small
+                testes. Labs reveal elevated FSH and a high estradiol:testosterone ratio. Cytogenetic analysis indicates a
+                chromosomal abnormality. If inherited from the father, during which stage of spermatogenesis did this error
+                most likely occur?
+                Choices: A: Primary spermatocyte, B: Secondary spermatocyte, C: Spermatid, D: Spermatogonium, E:
+                Spermatozoon
+                Answer: A (Primary spermatocyte)
+                Reasoning: This corresponds to an error in meiosis I during the father’s spermatogenesis, consistent with
+                Klinefelter syndrome due to paternal nondisjunction.
+                Retrieved Papers: 1) Black et al., *The Genetic Landscape of Male Factor Infertility*, Uro, 2025. 2) Niyaz
+                et al., *Chromosome Disorders in Sperm Anomalies*, 2025. 3) Leslie et al., *MNS1 variant and Male
+                Infertility*, EJHG, 2020.
+ Example 2      Question: A 23-year-old woman is referred for genetic counseling after her brother is diagnosed with
+                hereditary hemochromatosis. She is asymptomatic and her labs are normal. Which gene mutation is most
+                consistent with hereditary hemochromatosis?
+                Choices: A: BCR-ABL, B: BRCA, C: FA, D: HFE, E: WAS
+                Answer: D (HFE gene)
+                Reasoning: Most hereditary hemochromatosis cases in Northern European populations are caused by HFE
+                mutations (C282Y, H63D). Even asymptomatic individuals with normal iron studies should be screened if
+                they have an affected first-degree relative.
+                Retrieved Papers: 1) Delatycki & Allen, *Population Screening for HH*, Genes, 2024. 2) Lou et al., *Utility
+                of Iron Indices in HH Genotyping*, Clin. Biochem., 2025. 3) Lucas et al., *HFE Genotypes and Outcomes*,
+                BMJ Open, 2024.
+
+Table 11: Examples of AMG-RAG-generated answers with structured reasoning and citation-based grounding for
+clinical QA.
+
+
+                                                            18
+

@@ -1,0 +1,1392 @@
+                                                    Scaling Behavior of Single LLM-Driven Multi-Agent Systems
+                                                  Jialing Li             Zhouhong Gu                                           Yin Cai
+                                               Fudan University         Fudan University                                   Fudan University
+                                         jialingli22@m.fudan.edu.cn zhgu22@m.fudan.edu.cn                              ycai25@m.fudan.edu.cn
+
+                                                                                        Hongwei Feng*
+                                                                                        Fudan University
+                                                                                     hwfeng@fudan.edu.cn
+
+                                                                Abstract                             generation, complex reasoning, and decision-
+                                                                                                     making, establishing themselves as the core foun-
+
+
+
+
+arXiv:2606.00655v1 [cs.MA] 30 May 2026
+                                              The burgeoning field of LLM-based Multi-               dation for constructing intelligent systems, often
+                                              Agent Systems (MAS) promises to tackle com-            referred to as "agents". Though individual agent
+                                              plex tasks through collaborative intelligence,         has exhibited excellent problem-solving ability in
+                                              yet fundamental questions regarding their scal-
+                                                                                                     expansive fields with performance enhanced—for
+                                              ing behavior and intrinsic collective dynamics
+                                              remain underexplored. This paper systemat-             instance, through Chain-of-Thought (CoT) prompt-
+                                              ically investigates how the performance of a           ing (Wei et al., 2022) to elicit step-by-step reason-
+                                              homogeneous MAS evolves as the number of               ing, or by enabling models to leverage external
+                                              agents increases, isolating the variable of col-       APIs via frameworks like Toolformer (Schick et al.,
+                                              laboration from model or knowledge hetero-             2023), however, many real-world challenges, such
+                                              geneity. We propose the Sequential Iterative           as sophisticated software development or multi-
+                                              Multi-Agent System (SIMAS) framework, a
+                                                                                                     faceted problem-solving, inherently require col-
+                                              minimalist architecture centered on sequential
+                                              inter-agent communication, to clearly observe
+                                                                                                     laborative efforts. This necessity has driven the
+                                              scaling effects. Through extensive experiments         emergence of LLM-based Multi-Agent Systems
+                                              across diverse tasks and model scales, we es-          (MAS), a field that has rapidly evolved from early
+                                              tablish that MAS performance does not scale            exploratory frameworks to complex systems (Xi
+                                              monotonically with agent count but follows a           et al., 2023; Luo et al., 2025), where multiple
+                                              pattern of diminishing returns, governed by a          agents interact to achieve common goals.
+                                              trade-off between collaborative synergy and co-           In MAS, collaboration enables agents to share
+                                              ordination overhead. Our findings reveal that
+                                                                                                     knowledge, assign specialized roles, and in-
+                                              effective MAS requires a sufficiently capable
+                                              base LLM, that task type critically modulates          tegrate their complementary strengths, thereby
+                                              the optimal agent count, and that collective in-       tackling tasks beyond the scope of any single
+                                              telligence is an emergent property contingent          agent—ranging from handling extensive contexts
+                                              on strategic interaction design rather than a          (Zhang et al., 2025) to complex social simulations
+                                              guaranteed outcome of agent plurality. The             (Qian et al., 2023). This vision is supported by a
+                                              performance degradation stems coordination             growing series of frameworks: AutoGen (Wu et al.,
+                                              overhead rather than merely long-context fail-
+                                                                                                     2023) facilitates customizable agent conversations,
+                                              ure, and the scaling tendency generalizes across
+                                              interaction architectures like structured debate
+                                                                                                     CAMEL (Li et al., 2023) explores role-playing for
+                                              topologies. This work provides a foundational          idea exploration, and MetaGPT (Hong et al., 2023)
+                                              understanding of MAS scaling laws, offering            assigns standardized workflows to simulate a soft-
+                                              practical guidance for designing efficient col-        ware company. These systems often deploy agents
+                                              laborative systems and challenging the prevail-        as "reasoning experts" or "fact-checkers" to boost
+                                              ing assumption that more agents invariably lead        collective output. However, despite these engineer-
+                                              to better performance.                                 ing advances and recent efforts to probe the robust-
+                                                                                                     ness of agent communication (He et al., 2025), a
+                                         1    Introduction                                           fundamental scientific understanding of MAS col-
+                                                                                                     lective behavior remains under-explored. First, in
+                                         In recent years, Large Language Models (LLMs)
+                                                                                                     order to isolate the scaling effects of collaboration
+                                         have demonstrated remarkable capabilities in text
+                                                                                                     without the confounding variable of model hetero-
+                                             * Corresponding author                                  geneity, we ask: when all agents are built using
+
+                                                                                                 1
+Figure 1: Workflow of the SIMAS. A group of n agents (a1 , a2 , ..., an ), each configured with a distinct profile
+(personality, core beliefs, expertise), engages in T rounds of sequential discussion. In each round, every agent
+generates a response based on the progressively accumulated conversation history hi−1,t , which monotonically
+expands to hn,t . After T rounds, the first agent a1 synthesizes the final output o from the complete history hn,T .
+
+
+the same underlying language model, does increas-             fective MAS. We observe that only models above
+ing the number of agents consistently improve the             a certain performance threshold (typically larger-
+system’s performance? Second, are there common                scale models) can effectively power MAS. LLM-
+patterns in how these systems operate, regardless             based MAS scalability is governed by a fundamen-
+of how they are designed? Third, how do the col-              tal trade-off between collaborative synergy and co-
+laboration of MAS differ from the reasoning of a              ordination overhead. This reframes the goal from
+single agent?                                                 "more agents" to "optimal number," highlighting
+                                                              that excessive collaboration can be detrimental, par-
+   To provide a systematic analysis of the scaling
+                                                              ticularly in reasoning-intensive tasks where focus
+laws in collaboration of MAS, we establish a inves-
+                                                              and coherence are critical; performance degrada-
+tigation into how the performance of MAS evolves
+                                                              tions derive from coordination overhead rather than
+as the number of agents increases. We propose the
+                                                              merely long-context failure, and the tendency gen-
+Sequential Iterative Multi-Agent System (SIMAS)
+                                                              eralizes across interaction architectures like struc-
+framework, which strips away scenario-specific
+                                                              tured debate topologies. Collective intelligence in
+components and retains only sequential inter-agent
+                                                              MAS is an emergent property contingent on inter-
+communication as its core mechanism. This de-
+                                                              action architecture, not an automatic outcome of
+sign minimizes architectural complexity, enabling
+                                                              agent plurality. Without strategic architectural de-
+clear observation of performance scaling with agent
+                                                              sign, an MAS risks achieving only the illusion of
+count and identification of general patterns in MAS.
+                                                              collaboration while failing to surpass the capabili-
+Through a rigorous comparison between MAS and
+                                                              ties of a well-prompted individual.
+single-agent baselines, we aim to quantitatively de-
+lineate the boundaries where collaboration yields
+positive returns versus where it introduces dimin-
+ishing returns.
+  Our investigation yields several principal find-
+ings: Model capability is a prerequisite for ef-
+
+                                                          2
+2     Related Works                                           Conversely, other recent studies have begun to
+                                                           critically examine the inherent vulnerabilities of
+2.1    Architectures for Multi-Agent
+                                                           MAS as they scale. (Flint et al., 2025) investigate
+       Collaboration
+                                                           group size effects, revealing that expanding agent
+The foundation of MAS lies in defining how agents          counts can paradoxically exacerbate collective mis-
+interact to extend the capabilities of individual          alignment and consensus failure. Similarly, (Cemri
+LLM. Early research focused on unstructured com-           et al., 2025) provide a comprehensive taxonomy of
+municative frameworks. For instance, CAMEL                 why MAS fail, highlighting critical issues such as
+(Li et al., 2023) introduced "inception prompting"         reasoning fragmentation, compounding hallucina-
+to facilitate autonomous role-playing, demonstrat-         tions, and cascading errors during complex inter-
+ing that distinct personas can guide solution explo-       actions. Complementary to the coordination over-
+ration. Building on this, AutoGen (Wu et al., 2023)        head perspective, a concurrent work by (Shehata
+provided a flexible infrastructure for dynamic con-        and Li, 2026) reveals an orthogonal failure mode:
+versations between agents, while MetaGPT (Hong             the algorithmic “Bystander Effect” in MAS, where
+et al., 2023) incorporated Standard Operating Pro-         simulated social pressure triggers cognitive loafing:
+cedures (SOPs) with rigid role assignments to              agents abandon independent reasoning to sycophan-
+streamline complex workflows like software gen-            tically comply with swarm consensus even when
+eration. Similarly, AgentVerse (Chen et al., 2023)         internally deriving correct answers. Together, these
+and the recent Agent-Pro (Zhang et al., 2024) in-          works establish that multi-agent collaboration faces
+troduce iterative optimization mechanisms, where           both coordination and social-psychological chal-
+agents engage in "reflect-and-refine" loops to cor-        lenges, with effective MAS requiring architectural
+rect errors dynamically.                                   safeguards against both.
+   Despite the diversity of existing multi-agent ar-          While these studies offer crucial insights, they
+chitectures, they all fundamentally rely on a core         leave a critical gap in understanding the raw, un-
+collaborative process involving iterative commu-           mitigated scaling dynamics of MAS. Our work
+nication, shared contextual memory, and sequen-            bridges this gap by introducing the SIMAS frame-
+tial reasoning (Xi et al., 2025, 2023; Guo et al.,         work as a deliberate, minimalist control group. By
+2024). Advanced mechanisms such as dynamic                 intentionally stripping away complex topologies,
+reflection are merely engineering scaffolds to mit-        information-filtering mechanisms, and structured
+igate the inherent friction of this core, meaning          aggregation, SIMAS utilizes pure sequential com-
+all such systems belong to the same interactive            munication with progressive history accumulation
+paradigm (Talebirad and Nadiri, 2023). By design-          to empirically quantify the tension collaborative
+ing SIMAS as a minimalist system that isolates this        synergy and coordination overhead to demonstrate
+core (Xi et al., 2025), we reveal that the trade-off       the scaling behavior of unstructured multi-agent
+between collaborative synergy and coordination             dialogue.
+overhead is a universal property of all multi-agent
+systems, challenging the assumption that adding            3     Methodology
+more agents always improves performance and un-
+                                                           3.1    Preliminaries
+derscoring the importance of architectural design.
+                                                           To provide a clear overview of our research ques-
+2.2    Scaling Behavior in Multi-Agent Systems             tion, we first define the notations and the mathemat-
+Recently, the community has begun to formally              ical formulation of the Multi-Agent System (MAS).
+investigate the scaling laws and inherent limita-          The key symbols used throughout this paper are
+tions of LLM-based Multi-Agent Systems (MAS).              listed in Table 1.
+A notable concurrent work (Qian et al., 2025) ex-          Definition 1 (Multi-Agent System Formulation).
+plores scaling multi-agent collaboration by struc-         The multi-agent system M is formally defined as a
+turing agents into a Directed Acyclic Graph (DAG)          sextuple:
+topology, termed MacNet. By enforcing localized
+information passing they successfully mitigate con-                    M = ⟨A, Q, H, T, Π, O⟩
+text explosion and observe a logistic growth pattern
+as the system scales to hundreds or thousands of           where A = {a1 , a2 , . . . , an } denotes the set of
+agents.                                                    agents, with n ∈ N+ representing the number of
+
+                                                       3
+ Symbol   Definition                                                    Algorithm 1 Multi-Agent Collaborative Process
+ Q        Input question space                                          Require: Question q ∈ Q, agent set A, rounds T
+ q        A specific input question instance (q ∈ Q)
+ A        The set of agents {a1 , a2 , . . . , an }                     Ensure: Final answer o
+ n        Total number of agents                                         1: Initialize history h0 ← {q}
+ T        Total number of discussion rounds                              2: for round t = 1 to T do
+ H        Conversation history space
+ hi,t     Specific conversation history after agent ai in round t        3:     for each agent ai ∈ A do
+ Π        Response generation function (LLM)                             4:          ri,t ← Π(hi−1,t , ai )     ▷ Generate
+ O        Output space                                                      response based on current history
+ o        Final answer instance (o ∈ O)
+                                                                         5:          hi,t ← hi−1,t ∪ {ri,t }      ▷ Update
+  Table 1: Notations used in the SIMAS framework.                           conversation history
+                                                                         6:     end for
+                                                                         7: end for
+agents; Q denotes the input question space; H                            8: return Π(hn,T , a1 )    ▷ First agent generates
+denotes the conversation history space; T ∈ N+                              final answer based on complete history
+denotes the number of discussion rounds; Π : H ×
+A → R denotes the response generation function,
+where R is the response space; and O : H → A                            3.3    Setting of Single Agent
+denotes the final answer synthesis function.
+                                                                        In this experiment, each agent ai ∈ A was driven
+3.2     The SIMAS Framework                                             by LLM and assigned descriptions, personalities,
+                                                                        beliefs, and strengths, with the descriptions set as
+Based on the formulation above, we designed a
+                                                                        "the i-th assistent in the group chat" and therefore
+specific implementation named Sequential Iterative
+                                                                        not considered as influencing factors. All agents
+Multi-Agent-System (SIMAS). This framework
+                                                                        are powered by the same LLM, sharing identical
+deliberately preserves only sequential inter-agent
+                                                                        model parameters and knowledge base. To intro-
+communication as a primary and minimalist base-
+                                                                        duce diversity in reasoning styles, each agent is
+line for MAS. The process is structured as follows:
+                                                                        assigned a unique profile before the discussion be-
+The discussion is conducted over T rounds (default
+                                                                        gins.
+3 rounds). In each round, every agent generates
+                                                                           The profile consists of three attributes: personal-
+a response based on the original question and the
+                                                                        ity, core beliefs, and expertise. Personality is a gen-
+entire conversation history from all previous agents
+                                                                        eral disposition (e.g., "Skeptical" or "Aggressive")
+and rounds.
+                                                                        that guides the tone and focus of their reasoning,
+Property 1 (Sequential Communication). The sys-                         expertise is a specific domain of knowledge (e.g.,
+tem employs sequential inter-agent communication                        "Data Interpretation" or "Logical Reasoning") they
+within each round:                                                      are instructed to prioritize, and core beliefs are a
+                                      n
+                                      [                                 set of principles (e.g., "Precision outweighs speed")
+ ∀t ∈ [1, T ],     hn,t = h1,t ∪            {Π(hi−1,t , ai )}           that influence their approach to problem-solving.
+                                      i=2                                  These attributes are automatically generated by
+Property 2 (Progressive History Accumulation).                          the language model for each agent to simulate a
+The conversation history grows monotonically in                         group of diverse experts. The specific configura-
+one round:                                                              tions and formal definitions of agent attributes are
+                                                                        detailed in Appendix A.
+        ∀t ∈ [1, T ], h1,t ⊂ h2,t ⊂ · · · ⊂ hn,t
+                                                                        4     Experiments
+   After all agents have responded in a round, the
+process repeats for the next round, ensuring each                       4.1    Experimental Setup
+agent has multiple opportunities to contribute to                       To systematically examine the scaling effects of
+the discussion. The final answer is synthesized by                      agent collaboration, we vary the number of agents
+the first agent based on the complete conversation                      n from 1 to 8 in increments of 1. This granular
+history. The whole process of our MAS can be                            range allows us to capture the nuanced relationship
+seen in Alg. 1 and Figure 1. Formal definitions of                      between team size and performance, and it directly
+system output and agent configuration are provided                      aligns with the practical band of deployed MAS
+in Appendix A.                                                          like AutoGen, where the synergy–overhead trade-
+
+                                                                    4
+                                                              plines (see Table 3) and sample 17 questions each
+                                                              to balance efficiency with robustness. Each experi-
+                                                              mental configuration is repeated three times, with
+                                                              results averaged to ensure stability.
+                                                                 We employ two widely-used, open-source model
+                                                              families: Llama-3.1 (AI, 2024) and Qwen2.5 (Yang
+                                                              et al., 2024). To understand the impact of model
+                                                              scale, we use versions with 8B/7B and 70B/72B
+                                                              parameters from each family, and due to computa-
+                                                              tional cost and inference speed constraints, we did
+Figure 2: Result of models with small parameters on all       not evaluate larger models beyond 70B parameters.
+subjects                                                      These models provide a strong baseline for general-
+                                                              purpose reasoning, allowing for a clear analysis of
+                                                              multi-agent scaling effects with balance of capabil-
+                                                              ities and generation speed.
+                                                                 To isolate the contribution of each attribute, we
+                                                              compare this baseline against four alternative con-
+                                                              figurations: one lacking all three attributes, and
+                                                              three configurations each removing exactly one of
+                                                              the three attributes. This structured ablation en-
+                                                              ables us to analyze how each factor contributes to
+                                                              system performance and stability. For these abla-
+                                                              tion studies, we specifically use the Llama-3.1-70B
+Figure 3: Result of models with large parameters on all       model with agent number n ∈ {2, 4, 6, 8}, chosen
+subjects                                                      to represent key points in the scaling range while
+                                                              reducing experimental overhead.
+                                                                 To address the potential confound between agent
+off is most critical. Regarding agent configurations,         count and context length, we conduct a con-
+we established a baseline condition where agents              trolled token-padding experiment (Section 4.3)
+possess personality traits, expertise, and beliefs.           where total input length is fixed across all agent
+   For performance evaluation, we employ three                counts using neutral filler tokens. To assess cross-
+complementary benchmarks, each targeting dis-                 architectural generality, we implement a parallel
+tinct cognitive capabilities:        The Massive              AutoGen GroupChat debate baseline (Section 4.4)
+Multitask Language Understanding (MMLU)                       with the same model–dataset combinations.
+dataset (Hendrycks et al., 2021), covering 57 di-
+verse subjects across STEM, humanities, and social            4.2    Experimental Results and Analysis
+sciences, to assess general knowledge and broad
+                                                              To investigate the scaling behavior of MAS perfor-
+reasoning capabilities. The E-KAR dataset (Luo
+                                                              mance A(Mn ) with respect to agent count n, we
+et al., 2022), specifically designed for evaluating
+                                                              first establish a criterion to distinguish productive
+analogical reasoning through entity-based knowl-
+                                                              collaboration from mere agent plurality.
+edge graph analogies. The AIME 2025 (Mathe-
+matical Association of America, 2025) competition             Definition 2 (sufficiently driven). For a given task
+problems, consisting of advanced mathematical rea-            T with evaluation metric A : M → [0, 1] measur-
+soning challenges, which we use in Section 5 to               ing accuracy, let A(Mn ) denote the accuracy of
+compare MAS against single-agent reasoning on                 the system with n agents.
+highly complex tasks.                                           Given a set of experimental conditions C held
+   Note that in Section 5 for external literature com-        constant, M is said to be sufficiently driven if and
+parison, we will exclusively reference additional             only if:
+datasets such as GSM8K, MATH, and AIME
+2024 and the data is directly cited from (Gu et al.,                ∃ n1 , n2 ∈ N, n1 ̸= n2 , n1 , n2 ≥ 2
+2025) rather than our own primary experiments.
+   From MMLU, we select 6 representative disci-               A(Mn1 ) ≥ A(M1 )         and   A(Mn2 ) ≥ A(M1 )
+
+                                                          5
+(a) Performance on Abstract Algebra      (b) Performance on Philosophy           (c) Performance on Formal Logic
+
+Figure 4: Task-type modulation of scaling on Llama-3.1-70B and Qwen2.5-72B. Reasoning tasks suffer sharp
+declines post-peak; knowledge tasks show more tolerance.
+
+
+   where the comparison is performed under iden-
+tical conditions C.
+   The rationale is twofold: the first point requires
+that the global peak is achieved by a multi-agent
+configuration (n ≥ 2); the second precludes a sin-
+gle spurious spike from statistical noise. A system
+failing this condition exhibits monotonic degrada-
+tion, which is intrinsically linked to base model
+capability—small models (7B/8B) consistently fail
+(Figure 2).
+    Finding 1
+
+   If a MAS is sufficiently driven, the per-
+   formance will scale with diminishing re-                 Figure 5: Model Type Impact on College Physics for
+   turns, following an inverted-U relation-                 Models with Large Parameters
+   ship with agent count.
+
+   For sufficiently driven MAS, performance
+initially improves due to collaborative syn-
+ergy—diverse perspectives and mutual error cor-
+rection—but peaks at an optimal n∗ . Beyond
+this point, coordination overhead (information re-             We use Llama-3.1-70B and Qwen-2.5-72B for
+dundancy, conflicting reasoning paths) dominates            analyzing task-type effects. Figures 4a to 4c show
+and causes decline. This overhead is quantifiable:          that scaling is fundamentally mediated by task char-
+within SIMAS, token cost scales quadratically with          acteristics. In logical reasoning domains (abstract
+n (Figure 3). The location of n∗ and decline steep-         algebra, formal logic), accuracy drops substantially
+ness are modulated by several factors analyzed be-          with more agents (27.45% from n=1 to n=8 for
+low.                                                        Llama-3.1-70B), as reasoning chains are sensitive
+   To illustrate the impact of model scale, we com-         to information redundancy and inconsistent reason-
+pared the experimental results of large-parameter           ing paths. Conversely, fact retrieval tasks (global
+models and small-parameter models across all dis-           facts, philosophy) exhibit more complex patterns
+ciplines, with a particular focus on the representa-        where initial declines can be partially mitigated at
+tive case of College Physics for detailed analysis.         higher agent counts through knowledge diversity.
+Results are demonstrated in Figure 2 and 3. More            Notably, Llama-3.1-70B on Philosophy exhibits
+detailed information is shown in the Appendix D.2.          a U-shaped recovery at larger n—a phenomenon
+                                                            driven by redundant majority consensus statisti-
+    Finding 2
+                                                            cally suppressing earlier noise rather than genuine
+   Task type dictates the optimal agent num-                collaborative intelligence, as we will elaborate with
+   ber size and tolerance for scaling.                      a case in Appendix C. Qualitative analysis and com-
+                                                            plete results are in Appendix E.4 and D.3.
+
+                                                        6
+      Finding 3
+
+      When the number of agents in MAS is
+      overly large, it will exhibit "pseudo sta-
+      bility" due to its poor performance.
+
+  Output stability generally decreases as agent
+count increases. However, beyond a certain                    Figure 6: Qwen2.5-72B under fixed context length. The
+point, stability may paradoxically improve (Fig-              inverted-U pattern persists under fixed context length.
+ures 4a, 4b, 4c)—a state we term pseudo-stability,
+occurring not from robust collaboration but from
+consistent failure.
+   Cross-model comparison reveals that while the
+inverted-U pattern is consistent across model fami-
+lies, the specific n∗ , peak performance, and output
+stability vary (Appendix D.2). Ablation studies
+confirm that agent profile attributes shift absolute
+performance and stability but do not alter the fun-           Figure 7: Llama3.1-70B under AutoGen debate. The
+damental inverted-U law, underscoring that the law            inverted-U pattern persists under AutoGen’s structured
+is governed by interaction dynamics inherent to               debate topology.
+collaboration (Appendix D.5).
+
+4.3     Decoupling Agent Count from Context                       Finding 5
+        Length
+                                                                  Structured debate architectures can raise
+Increasing n in SIMAS also lengthens the total                    peak performance and partially delay de-
+context, and to decouple these factors, we pad con-               cline, but do not eliminate the fundamen-
+versation history with neutral filler tokens to a fixed           tal inverted-U trade-off.
+total length.
+      Finding 4                                                  As shown in Figure 7, AutoGen achieves peak
+                                                              accuracies of 75.00% on Abstract Algebra (n=4, 5)
+      Performance degradation is causally
+                                                              and 70.59% on College Physics (n=5), modestly
+      driven by coordination overhead rather
+                                                              higher than SIMAS’s corresponding peaks. How-
+      than long-context failure.
+                                                              ever, the inverted-U pattern is preserved: Abstract
+                                                              Algebra collapses to 50.00% at n=6, and Philoso-
+   As shown in Figure 6, the inverted-U pattern               phy declines monotonically from 94.12% (n=2) to
+remains clearly visible for Qwen2.5-72B across                86.67% (n=8). AutoGen runs exhibited substan-
+three MMLU subjects. Abstract Algebra rises from              tially lower variance than SIMAS, yet the same
+60.78% (n=2) to a peak of 72.55% (n=4) before                 macroscopic pattern emerges.
+declining to 64.71% (n=8); Philosophy peaks at
+98.04% (n=4, 6); College Physics sustains 72.55%
+over n=3–6 before dropping at n=8.                            5   Comparison with Reasoning
+
+4.4     Cross-Architecture Validation with
+                                                              We now benchmark our SIMAS framework against
+        AutoGen
+                                                              a strong single-agent baseline: CoT prompting,
+To test whether the inverted-U law generalizes be-            which utilizes the same underlying LLM to pro-
+yond SIMAS’s sequential chain topology, we im-                duce a step-by-step reasoning trace followed by a
+plement a parallel GroupChat debate system using              final answer within a single pass. This comparison
+AutoGen (Wu et al., 2023), which employs a fully              tests whether minimalist multi-agent collaboration
+connected communication topology with dynamic                 reliably outperforms focused single-agent reason-
+speaker selection. We test Llama3.1-70B under                 ing from the same LLM. Concrete prompts are
+identical conditions.                                         provided in Appendix E.1.
+
+                                                          7
+          Architecture                Model             GSM8K       MATH (L1–L5)         AIME 2024
+          Naive-CoT                Qwen2.5-72B           75.13       77.65–63.68            10.0
+                                   Llama-3.1-70B         87.33       88.82–80.77            16.7
+          ReAct                    Qwen2.5-72B           52.76       35.88–28.21             3.3
+                                   Llama-3.1-70B         20.09        11.76–4.27             0.0
+          AutoGen                  Qwen2.5-72B           81.80       85.29–71.79            16.7
+                                   Llama-3.1-70B         85.21       92.94–82.48            20.0
+          Multi-Agent Debate       Qwen2.5-72B           75.81       79.41–66.24            16.7
+                                   Llama-3.1-70B         90.82       92.94–85.90            20.0
+
+Table 2: Performance comparison of different reasoning and collaboration architectures across mathematical
+benchmarks. The data is from (Gu et al., 2025). Results demonstrate that sophisticated multi-agent architectures
+(AutoGen, Debate) can surpass single-agent CoT, while simpler paradigms (ReAct, SIMAS) struggle.
+
+
+
+
+Figure 8: CoT vs. SIMAS on AIME 2025. SIMAS fails           Figure 9: Win-rate comparison on coding tasks.
+catastrophically on complex multi-step reasoning.           SIMAS shows a model-dependent, marginal advantage.
+
+
+   Finding 6                                                    Finding 7
+
+   For reasoning tasks, the primary failure                     The value of multi-agent collaboration is
+   mode of minimalist MAS is the fragmen-                       not automatic but is engineered through
+   tation of coherent thought.                                  specific interaction architectures.
+
+   On reasoning-intensive benchmarks such as ab-             The frequent underperformance of SIMAS ver-
+stract algebra (Figure. 20a) and AIME 2025 (Fig-            sus CoT clarifies that collective intelligence is an
+ure. 8), CoT consistently matches or significantly          emergent property of interaction architecture, not
+surpasses the best SIMAS configuration. The                 a guaranteed outcome of agent plurality. As sum-
+performance gap widens with problem complex-                marized in Table 2, frameworks like AutoGen (Wu
+ity, with SIMAS failing catastrophically on AIME            et al., 2023) and Multi-Agent Debate (Liang et al.,
+problems. This failure mode stems from the frag-            2023) incorporating structured workflows and criti-
+mentation of coherent reasoning chains across se-           cal evaluation loops surpass single-agent CoT on
+quential agent turns: without a dedicated mecha-            challenging benchmarks (e.g., AIME 2024: 16.7–
+nism to synthesize fragments into a unified line of         20.0% vs. 16.7% Naive-CoT with Llama-3.1-70B),
+reasoning or to correct accumulating errors, the col-       while SIMAS, lacking such mechanisms, incurs
+lective output becomes disjointed and drifts from           overhead without reliably capturing synergistic ben-
+the correct solution path.                                  efits. This, together with our AutoGen replication
+   On open-ended generation and coding tasks                (Section 4.4), implies that the pursuit of collective
+(Figures 20c, 9), results are mixed and model-              intelligence must be architectural, not merely nu-
+dependent: SIMAS achieves marginal advantages               merical.
+in some settings but shows inconsistent bene-
+                                                            6   Conclusion
+fits. Detailed evaluation protocols, qualitative
+case studies, and complete results are in Ap-               This work systematically demonstrates that LLM-
+pendix E.2, E.4, E.5.                                       based Multi-Agent System performance does not
+
+                                                        8
+scale linearly with agent count but exhibits a pat-        Ethical Concerns
+tern of diminishing returns. Effective collaboration
+first requires a sufficiently capable base LLM. The        This study focuses on the algorithmic and archi-
+optimal number of agents is a critical design pa-          tectural principles of multi-agent scaling, utilizing
+rameter, heavily dependent on task type and model          exclusively publicly available and widely-adopted
+architecture, balancing synergy against overhead.          benchmark datasets (e.g., MMLU, AIME, E-KAR).
+The performance degradations derived from col-             No sensitive personal data, simulated social dy-
+laboration overhead generalizes across interaction         namics, or real-world decision-making scenarios
+architectures. Crucially, collective intelligence is       are involved. The Sequential Iterative Multi-Agent
+not an automatic outcome of adding agents but an           System (SIMAS) framework is designed as a mini-
+emergent property contingent on deliberate interac-        malist research tool to investigate fundamental col-
+tion design. Without architectural support for syn-        laboration dynamics, explicitly excluding applica-
+thesis and refinement, multi-agent dialogue risks          tions in opinion manipulation, autonomous action
+inefficiency. Future MAS development must there-           with real-world consequences, or the generation of
+fore prioritize designing adaptive, task-aware col-        deceptive content. All experimental interactions
+laboration protocols over simply increasing agent          are confined to closed, controlled environments for
+plurality.                                                 problem-solving, and no user privacy information
+                                                           is stored in our codebase or logs; only aggregated
+                                                           performance metrics are reported. During the re-
+Limitations
+                                                           search process, AI assistants (including DeepSeek-
+This study, while providing foundational insights          R1) were employed as tools to aid in specific auxil-
+into MAS scaling behavior, has several limitations         iary tasks such as brainstorming initial ideas, gen-
+that point to future research directions. First, our       erating code for experimental pipelines, polishing
+focus on homogeneous agents using a single LLM             textual descriptions, and creating visualizations.
+isolates collaboration effects but does not capture        We explicitly state that all core research ideas, ex-
+the heterogeneous model and tool use common in             perimental design, data analysis, interpretation of
+practical systems, where complementarity might             results, and scientific conclusions were originated,
+alter scaling dynamics. Second, our minimalist             critically evaluated, and decisively finalized by the
+SIMAS architecture, while clarifying first prin-           human authors. The AI tools served strictly as
+ciples, omits sophisticated coordination mecha-            supportive instruments, and every piece of their
+nisms (e.g., voting, dynamic workflows) that could         output was rigorously reviewed, validated, and of-
+mitigate the overhead we observed. While our               ten substantially revised by the authors to ensure
+AutoGen comparison (Section 4.4) confirms the              correctness and alignment with the research objec-
+inverted-U law’s cross-architectural generality, ex-       tives. The primary ethical considerations—such
+ploring a broader range of topologies (DAG-based,          as potential reasoning bias, coherence fragmenta-
+hierarchical) and their interaction with model capa-       tion, or the amplification of base model errors—are
+bility remains an open direction. Third, although          emergent properties stemming from the underly-
+our token-padding experiment (Section 4.3) con-            ing LLM capabilities and the chosen task prompts,
+firms that coordination overhead rather than long-         rather than inherent flaws of the SIMAS architec-
+context failure drives the inverted-U pattern, we          ture itself. Should the principles explored here
+evaluated only output accuracy; deeper psycholin-          inform the design of future MAS deployed in open
+guistic analysis of agent dialogues—quantifying            or user-facing contexts, rigorous additional risk as-
+semantic diversity, conversational dynamics, and           sessment and governance mechanisms would be
+belief divergence—could further characterize the           mandatory, adhering strictly to established ethical
+micro-level mechanisms of collaboration break-             guidelines in AI research and development.
+down. Fourth, our evaluation primarily uses closed-
+book QA benchmarks, which may not fully capture
+                                                           References
+collaborative benefits in longitudinal, creative, or
+tool-augmented tasks. Finally, scaling was tested          Meta AI. 2024. Meta llama 3.1. Meta AI Blog. Ac-
+                                                            cessed: 2024-07-XX.
+only up to 8 agents; the dynamics of much larger
+collectives and their potential for novel emergent         Mert Cemri, Melissa Z Pan, Shuyi Yang, Lakshya A
+phenomena remain unexplored.                                Agrawal, Bhavya Chopra, Rishabh Tiwari, Kurt
+
+
+                                                       9
+  Keutzer, Aditya Parameswaran, Dan Klein, and Kan-              Junyu Luo, Z-Y Wang, H-Y Lin, T-Y Chen, and 1 others.
+  nan Ramchandran. 2025. Why do Multi-Agent LLM                    2025. Large language model agent: A survey on
+  systems fail? arXiv preprint arXiv:2503.13657.                   methodology, applications and challenges. arXiv
+                                                                   preprint arXiv:2503.21460.
+Weize Chen, Yusheng Ye, Yuge Zhang, Jiahui Wang,
+ Yuxin Liu, Amanda Yang, Chen Qian, Ziang Wang,                  Ling Luo, Yikai Zhang, Jun Zhang, Jiangtong Liu, Li Li,
+ Yitong Zhang, Zhaofeng Liu, Zuxin Zhou, Jiale                     Min Zhao, Yuxuan Wang, Zhiwei Hu, Ying Wu, Xu-
+ Wen, Jiaming Pan, Wenhu Cheng, Ying Chen, Wei                     anjing Huang, and 1 others. 2022. E-kar: A bench-
+ Shen, Wayne X. Li, Bofeng Ruan, Ziyuan Li, and                    mark for reasoning about entity knowledge in analog-
+ 2 others. 2023. Agentverse: A versatile framework                 ical reasoning. In Proceedings of the Association for
+ for multi-agent environment simulation. Preprint,                 Computational Linguistics (ACL).
+ arXiv:2308.10848.                                               Mathematical Association of America. 2025.
+                                                                  American      invitational   mathematics    exam-
+Ariel Flint, Luca Maria Aiello, Romualdo Pastor-                  ination    (aime)     problems    and    solutions.
+  Satorras, and Andrea Baronchelli. 2025. Group size              https://www.maa.org/math-competitions/
+  effects and collective misalignment in LLM multi-               american-invitational-mathematics-examination-aime.
+  agent systems. arXiv preprint arXiv:2510.22422.                 Accessed: 2024-10-16.
+Zhouhong Gu, Xiaoxuan Zhu, Yin Cai, Hao Shen,                    Chen Qian, Xin-Cheng Li, Cheng-Yang Han, Yi-Fan
+  Xingzhou Chen, Qingyi Wang, Jialin Li, Xiaoran                   Chiang, Y-H F. Weng, Zhi-Yuan-Jun-Jie Liu, Wei-
+  Shi, Haoran Guo, Wenxuan Huang, Hongwei Feng,                    Ting-Ting Weng, and H-M Zha. 2023. Chatdev:
+  Yanghua Xiao, Zheyu Ye, Yao Hu, and Shaosheng                    Communicative agents for software development.
+  Cao. 2025. Agentgroupchat-v2: Divide-and-conquer                 Preprint, arXiv:2307.07924.
+  is what llm-based multi-agent system need. arXiv
+  preprint arXiv:2506.15451.                                     Chen Qian, Zihao Xie, Yifei Wang, Wei Liu, Kunlun
+                                                                   Zhu, Hanchen Xia, Yufan Dang, Zhuoyun Du, Weize
+Taicheng Guo, Xiuying Chen, Yaqi Wang, Ruidi Chang,                Chen, Cheng Yang, Zhiyuan Liu, and Maosong Sun.
+   Shichao Pei, Nitesh V. Chawla, Olaf Wiest, and Xi-              2025. Scaling Large Language Model-based multi-
+   angliang Zhang. 2024. Large language model based                agent collaboration. In Proceedings of the 13th In-
+   multi-agents: A survey of progress and challenges.              ternational Conference on Learning Representations
+   In Proceedings of the Thirty-Third International Joint          (ICLR).
+  Conference on Artificial Intelligence (IJCAI), pages
+                                                                 Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta
+   8048–8057.
+                                                                   Raileanu, Maria Lomeli, Luke Zettlemoyer, Nicola
+                                                                   Cancedda, and Thomas Scialom. 2023. Toolformer:
+Pengfei He, Yuping Lin, Shen Dong, Han Xu, Yue Xing,
+                                                                   Language models can teach themselves to use tools.
+  and Hui Liu. 2025. Red-teaming LLM multi-agent
+                                                                   In Advances in Neural Information Processing Sys-
+  systems via communication attacks. In Findings of
+                                                                   tems 36 (NeurIPS 2023), pages 22409–22424.
+  the Association for Computational Linguistics: ACL
+  2025. Association for Computational Linguistics.               Dahlia Shehata and Ming Li. 2026. The bystander ef-
+                                                                   fect in multi-agent reasoning: Quantifying cogni-
+Dan Hendrycks, Collin Burns, Steven Basart, Andy                   tive loafing in collaborative interactions. Preprint,
+  Zou, Mantas Mazelka, Dawn Song, and Jacob Stein-                 arXiv:2605.10698.
+  hardt. 2021. Measuring massive multitask language
+  understanding. Proceedings of the International Con-           Yashar Talebirad and Amirhossein Nadiri. 2023. Multi-
+  ference on Learning Representations (ICLR).                      agent collaboration: Harnessing the power of intelli-
+                                                                   gent LLM agents. arXiv preprint arXiv:2306.03314.
+Sirui Hong, Xiawu Zheng, Jonathan Chen, Yuheng
+   Cheng, Ceyao Zhang, Zili Wang, Steven Ka Shing                Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+   Yau, Zijuan Lin, Liyang Zhou, Chenyu Ran, Lingfeng               Bosma, Fei Xia, Ed Chi, Quoc V. Le, and Denny
+   Song, and Chengcai Chen. 2023. Metagpt: Meta pro-                Zhou. 2022. Chain-of-thought prompting elicits rea-
+   gramming for multi-agent collaborative framework.                soning in large language models. In Advances in
+   Preprint, arXiv:2308.00352.                                      Neural Information Processing Systems 35 (NeurIPS
+                                                                    2022), pages 24824–24837.
+Guohao Li, Hasan Hammoud, Hani Itani, Dmitrii                    Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu,
+  Khizbullin, and Bernard Ghanem. 2023. Camel:                     Shaokun Zhang, Erkang Zhu, Beibin Li, Xin Liu,
+  Communicative agents for mind exploration                        Tsendsuren Munkhdalai, Shigeki Iwabuchi, Ruirui
+  of large language model society.     Preprint,                   Li, and Xia Wang. 2023. Autogen: Enabling next-
+  arXiv:2303.17760.                                                gen llm applications via multi-agent conversation.
+                                                                   Preprint, arXiv:2308.08155.
+Tian Liang Liang, Zhiheng He, Wenxiang Xu, Limin
+  Wang, Yuan Yang, Jianhua Pang, Xuanjing Huang,                 Zhi-Fan Xi, Wen-Yi-Pin-Yun Chen, Bryan Hooi, Gwo-
+  and Zhuosheng Zhang. 2023. Encouraging diver-                    Jen Hwang, and Xinchao Wang. 2023. A survey
+  gent thinking in large language models through multi-            of large language models for autonomous agents.
+  agent debate. arXiv preprint arXiv:2305.19118.                   Preprint, arXiv:2308.11432.
+
+
+                                                            10
+Zhiheng Xi, Wenxiang Chen, Xin Guo, Wei He, Yi-                   B.2   Agent Generator
+  wen Ding, Boyang Hong, Ming Zhang, Junzhe Wang,
+  Senjie Jin, Enyu Zhou, and 1 others. 2025. The                  The Agent Generator takes as inputs the disci-
+  rise and potential of large language model based                pline type of the problem and the number of agents
+  agents: A survey. Science China Information Sci-                N , and outputs N dynamically generated agents.
+  ences, 68(2):121101.                                            These agents are created by invoking the LLM API
+An Yang, Aixin Yang, Binyuan Yang, Bing Bai, Bowen                with tailored prompts to assign unique roles and
+  Chen, Chao Chen, Guangji Chen, Da Chen, Fei Chen,               personalities.
+  Yang Chen, and 1 others. 2024. Qwen2.5: A party of
+  foundation models. arXiv preprint.                              B.3   Group Chat Engine
+Yusen Zhang, Ruoxi Sun, Yankao Chen, Benjamin Cole-               The Group Chat Engine executes the main work-
+  man, and 1 others. 2025. Chain of agents: Large
+  language models collaborating on long-context tasks.
+                                                                  flow of SIMAS, managing multi-round discussions.
+  In International Conference on Learning Representa-             It monitors for timeouts or errors and implements
+  tions (ICLR).                                                   a retry mechanism with a maximum of 100 retries
+Z-J Zhang, Y-H Liu, H-Y Zhou, T-Y Wang, and H-                    (max_retries=100).
+  M Chen. 2024. Agent-pro: Learning to evolve via
+  policy-level reflection and optimization. Preprint,             B.4   Evaluator
+  arXiv:2402.17553.                                               The Evaluator compares the final group chat an-
+A     Formal Definitions for MAS                                  swer with the ground truth and records auxiliary
+                                                                  metrics, such as confidence scores, to assess re-
+Definition 3 (System Output). For an input ques-                  sponse quality.
+tion q ∈ Q, the system output is defined as:                         The framework leverages the LLM’s API for
+         o = fM (q) = Πoutput (hn,T , a1 )                        text generation and processing, offering the follow-
+                                                                  ing key functionalities: It supports Agent Gener-
+where hn,T ∈ H represents the complete conversa-
+                                                                  ation by automatically creating agents with dis-
+tion history after T rounds of discussion.
+                                                                  tinct personalities and expertise based on specified
+Definition 4 (Agent Configuration). Each agent                    quantities and role requirements. Its Group Chat
+ai ∈ A is configured as a quadruple:                              Management orchestrates communication among
+              ai = ⟨LLM, di , pi , bi , ei ⟩                      agents, ensuring sequential contributions and main-
+                                                                  taining discussion history for context-aware re-
+where LLM represents the underlying language                      sponses. The Answer Evaluation functionality
+model (shared across all agents), di ∈ D denotes                  extracts the final answer from the last agent’s re-
+the description, pi ∈ P denotes the personality                   sponse after group chat completion and compares
+trait, bi ∈ B denotes the core beliefs, ei ∈ E de-                it with the ground truth to compute accuracy.
+notes the expertise, with D, P, B, E representing                    The framework supports seamless switching be-
+the respective attribute spaces.                                  tween different language models, enabling compar-
+Property 3 (Model Homogeneity). All agents                        ative experiments across models. This flexibility
+share the same underlying language model:                         ensures robust evaluation of multi-agent system
+       ∀ai , aj ∈ A,     LLM(ai ) = LLM(aj )                      performance under varying configurations.
+
+Property 4 (Configuration Heterogeneity). Agents                  C     Mechanisms of U-Shaped Recovery
+achieve diversity through distinct configuration pa-
+rameters:                                                         A notable deviation from the canonical inverted-U
+                                                                  pattern occurs in Philosophy with Llama3.1-70B,
+ ∀ai , aj ∈ A, i ̸= j ⇒ (di , pi , bi ) ̸= (dj , pj , bj )        where accuracy exhibits a U-shaped curve: declin-
+B     Framework of SIMAS                                          ing from the single-agent baseline through inter-
+                                                                  mediate agent counts before partially recovering
+B.1    Problem Provider                                           at n=8. Qualitative analysis of agent dialogues
+The Problem Provider module loads datasets (e.g.,                 on an MMLU item concerning Aristotle’s concept
+MMLU, E-KAR), preprocesses questions to ensure                    of incontinence (knowing the wrong and doing it
+consistency, and normalizes answers by mapping                    anyway) reveals a three-phase mechanism.
+responses to standardized formats (e.g., options                     In Phase 1 (n=2–3), dialogue remains focused
+A/B/C/D).                                                         and efficient: one agent dominates with correct rea-
+
+                                                             11
+soning while coordination overhead is minimal. In              Prompt
+Phase 2 (n=4–5), social meta-discourse (apologies,
+                                                               System Instruction:
+acknowledgments, redundant praise) proliferates
+                                                               Generate a description in English for an AI
+and divergent minority interpretations emerge—for
+                                                               agent that will participate in a group discussion
+instance, conflating akrasia with the distinct con-
+                                                               to solve problems of {subject}. This is agent
+cept of enkrateia. This fragments the reasoning
+                                                               {index} of {total} total agents.
+chain and causes the accuracy dip. In Phase 3
+                                                               Context Requirements:
+(n=8), the sheer volume of majority agents reit-
+                                                               Existing agent names: {name}
+erating the correct pre-training-consistent answer
+                                                               Existing agent descriptions: {description}
+statistically suppresses earlier noise, producing an
+                                                               Output Structure (JSON format):
+apparent recovery. This recovery, however, consti-
+                                                               Please provide the following:
+tutes pseudo-stability rather than genuine collabo-
+                                                               1. name: A simple name for the agent (unique
+rative intelligence, as it depends on the model’s
+                                                               from existing agents)
+pre-training bias toward the consensual answer
+                                                               2.      personality:      One of [FRIENDLY,
+rather than on structured synthesis of diverse per-
+                                                               SKEPTICAL, NEUTRAL, AGGRESSIVE]
+spectives. Qwen2.5-72B does not exhibit the U-
+                                                               3. description: The i-th participant in the chat.
+shape, attributable to its lower semantic diversity
+                                                               4. expertise: The agent’s main strength in prob-
+and stronger long-context robustness.
+                                                               lem solving of {subject}
+   This case reveals a key distinction: error-                 5. beliefs: List of 3-5 beliefs relevant to prob-
+propagating tasks (mathematics, formal logic),                 lem solving of {subject} that this agent holds.
+where a single incorrect step irreversibly derails the         Example Output:
+solution, exhibit classic inverted-U patterns with             {
+steep post-peak declines; consensus-recoverable                    "name": "Alice",
+tasks (interpretive philosophy, fact retrieval with                "personality": "FRIENDLY",
+high prior agreement), where majority voting over                  "description":     "A    warm   and   friendly
+redundant correct responses can mask mid-scale co-             assistant who excels at explaining complex
+ordination failures, may exhibit U-shaped recovery             concepts through diagrams",
+contingent on model-specific semantic diversity.                   "expertise":            "visualization    and
+                                                               explanation",
+D     Supplementary Material for                                   "beliefs": [
+      Experiments                                                      "Clear visualization aids understanding",
+                                                                       "Multiple    approaches      should    be
+D.1    Agent Profile Generation and Examples                   considered",
+Profiles were generated by prompting the base                          "Collaboration improves problem solving"
+LLM with a template to create diverse sets of                      ]
+⟨personality, core belief, expertise⟩ triples. For             }
+a 4-agent team on a reasoning task, examples in-               Important Constraints:
+clude:                                                         Remember to generate descriptions in English.
+                                                               Make sure each agent has unique beliefs that
+Agent 1: ("Skeptical",
+                                                               align with their role and expertise. Make sure
+"Precision outweighs speed",
+                                                               your output is and only is valid JSON format,
+"Logical Verification")
+                                                               without any other words before or after the
+                                                               JSON content. You must generate the last agent
+Agent 2: ("Creative",
+                                                               with the personality AGGRESSIVE and relevant
+"Novel approaches are valuable",
+                                                               description.
+"Alternative Solution Generation")
+...
+   The prompt template used for agent profile gen-
+eration is presented below.                                   Figure 10: Prompt template for agent profile
+                                                              generation.
+
+
+
+                                                         12
+D.2   Model-Scale Scaling Results on College               Qwen2.5-72B model demonstrated also high sta-
+      Physics                                              bility, but in contrast, Llama-3.1-70B showed sig-
+                                                           nificant volatility despite its parameter advantage,
+                                                           with standard deviations reaching 17.32%, indi-
+                                                           cating that scale alone cannot ensure consistent
+                                                           multi-agent performance. (see Figure 11 and 12 in
+                                                           Appendix D.2)
+
+                                                           D.3   Full Task-Type Scaling Results
+
+                                                            Dataset/Discipline             Task Type
+                                                            Abstract Algebra               Logical Reasoning
+                                                            Formal Logic                   Logical Reasoning
+                                                            Philosophy                     Fact Retrieval
+                                                            Global Facts                   Fact Retrieval
+                                                            College Physics                Mixed
+                                                            College Computer Science       Mixed
+                                                            E-KAR                          Analogical Reasoning
+Figure 11: Model Scale Impact of Llama 3.1 on
+College Physics
+                                                                 Table 3: Datasets and Task Characteristics
+
+                                                           Figures 13a to 13f illustrate that the impact of agent
+                                                           scaling is fundamentally mediated by task charac-
+                                                           teristics.
+                                                           The experimental results reveal distinct accuracy
+                                                           patterns across task categories. In logical reason-
+                                                           ing domains, performance trends were inconsistent.
+                                                           For formal logic, accuracy declined substantially
+                                                           from 58.82% (1 agent) to 25.49% (8 agents), a
+                                                           drop of 33.33 percentage points. Abstract alge-
+                                                           bra showed a similar overall decline from 52.94%
+                                                           to 25.49%, though with intermediate fluctuations
+                                                           (e.g., 45.10% at 3 agents). This degradation stems
+                                                           from the inherent sensitivity of logical reasoning
+Figure 12: Model Scale Impact of Qwen2.5 on College
+Physics                                                    chains to disruptions caused by information redun-
+                                                           dancy and inconsistent reasoning paths across mul-
+                                                           tiple agents.
+   Finding 1
+                                                           Conversely, fact retrieval tasks demonstrated var-
+   Model scale provides necessary condi-                   ied patterns. The global_facts task showed low
+   tions for effective multi-agent collabora-              but variable accuracy (13.73% to 33.33%), with no
+   tion, but does not ensure stable perfor-                clear monotonic trend relative to agent count. The
+   mance gains alone.                                      philosophy task maintained high accuracy overall
+                                                           (94.12% with 1 agent) but experienced a significant
+ Crucially, comparing Figure 2 and Figure 3, it            decline to 60.78% at 4 agents before partially re-
+is obviously revealed that smaller models (7B/8B           covering to 74.51% with 8 agents, suggesting that
+parameters) proved fundamentally inadequate for            initial performance declines could be partially miti-
+multi-agent collaboration, showing monotonic per-          gated through knowledge diversity at higher agent
+formance degradation with additional agents, sug-          counts in some domains.
+gesting a minimum capability threshold for effec-          Mixed-reasoning tasks exhibited complex, non-
+tive multi-agent interactions. While larger mod-           monotonic relationships with agent count. College
+els consistently outperformed their smaller coun-          physics accuracy fluctuated between 25.49% and
+terparts in absolute accuracy, this advantage did          50.98%, peaking at 7 agents. College computer
+not uniformly extend to stability metrics. The             science showed a decline from 56.86% (1 agent) to
+
+                                                      13
+(a) Performance on Abstract Algebra       (b) Performance on Philosophy              (c) Performance on Formal Logic
+
+
+
+
+                                                                              (f) Performance on College Computer
+  (d) Performance on Global Facts         (e) Performance on E-kar            Science
+
+                   Figure 13: Performance across different task types on Meta-Llama-3.1-70B.
+
+
+27.45% (8 agents), but with a local peak of 45.10%             cant standard deviations of 9.61% are observed for
+at 6 agents. For analogical-reasonng, the e-KAR                both two and four agents, suggesting that certain
+task displayed high volatility, with accuracy drop-            group sizes may create ambiguous task decompo-
+ping to 19.61% at both 3 and 7 agents.                         sitions or conflict in symbolic manipulation strate-
+The analysis of experimental results, incorporating            gies, leading to less deterministic outputs.
+standard deviation data, reveals distinct stability            College Physics, a mixed-reasoning task, confirms
+profiles across task types and agent counts.                   a pattern of high instability at intermediate col-
+Global Facts, as a fact-retrieval task, shows gener-           laboration scales. Standard deviations are highest
+ally low output variability for smaller agent groups,          (exceeding 12%) for two, three, and four agents,
+with standard deviations remaining at or below                 indicating that integrating conceptual knowledge
+7.34% for one to three agents. However, stability              with quantitative reasoning presents a critical coor-
+degrades significantly at larger scales, with stan-            dination challenge. Stability does not consistently
+dard deviations reaching 12.71% and 11.09% for                 improve with more agents, as groups of six to eight
+four and eight agents, respectively. This indicates            maintain high variability ( 10% std).
+that while factual recall is robust in small-group set-        Philosophy, while achieving high accuracy, shows
+tings, coordination or consensus failures in larger            noteworthy variability in specific multi-agent set-
+multi-agent systems can introduce substantial out-             tings. The standard deviation reaches 10.00%
+put inconsistency.                                             for four agents, suggesting that tasks involving
+Formal Logic demonstrates a pronounced insta-                  nuanced textual interpretation and argumentation
+bility in its reasoning chains. While performance              are susceptible to diverging perspectives within a
+with a single agent is perfectly stable (0.00% std),           medium-sized group, even if larger groups (e.g.,
+the introduction of additional agents leads to high            seven or eight agents) manage to reconverge on
+variability, particularly at intermediate counts. A            more stable outputs.
+standard deviation peak of 12.71% at five agents               College Computer Science presents a case of esca-
+confirms the inherent fragility of multi-step deduc-           lating instability with scale for this applied reason-
+tive processes in collaborative environments, where            ing domain. Standard deviations show a generally
+minor reasoning divergences can amplify.                       increasing trend, culminating in a high of 12.71%
+Abstract Algebra exhibits a distinct pattern where             for seven agents. This indicates that collabora-
+instability is highest not at maximal agent counts             tive problem-solving on complex, structured tasks
+but at specific intermediate configurations. Signifi-          may suffer from accumulating integration errors or
+
+
+                                                          14
+                                                           peaks (optimal at 2 agents for Qwen2.5-72B ver-
+                                                           sus 4 agents for Llama-3.1-70B) and maintain-
+                                                           ing higher accuracy levels despite agent scaling.
+                                                           This advantage manifested through multiple dimen-
+                                                           sions: Qwen2.5 models maintained superior perfor-
+                                                           mance retention (86.27% peak versus 60.78% for
+                                                           Llama-3.1), exhibited more stable output patterns
+                                                           (lower standard deviations across agent counts),
+                                                           and demonstrated better resilience to performance
+                                                           degradation at higher agent counts. The architec-
+                                                           tural advantages appear to stem from better com-
+                                                           plex instruction understanding and iterative reason-
+                                                           ing capabilities, enabling more effective informa-
+Figure 14: Model Type Impact on College Physics for
+                                                           tion processing in multi-round agent interactions.
+Models with Large Parameters                               This finding emphasizes that model selection can-
+                                                           not be separated from multi-agent system design, as
+                                                           inherent architectural characteristics fundamentally
+                                                           shape collaboration dynamics and scaling potential.
+
+
+
+                                                           D.5   Agent Configuration Ablation Study
+
+                                                              Finding 1
+
+                                                              Agent setting modifications preserve scal-
+                                                              ing trends but induce performance shifts
+                                                              dependent on discipline and model.
+
+                                                           Our experiments reveal that the scaling pattern
+                                                           of MAS—where performance initially improves
+Figure 15: Model Type Impact on College Physics for
+                                                           with more agents but declines beyond an optimal
+Models with Small Parameters
+                                                           point—remains consistent regardless of agent set-
+                                                           ting modifications. However, the removal of at-
+conflicting solution approaches as the number of           tributes leads to measurable performance shifts
+contributing agents grows.                                 that are highly dependent on the task discipline
+E-KAR demonstrates that instability is not mono-           and model type. For instance, in abstract algebra
+tonic with agent count. High standard deviations           with Llama-3.1-8B, removing personality attributes
+of 11.09% and 10.00% for two and three agents,             reduced accuracy by an average of 13.58%, while
+respectively, drop to 0.00% for five agents before         in philosophy with the same model, it caused a
+rising again. This non-linear pattern suggests the         drastic accuracy drop of 21.57%. Conversely, with
+existence of specific, potentially task-dependent,         Qwen2.5-7B, personality removal had minimal im-
+agent group sizes that can either mitigate or ex-          pact on accuracy (average +0.98%) but increased
+acerbate variability in decision-making or pattern         instability. Similarly, belief removal exacerbated
+recognition tasks.                                         performance declines in philosophy for both mod-
+                                                           els (up to -23.79% for Qwen2.5-7B) but improved
+D.4   Model-Type Scaling Results on College                accuracy in some technical disciplines like college
+      Physics                                              physics for Llama-3.1-8B (+7.81%). This find-
+Our cross-model comparison reveals that scaling            ing underscores that while agent settings do not
+behavior is strongly mediated by model architec-           change the fundamental scaling dynamics, they in-
+tural differences. The Qwen2.5 series demon-               troduce discipline-specific and model-dependent
+strated consistently better adaptation to multi-           performance variations, necessitating tailored con-
+agent collaboration, achieving earlier performance         figurations for optimal results.
+
+                                                      15
+                                 Accuracy Difference (ALL - Ablation)          Std Dev Difference (ALL - Ablation)
+           Subject-Model           Belief      Personality      Expertise        Belief      Personality     Expertise
+           Abstract Algebra
+             Llama3.1            +9.31 ↑↑       +10.78 ↑↑       +12.50 ↑↑       +2.95 ↑        -1.97 ↓        +1.27 ↑
+             Qwen2.5             -13.73 ↓↓      +0.98 →          -4.17 ↓        +3.68 ↑        -1.99 ↓        +3.27 ↑
+           College CS
+             Llama3.1             +2.57 ↑       +18.75 ↑↑       +4.84 ↑         -3.36 ↓        -2.20 ↓        -0.33 ↓
+             Qwen2.5              -5.16 ↓        -1.24 ↓        +0.40 →         +2.95 ↑        +0.50 ↑       -8.16 ↓↓
+           College Physics
+             Llama3.1             +7.81 ↑       +16.64 ↑↑        +4.16 ↑        +0.74 ↑        +1.90 ↑        -1.95 ↓
+             Qwen2.5              -10.29 ↓       -0.98 ↓         -4.66 ↓        +2.04 ↑        +1.35 ↑        +1.57 ↑
+           Formal Logic
+             Llama3.1             +0.49 →        +8.83 ↑         -2.82 ↓       +7.63 ↑↑        +3.58 ↑        -2.44 ↓
+             Qwen2.5               -6.37 ↓       +1.47 ↑         -3.92 ↓       +2.26 ↑         +0.94 ↑        -0.40 ↓
+           Global Facts
+             Llama3.1             +3.43 ↑       +11.27 ↑↑        +8.43 ↑       +0.34 →        +3.61 ↑         -1.00 ↓
+             Qwen2.5              +1.96 ↑        +4.41 ↑         +1.72 ↑       +14.95 ↑↑      +9.76 ↑↑       -4.15 ↓↓
+           Philosophy
+             Llama3.1            -21.57 ↓↓      +15.20 ↑↑        -10.09 ↓       +4.59 ↑       +0.05 →         +4.99 ↑
+             Qwen2.5             -23.79 ↓↓       +1.22 ↑         -11.86 ↓       +1.77 ↑        -3.34 ↓        +0.63 ↑
+
+Table 4: Performance Impact of Different Agent Attributes (ALL Mode vs Ablation Modes). Accuracy Difference = ALL
+Mode - Ablation Mode; Std Dev Difference = ALL Mode - Ablation Mode. Positive accuracy difference indicates the attribute
+improves performance. Positive std dev difference indicates the attribute increases instability.
+Symbols: ↑↑: significant positive effect (> |5| for accuracy, > |5| for std dev), ↑: positive effect, →: minimal effect (< |2|), ↓:
+negative effect, ↓↓: significant negative effect (> |5| for accuracy, > |5| for std dev).
+
+
+
+    Finding 2                                                       Expertise attributes showed model-dependent ef-
+                                                                    fects: they benefited Llama-3.1-8B in technical dis-
+    Specific agent attributes have distinct im-                     ciplines (e.g., +12.50% in abstract algebra) but hin-
+    pacts: personality enhances accuracy at                         dered Qwen2.5-7B in abstract tasks (e.g., -4.17%
+    the cost of stability, beliefs introduce task-                  in philosophy), indicating that expertise can either
+    dependent biases which can degrade per-                         focus reasoning or constrain flexibility based on
+    formance, and expertise yields mixed,                           model architecture. These findings emphasize that
+    model-specific effects.                                         agent settings must be carefully tuned, with per-
+                                                                    sonality suitable for accuracy-critical tasks, beliefs
+Detailed analysis of individual attributes re-                      used cautiously in objective domains, and exper-
+veals distinct impacts on system performance.                       tise aligned with model strengths to balance perfor-
+Personality attributes generally boost accu-                        mance and stability.
+racy—particularly for models like Llama-3.1-8B,                     In summary, agent settings play a crucial role in
+where they improved accuracy by an average of                       fine-tuning multi-agent system performance, but
+13.58 percentage points across disciplines—by fos-                  their effects are nuanced and context-dependent.
+tering diverse perspectives and critical thinking.                  System designers should prioritize attribute config-
+However, this came at the cost of reduced stabil-                   uration based on task characteristics and model ca-
+ity, as personality increased standard deviations by                pabilities, leveraging attributes like personality for
+an average of 0.83% for Llama-3.1-8B and 1.20%                      accuracy gains in reasoning-intensive tasks while
+for Qwen2.5-7B, due to increased behavioral vari-                   mitigating stability risks through iterative testing
+ability and conflict. Belief attributes, while po-                  and calibration.
+tentially guiding reasoning in logical tasks (e.g.,
++9.31% in abstract algebra for Llama-3.1-8B), of-                   E      Supplementary Material for
+ten introduced instability and performance degra-                          Comparison
+dation in subjective disciplines like philosophy (ac-
+curacy drops up to -23.79% for Qwen2.5-7B), as                      E.1     CoT Prompts
+beliefs exacerbated disagreements among agents.                     This section details the three Chain-of-Thought
+                                                                    (CoT) prompt templates used in our experiments.
+
+                                                               16
+The placeholders (e.g., {problem.question}) are             • Fully satisfy the problem requirements
+replaced with concrete content during execution.            • Be clear and readable
+1. Simple CoT                                               • Be efficient and correct
+This template guides the model to produce step-             • Include necessary comments
+by-step reasoning followed by a structured fi-
+nal answer, suitable for objective questions (e.g.,         Please organize your response as follows:
+multiple-choice, short-answer).                             ### Reasoning Process
+                                                            [Your analysis]
+                                                            ### Final Code
+ Prompt                                                     [Complete code solution]
+
+ System Instruction:
+ You are {self.name}. Please solve the following                 Figure 17: Coding CoT prompt template.
+ problem in a reasoning manner.
+ {message.content}                                         3. Open-ended CoT
+                                                           This template prompts the model for a comprehen-
+  Output Format Requirement:
+                                                           sive and insightful analysis of open-ended ques-
+  Please structure your response as (without ’[]’
+                                                           tions, guided by specific evaluation criteria.
+  in your response):
+  ### Reasoning
+  [Your reasoning process for arriving at the final         Prompt
+  answer, including any calculations or logical
+  deductions]                                               System Instruction:
+  ### Answer                                                Please analyze the following open-ended ques-
+  [Your final answer for the given prob-                    tion in depth. Use step-by-step reasoning and
+  lem in accordance with the required form,                 provide a comprehensive and insightful re-
+  such as {"A, B, C, or D for a multiple-                   sponse.
+  choice question"} if self.question_type ==                Question:
+ ’multiple_choice’ else "direct answer like                 {problem.question}
+ ’100’ for a short-answer question", without any            Evaluation criteria:
+  explanation]                                              {criteria_str}
+                                                            Your response should:
+                                                            • Be thorough and insightful
+      Figure 16: Simple CoT prompt template.                • Be well-structured
+                                                            • Demonstrate innovation and practicality
+2. Coding CoT                                               • Align with the evaluation criteria
+This template instructs the model to analyze a cod-
+                                                            Please organize your response as follows:
+ing problem step-by-step and provide a complete,
+                                                            ### Reasoning Process
+efficient solution with code.
+                                                            [Your analysis]
+                                                            ### Final Answer
+ Prompt                                                     [A direct and comprehensive answer to the
+                                                            question]
+ System Instruction:
+ Please solve the following coding problem. Use
+ step-by-step reasoning and provide a complete,               Figure 18: Open-ended CoT prompt template.
+ efficient code solution.
+ Problem:
+ {problem.question}                                        E.2 Evaluation Protocol for Generation Tasks
+ Programming language: {language}                          The dataset comprises a custom collection of 10
+ Constraints:                                              coding problems and 15 open-ended questions.
+ {constraints_str}                                         The coding problems involve 5 algorithmic prob-
+                                                           lems and 5 complex software development projects
+ Your solution should:
+                                                           that go beyond simple algorithmic implementation,
+
+                                                      17
+while the open-ended questions pertain to prod-                       "criteria": {
+uct ideation and solutions for societal issues. The                       "criterion1": {"score": X, "reason":
+evaluation of results is entrusted to a dedicated           "..."},
+assessment agent. This agent scores the Chain-of-                         ...
+Thought reasoning and SIMAS responses against                         }
+predefined criteria for each problem. Based on                   },
+the scores, it determines which approach prevails                "comparison": {
+on a given question and provides a justification                      "winner": "A" or "B" or "tie",
+for its judgment. Figure 20d shows the results of                     "reason": "...",
+experiments tested on the 5 complex software de-                      "key_differences": ["...", "..."],
+velopment projects, and Figure 20c shows that on                      "potential_synergy": "..."
+the 15 open-ended questions. Examples from the                   }
+dataset are provided in Table 5 and 6. The prompt           }
+is shown in List 19:
+                                                            Constraints:
+                                                            Please ensure the evaluation is fair, objective,
+                                                            and based solely on the content of the responses,
+ Prompt
+                                                            not the generation method. Ensure the response
+ System Role:                                               contains only valid JSON format with no addi-
+ As a professional evaluation expert, please com-           tional text or symbols.
+ pare two AI-generated responses to the same
+ problem.
+ Problem:                                                  Figure 19: Prompt template for AI response evaluation.
+ {problem}
+ Response A (generated by {method_a}):
+ {answer_a}                                                E.3       Full Comaprison Results
+ Response B (generated by {method_b}):                     On reasoning-intensive domains such as abstract
+ {answer_b}                                                algebra and advanced mathematics, where our
+ Evaluation criteria (each criterion scored 1-             SIMAS framework lacks corrective mechanisms,
+ 10):                                                      single-agent reasoning demonstrates clear superi-
+ {criteria_str}                                            ority. As shown in Figure 20a, for abstract alge-
+ Instructions:                                             bra, the CoT baseline consistently outperformed
+ 1. Evaluate each response on every criterion              the best-performing SIMAS configuration. This
+ separately.                                               gap escalates into a decisive failure for SIMAS on
+ 2. Compare the strengths and weaknesses of                AIME 2025 (Figure 20b), where it fragments logi-
+ both responses.                                           cal chains without a means to reintegrate them. The
+ 3. Indicate which response is better and provide          results on open-ended creative tasks (Figure 20c)
+ detailed reasoning.                                       are similarly unequivocal: single-agent reasoning
+ Return the results in the following JSON for-             vastly outperformed SIMAS, as narrative coher-
+ mat:                                                      ence is shattered by unmoderated multi-agent turn-
+ {                                                         taking.
+     "response_a_scores": {                                The coding task (Figure 20d) and open-ended task
+          "total": X,                                      (Figure 20c) domains present a more contested pic-
+          "criteria": {                                    ture for SIMAS, with marginal gains for Llama-3.1-
+              "criterion1": {"score": X, "reason":         70B on coding and Qwen-2.5-72B on open-ended
+ "..."},                                                   tasks. The dataset comprises a custom collection
+              ...                                          of 5 coding problems and 15 open-ended questions.
+          }                                                The coding problems involve complex software
+     },                                                    development projects that go beyond simple al-
+     "response_b_scores": {                                gorithmic implementation, while the open-ended
+          "total": X,                                      questions pertain to product ideation and solutions
+                                                           for societal issues. The evaluation of results is
+
+                                                      18
+                                                                    (b) CoT vs. SIMAS on AIME 2025. SIMAS fails
+(a) CoT vs. SIMAS on Abstract Algebra (Llama-3.1-70B).              catastrophically, highlighting its inadequacy for complex,
+CoT consistently outperforms all multi-agent configurations.        multi-step reasoning.
+
+
+
+
+                                                                    (d) Win-rate comparison on coding tasks. SIMAS shows a
+(c) Win-rate and average score comparison on open-ended             model-dependent, marginal advantage, highlighting
+tasks. Results varies depending on model type.                      inconsistent benefits of simple collaboration.
+
+
+entrusted to a dedicated assessment agent. This                     E.4    Case Study: Dialogue for Solving
+agent scores the Chain-of-Thought reasoning and                            Mathematical Problem
+SIMAS responses against predefined criteria for
+                                                                    To illustrate the fragmentation of coherent thought
+each problem. Based on the scores, it determines
+                                                                    in multi-agent reasoning, we present an excerpt
+which approach prevails on a given question and
+                                                                    from a SIMAS discussion on a polynomial root-
+provides a justification for its judgment. Examples
+                                                                    finding problem in a finite field. The task requires
+from the dataset are provided in the Appendix.
+                                                                    finding all zeros of x5 + 3x3 + x2 + 2x in Z5 , with
+The results suggest that even a simple sequential
+                                                                    four multiple-choice options: A) 0, B) 1, C) 0,1, D)
+architecture can sometimes add value for tasks ben-
+                                                                    0,4. The complete dialogue history is exhibited in
+efiting from multi-perspective validation. How-
+                                                                    Table 7. The correct answer is D) 0,4, as verified by
+ever, the qualitative analysis of agent conversa-
+                                                                    evaluating the polynomial at each element of Z5 :
+tions reveals the inefficiency of this gain. A case
+                                                                    x = 0 yields 0, x = 4 yields 45 +3·43 +42 +2·4 ≡
+study of a discussion on the “Two Sum” problem
+                                                                    4 + 2 + 1 + 3 ≡ 0 (mod 5). However, the multi-
+showed early convergence on the optimal solution,
+                                                                    agent discussion resulted in an incorrect conclusion
+followed by rounds of redundant meta-discussion
+                                                                    (A) 0), demonstrating a critical failure in reasoning
+and unproductive speculation on inferior alterna-
+                                                                    continuity.
+tives. The final output was functionally identical
+                                                                    Summary of Dialogue Dynamics: The conver-
+to the initial proposal. This pattern illustrates that
+                                                                    sation spanned three rounds among three agents
+without an architecture designed to synthesize, cri-
+                                                                    (Bob, Charlie, Diana). In Round 1, Charlie cor-
+tique, and refine efficiently, multi-agent dialogue
+                                                                    rectly initiated the process of checking each ele-
+often devolves into low-value redundancy, con-
+                                                                    ment of Z5 and verified x = 0 as a root. Diana
+suming context window capacity without generat-
+                                                                    then checked x = 1 and correctly concluded it was
+ing synergistic insight. The marginal win comes at
+                                                                    not a root. In Round 2, Diana attempted to check
+a disproportionately high computational cost and is
+                                                                    x = 2 but made a critical error: she evaluated the
+not reliably generalizable across models, as shown
+                                                                    expression 23 + 2 · 2 + 1 = 13 ≡ 3 (mod 5),
+by Qwen2.5-72B’s preference for CoT on coding
+                                                                    which does not correspond to the original polyno-
+tasks.
+                                                                    mial x5 + 3x3 + x2 + 2x. This mistake went unno-
+                                                                    ticed by both Bob and Charlie, who accepted the
+
+                                                               19
+result without verification. Moreover, the agents              rect accumulating errors demonstrates the need for
+never examined x = 3 or x = 4. In Round 3, Bob                 structured interaction protocols that enforce sys-
+summarized that the only root was x = 0, and he                tematic verification and synthesis.
+further compounded the error by referring to the
+polynomial as x3 + 2x + 1—a completely different               E.5   Case Study: Dialogue for Solving Coding
+polynomial. Charlie and Diana then concluded the                     Problem
+discussion with expressions of gratitude and regret,           To illustrate the inefficiencies that can arise in un-
+respectively, without any correction or completion             structured multi-agent dialogue, we present an ex-
+of the required checks.                                        cerpt from a SIMAS discussion on the classic “Two
+Analysis of Fragmentation: This transcript exem-               Sum” coding problem. The task requires finding
+plifies the core failure mode of fragmented reason-            two indices in an array whose values sum to a tar-
+ing: 1. Loss of Logical Continuity: A coherent                 get, with constraints of O(n) time and O(n) space
+reasoning chain was established in Round 1, but it             complexity. The whole dialogue history is exhib-
+was broken in Round 2 when Diana introduced an                 ited in Table 8.
+erroneous computation and failed to check all ele-             Summary of Dialogue Dynamics: The conver-
+ments. Instead of grounding the discussion in the              sation spanned three rounds among three agents
+original problem and systematically verifying each             (Nova, Agent_2, Riven). In the first round,
+candidate, subsequent agents built upon the incom-             Agent_2 correctly identified the core solution strat-
+plete and flawed fragments, leading to a solution              egy (using a hash table/dictionary). In the second
+that missed the root x = 4. 2. Absence of Synthe-              round, Nova promptly provided a complete, correct
+sis and Correction: No agent synthesized the par-              implementation of the hash table solution, meeting
+tial results into a unified, correct line of reasoning.        all specified constraints. However, instead of con-
+The verification-oriented persona evident in the ear-          verging, the discussion continued into a third round
+lier algebra example was absent here; the agents               where Riven raised concerns about edge cases (e.g.,
+lacked a mechanism to detect the error in Diana’s              empty input, duplicate numbers) that are explicitly
+evaluation or to recognize that x = 3 and x = 4                ruled out by the problem assumptions (“each input
+remained unchecked. Consequently, the discussion               has exactly one solution”). Nova then added an
+drifted further from the correct solution path, cul-           unnecessary empty-list check, which did not im-
+minating in an incorrect final answer. 3. Divergent            prove the solution’s correctness under the given
+Drift from Task Constraints: The original prob-                constraints. The final answer was substantively
+lem specified the polynomial x5 +3x3 +x2 +2x, yet              identical to the initial implementation, albeit with
+by the final round, Bob was discussing x3 + 2x + 1.            minor cosmetic changes and redundant commen-
+This drift occurred without any acknowledgment or              tary.
+correction, illustrating how sequential turn-taking            Analysis of Inefficiencies: This transcript exempli-
+without a grounding mechanism can lead to un-                  fies several systemic issues: 1. Low-Value Redun-
+recognized solution divergence and outright errors.            dancy: The core algorithm was identified and im-
+4. Incomplete Verification: The agents failed                  plemented early, yet the conversation continued for
+to exhaustively test all elements of Z5 (0,1,2,3,4),           multiple rounds without introducing new insights
+stopping after a mistaken evaluation of x = 2. This            or improvements. 2. Misplaced Critique: Agents
+incomplete verification, combined with the lack of             spent time discussing edge cases that were irrele-
+cross-checking, directly caused the omission of the            vant under the problem’s explicit assumptions, illus-
+valid root x = 4.                                              trating a failure to ground discussion in the given
+This case underscores that in multi-step reasoning             task constraints. 3. Inefficient Use of Context:
+tasks, the absence of a dedicated synthesis or error-          The progressive history accumulation led to lengthy
+correction mechanism causes the collective output              meta-discourse and repetitions (e.g., Agent_2 re-
+to become disjointed and error-prone. The final                peatedly endorsing the hash table approach) that
+answer (A) 0) is incorrect for the original problem,           consumed token budget without advancing the so-
+highlighting that even when the reasoning process              lution.
+appears collaborative, the fragmentation of coher-             This case underscores that without architectural
+ent thought can lead to reliable-sounding but fun-             mechanisms to synthesize information, critique pro-
+damentally flawed conclusions. The agents’ failure             ductively, and terminate upon convergence, multi-
+to maintain a consistent logical thread and to cor-            agent dialogues can devolve into ceremonious dis-
+
+                                                          20
+cussion rather than efficient problem-solving. The
+marginal refinement observed came at a dispropor-
+tionately high computational cost, highlighting the
+need for structured interaction protocols beyond
+simple sequential turn-taking.
+“‘latex “‘
+
+
+
+
+                                                      21
+ID   Category          Question (English)                      Evaluation Criteria
+                                                               Correctness
+                                                               Time complexity
+                       Implement a function that takes an
+1    algorithm                                                 Code simplicity
+                       integer array nums and a target value
+                                                               Boundary case handling
+                       target, and returns the indices of
+                       two numbers in the array that sum
+                       up to target.
+                       Requirements: 1. Assume each in-
+                       put has exactly one solution. 2. Can-
+                       not use the same element twice. 3.
+                       Time complexity should be as low
+                       as possible.
+                       Example: nums = [2, 7, 11,
+                       15], target = 9 Return: [0,
+                       1]
+                                                            Algorithm correctness
+                                                            Boundary case coverage
+4    string_algorithm Implement a simple regular expres-
+                                                            Time complexity
+                      sion matcher. Support the following
+                                                            Code readability
+                      two wildcards: - ’.’ matches any sin-
+                      gle character - ’*’ matches zero or
+                      more of the preceding element
+                      Implement      function:        def
+                      is_match(s: str, p: str)
+                      -> bool: where s is the string to
+                      match and p is the pattern.
+                                                             Data stream processing capability
+                                                             and stability
+                                                             Flexibility and expressiveness of
+                                                             rule engine design
+8    iot_backend       Design a backend system for moni- System security considerations
+                       toring IoT devices and an intelligent (device authentication, data privacy)
+                       rule engine. The system should re- API design and frontend management
+                       ceive and process data streams from interface usability
+                       simulated or real IoT sensors (e.g., System scalability and fault tolerance
+                       temperature, humidity, motion). It
+                       must implement data persistence,
+                       real-time threshold alerts, and pro-
+                       vide a rule engine that allows users
+                       to define complex interaction rules
+                       through a graphical interface or DSL
+                       (e.g., ’When living room tempera-
+                       ture > 30°C and motion detected,
+                       turn on AC and send notification’).
+
+                   Table 5: Sample Programming Problems with Evaluation Criteria
+
+
+
+
+                                                22
+ID   Category               Question (English)                    Evaluation Criteria
+                                                                  Innovativeness
+                                                                  Feasibility
+1    urban_planning         Design an innovative urban trans- Cost-effectiveness
+                            portation solution to address peak- Sustainability
+                            hour congestion. Consider sustain- User experience
+                            ability, cost-effectiveness, and user
+                            experience.
+                                                               Systems thinking
+                                                               Model innovativeness
+6    sustainability         Design a community-shared re-
+                                                               Community participation
+                            source platform under a circular
+                                                               Environmental benefit quantification
+                            economy model, aiming to max-
+                            imize resource utilization and re-
+                            duce waste. Explain its opera-
+                            tional mechanism, incentive mea-
+                            sures, and community governance
+                            structure.
+                                                                  Dialectical insight
+                                                                  Cultural sensitivity
+10   technology_society     Discuss the potential impacts of ar- Ethical considerations of
+                            tificial intelligence (e.g., machine technical solutions
+                            translation, content generation) on Multi-level strategy formulation
+                            global minority languages and cul-
+                            tural heritage preservation, and pro-
+                            pose coping strategies, while con-
+                            sidering the protection of cultural
+                            diversity.
+
+                      Table 6: Sample Open-ended Problems with Evaluation Criteria
+
+
+
+
+                                                  23
+Round   Agent     Dialogue Content
+         Bob      Hello everyone! Let’s discuss the following problem:
+  1
+                  Find all zeros in the indicated finite field of the given polynomial with coefficients in that field.
+                  x5 + 3x3 + x2 + 2x in Z5
+                  A) 0
+                  B) 1
+                  C) 0,1
+                  D) 0,4
+        Charlie   Hi Bob! Let’s dive into this problem. To find the zeros of the polynomial x5 + 3x3 + x2 + 2x in Z5 ,
+                  we need to check each element of Z5 (i.e., 0, 1, 2, 3, 4) and see which ones make the polynomial equal
+                  to zero. Let’s start with x = 0.
+        Diana     Hi Bob and Charlie! I’m eager to contribute. Let’s continue with checking the other elements in Z5 .
+                  For x = 1, we substitute into the polynomial: 15 + 3(13 ) + 12 + 2(1) = 1 + 3 + 1 + 2 = 7 ≡ 2
+                  (mod 5), which is not zero. So, 1 is not a root.
+         Bob      Great work, everyone! We’ve confirmed that x = 0 is a root, and x = 1 is not a root. Let’s continue
+  2               checking the remaining elements in Z5 : x = 2, x = 3, and x = 4. Diana, you can start with x = 2.
+        Charlie   Sounds good, Bob! Let’s keep going. Diana, I’m looking forward to seeing your results for x = 2.
+        Diana     I’ll get right on it. Let’s see what happens when x = 2. Plugging in the value, we have
+                  23 + 2 · 2 + 1 = 8 + 4 + 1 = 13, which is equivalent to 3 modulo 5. Therefore, x = 2 is not a root of
+                  the polynomial in Z5 .
+         Bob      Great job, everyone! We’ve now determined that x = 0 is the only root of the polynomial x3 + 2x + 1
+  3               in Z5 . The other elements x = 1, x = 2, x = 3, and x = 4 are not roots. This thorough analysis has
+                  been very productive, and I appreciate the effort and accuracy from both Charlie and Diana.
+        Charlie   Thank you, Bob! It’s great to hear that our collaborative effort has been successful. I learned a lot from
+                  this process, and I’m glad we were able to determine the roots of the polynomial accurately. Looking
+                  forward to more such discussions!
+        Diana     Thank you both for your efforts and the positive outcome. I regret not being able to contribute to the
+                  discussion and will make sure to participate more actively in future conversations.
+
+                               Table 7: Dialogue History Across Three Rounds
+
+
+
+
+                                                          24
+Round   Agent     Dialogue Content
+        Nova      Let’s discuss this coding problem: Implement a function that accepts an integer array nums and
+  1               a target value target, and returns the indices of two numbers in the array that sum to target.
+                  Requirements: 1. Assume each input has exactly one solution. 2. Cannot use the same element
+                  twice. 3. Time complexity should be as low as possible. Example: nums = [2, 7, 11, 15],
+                  target = 9, return [0, 1]. Programming language: Python. Constraints: [’time complexity
+                  O(n)’, ’space complexity O(n)’]. Please share your solution.
+        Agent_2   Nova’s problem statement seems well-defined and clear. I agree that breaking down complex code
+                  into manageable parts for analysis is crucial in solving this problem efficiently. Since the goal is
+                  to find two numbers in an array that add up to a target value with a low time complexity, I think
+                  we can explore using hash tables or dictionaries to store the numbers we’ve seen so far and their
+                  indices. This would allow us to check if the complement of the current number (i.e., the number
+                  that adds up to the target) has been seen before in constant time. What are your thoughts on this
+                  approach, Nova? Have you considered using any data structures to improve the efficiency of our
+                  solution?
+         Riven    Alright, let’s get down to business. Agent_2, your idea of using hash tables or dictionaries sounds
+                  good in theory, but how do you plan to implement it? What specific data structure would you
+                  use, and how would you handle edge cases? Nova, I’d like to see some actual code from you as
+                  well. A problem statement is just the beginning – let’s see how you intend to solve this problem
+                  efficiently. Let’s not waste time on abstract discussions; show me the code, and then we can talk
+                  about optimization and critique.
+         Nova     I appreciate Agent_2’s feedback and suggestions on using hash tables or dictionaries to improve
+  2               the solution’s efficiency. Riven, I understand your request for concrete code, so here’s my at-
+                  tempt at a Python solution: def two_sum(nums, target): num_dict = {} for i, num in
+                  enumerate(nums): complement = target - num if complement in num_dict: return
+                  [num_dict[complement], i] num_dict[num] = i return []. This solution uses a dictionary
+                  to store the numbers we’ve seen so far and their indices. We iterate through the input list, calculate
+                  the complement of each number with respect to the target, and check if it exists in the dictionary. If
+                  it does, we return the indices of the two numbers that add up to the target. Please let me know if this
+                  solution meets your requirements or if there’s room for improvement.
+        Agent_2   Nova’s solution using a dictionary to store numbers and their indices is a good implementation of
+                  the hash table concept we discussed earlier. I’m glad to see that my suggestions were helpful in
+                  improving the efficiency of the solution. Riven, since Nova has provided a concrete code example,
+                  would you like to review it for any potential flaws or areas for optimization? Your expertise in code
+                  critique and optimization would be valuable in ensuring the solution is robust and reliable.
+         Riven    Finally, some concrete code to sink my teeth into. Nova, your solution looks decent, but I’m not
+                  here to coddle you. Let’s dive into the nitty-gritty. Firstly, using a dictionary is a good call, as
+                  it allows for efficient lookups. However, have you considered the scenario where the input list
+                  contains duplicate numbers? Your current implementation would only store the index of the last
+                  occurrence of each number. This might not be the desired behavior in certain cases. Additionally,
+                  I’d like to see some error handling. What if the input list is empty or None? What if the target is not
+                  a valid number? You should add some checks to ensure your function behaves correctly under these
+                  conditions. Lastly, while your solution has a time complexity of O(n), where n is the length of the
+                  input list, I’m not convinced it’s the most efficient approach. Have you considered using a different
+                  data structure or algorithm? Let me hear your thoughts on these concerns, Nova. Agent_2, feel free
+                  to chime in as well.
+         Nova     I appreciate the thorough review of my solution by Riven and Agent_2’s encouragement. To ad-
+  3               dress Riven’s concerns, I agree that handling duplicate numbers and edge cases such as an empty
+                  or None input list is crucial. Here’s an updated version of the code: def two_sum(nums, target):
+                  if not nums: return [] num_dict = {} for i, num in enumerate(nums): complement
+                  = target - num if complement in num_dict: return [num_dict[complement], i]
+                  num_dict[num] = i return []. Regarding the use of a different data structure or algorithm,
+                  I’m open to exploring alternative approaches that could improve efficiency. However, based on my
+                  analysis, the dictionary-based solution seems to be a reasonable trade-off between time complexity
+                  and readability. I’d like to thank both Agent_2 and Riven for their valuable feedback, which has
+                  helped me refine my solution.
+        Agent_2   I’m pleased to see that our collaborative effort has led to a refined solution. Nova’s updated code
+                  effectively addresses edge cases and maintains readability while achieving optimal time complexity.
+                  As we conclude this discussion, I’d like to reiterate the importance of systematic analysis and
+                  logical thinking in problem-solving. By breaking down complex problems into manageable parts
+                  and applying mathematical rigor, we can consistently arrive at efficient solutions. Thank you, Nova
+                  and Riven, for your contributions to this conversation.
+         Riven    Nova’s updated solution addresses some of the concerns I had, but I still think there’s room for im-
+                  provement in terms of efficiency. Using a dictionary-based approach might be reasonable, but have
+                  you considered exploring other data structures that could potentially lead to even faster solutions?
+                  Agent_2, while your emphasis on systematic analysis is commendable, I believe our discussion
+                  could have benefited from more aggressive critiquing of the code. Nevertheless, I appreciate the
+                  collaborative effort and acknowledge that it has led to a refined solution.
+
+                       Table 8: Dialogue History Across Three Rounds for Coding.
+
+
+                                                        25
+

@@ -1,0 +1,347 @@
+                                              Adaptive Memory and Reflection Multi-Agent System for Medical
+                                                                  Question Answering
+                                                                       Pradeep Murugesan1 , Luoxiao Yang2 , Xueli Chen3 , Xinqi Fan1∗
+
+
+                                            Abstract— Accurate and responsible medical question an-                 over time [18], [17], [5]. Furthermore, the absence of ex-
+                                         swering (QA) is important in healthcare, where complex cases               plicit ethical control mechanisms contributes to unreliable
+                                         require factual knowledge and nuanced reasoning. Existing                  outputs in clinical contexts [6], [2]. While RAG and multi-
+                                         medical QA systems, typically based on single-agent architec-
+                                         tures and static retrieval, often lack adaptability, persistent            agent approaches partially address these issues, they remain
+                                         memory, and structured decision-making. This work introduces               insufficient without integrated adaptability and feedback.
+                                                                                                                       To address these limitations, we propose an adaptive
+
+
+
+
+arXiv:2608.19029v1 [cs.AI] 19 Aug 2026
+                                         an adaptive memory and reflection (AMR) agentic system,
+                                         a multi-agent framework in which specialized agents use                    memory and reflection (AMR) agentic system, a multi-agent
+                                         dedicated memory and reflection-based feedback to retrieve                 medical QA framework integrating role-specific memory
+                                         relevant prior cases and improve subsequent reasoning. Com-
+                                         plexity assessment routes questions through solo, collaborative,           and a structured reflection-feedback loop. Built on graph-
+                                         or escalated workflows, while consensus and ethical overseer               based orchestration [16], AMR supports dynamic routing,
+                                         modules support reasoning consolidation and output review.                 consensus-driven reasoning [4], and post-generation safety
+                                         Evaluation on MedQA and MedMCQA demonstrates strong                        screening [21]. Inspired by clinical team processes [8], this
+                                         performance compared with several baselines. Ablation studies              design supports more transparent and controllable medical
+                                         show that combining agent-specific memory, reflection, and ex-
+                                         ternal retrieval yields the strongest performance. These findings          QA workflows. The main contributions are:
+                                         highlight the potential of structured memory and feedback for                 • A medical QA framework based on multi-agent
+                                         developing more trustworthy medical agents. The source code                      collaboration and clinically inspired design. We pro-
+                                         is publicly available at https://github.com/mm-air/AMR-Agent.                    pose an AMR agentic system, a graph-based framework
+                                                                                                                          that separates complexity-aware routing, collaborative
+                                                               I. INTRODUCTION                                            reasoning, synthesis, and an ethical overseer.
+                                                                                                                       • Role-specific memory and reflection for adaptive
+                                            Medical question answering (QA) aims to answer natural-
+                                         language medical questions by grounding responses in                             reasoning. We introduce agent-specific memories and
+                                         biomedical knowledge, clinical evidence, and domain-                             post-hoc reflection updates so that prior cases are reused
+                                         specific reasoning [12]. It supports concise evidence access                     in a role-aware manner rather than through a single
+                                         at the point of care [10], biomedical literature understanding,                  undifferentiated memory store.
+                                                                                                                       • An empirical study of component interactions in
+                                         medical education and examination-style assessment, and
+                                         evaluation of expert-level reasoning in AI systems [10]. The                     medical QA. On MedQA [11] and MedMCQA [20]
+                                         field has developed from clinical evidence retrieval systems                     benchmarks, we evaluate the effects of adaptive memory
+                                         to modern natural language processing (NLP) and large                            and reflection within the same framework and show that
+                                         language model (LLM) settings [25].                                              the combined system design yields the strongest gains.
+                                            Current medical QA studies mainly proceed along three                                      II. RELATED WORK
+                                         directions. The first direction explores stronger domain-
+                                                                                                                       Large language models (LLMs) have significantly ad-
+                                         specific LLMs for better medical analysis [28]. The sec-
+                                                                                                                    vanced medical NLP, outperforming traditional approaches
+                                         ond direction improves answering with retrieval-augmented
+                                                                                                                    in tasks such as clinical summarization, concept extraction,
+                                         generation (RAG) so that responses can be grounded in
+                                                                                                                    and question answering [15], [29]. Domain-specific models
+                                         external medical evidence [26]. The third direction uses
+                                                                                                                    trained on biomedical corpora further improve contextual
+                                         agents to imitate clinical decision discussions [14]. Although
+                                                                                                                    understanding, while integration with structured ontologies
+                                         there are many advances in medical QA systems, they often
+                                                                                                                    enhances interpretability and reduces hallucination [3], [18].
+                                         lack persistent memory and reflection capabilities, preventing
+                                                                                                                    Despite strong performance in clinical decision support and
+                                         them from learning from past errors or improving reasoning
+                                                                                                                    QA tasks, LLMs remain limited by hallucination, reasoning
+                                           1 Pradeep Murugesan and Xinqi Fan are with the School of Com-            instability, and lack of transparency [6]. Additionally, reg-
+                                         puting and Mathematics, Manchester Metropolitan University, UK.            ulatory and privacy constraints and challenges in retrieval
+                                         pradeep71195@gmail.com, x.fan@mmu.ac.uk                                    alignment limit real-world deployment [19], [1].
+                                            2 Luoxiao Yang is with the Electrical and Computer Engineering, Tech-
+                                         nion – Israel Institute of Technology, Israel.                                Multi-agent systems (MAS) enable distributed, collabora-
+                                            3 Xueli Chen is with the School of Science and Technology, Hong Kong    tive reasoning aligned with the interdisciplinary nature of
+                                         Metropolitan University, Hong Kong SAR.                                    clinical decision-making [23]. While early systems relied
+                                            This work was partially supported by a grant from the Research Grants
+                                         Council of Hong Kong SAR (No. UGC/FDS16/E16/25).                           on rule-based coordination [8], modern approaches employ
+                                            ∗ Corresponding author                                                  LLM-based agents that communicate and collaborate to
+Fig. 1. Pipeline of the adaptive memory and reflection (AMR) agentic system, including complexity assessment, dynamic routing, collaborative reasoning,
+memory, feedback, and post-generation safety screening.
+
+improve reasoning accuracy, robustness, and interpretability                 A. Overall Architecture
+[14], [30], [2]. However, challenges remain in managing                         The AMR framework (Fig. 1) adopts a modular multi-
+agent disagreement, coordination latency, and adaptive col-                  agent design built on LangGraph for graph-based orches-
+laboration strategies [13]. Retrieval-augmented generation                   tration [16]. Nodes represent agents or processing steps,
+(RAG) improves factual grounding by integrating external                     and edges define transitions. A Moderator assesses question
+knowledge during inference [24], [9]. While effective in en-                 complexity, after which a Recruiter routes the query to
+hancing accuracy, RAG systems remain sensitive to retrieval                  one of three pathways: (i) low complexity—handled by a
+misalignment, which can degrade reasoning consistency [22].                  General Practitioner, (ii) moderate complexity—resolved
+Moreover, clinical usability aspects such as explainability                  via multi-agent collaboration and consensus, and (iii) high
+and evidence traceability are still underexplored.                           complexity—processed through iterative hierarchical agents
+   In contrast to the above paradigms, the proposed AMR                      refinement followed by report summary and finally selection
+framework introduces two system-level shifts in medical                      by a more senior Decision Maker, like a lead consultant.
+QA design. Firstly, AMR treats medical QA as a pipeline                         The implementation follows a LangGraph-style execution
+design problem and makes routing explicit, so that reasoning                 pipeline. The Moderator first assesses question complexity
+depth is selected according to question complexity rather                    and triages the incoming query. The Recruiter activates the
+than fixed for every case. Secondly, AMR combines role-                      corresponding agents according to the assigned complexity
+specific memory, post-hoc reflection, and output screening                   level. The reasoning outputs are consolidated within the
+(Ethical Overseer) in the same framework, enabling prior                     selected pathway and reviewed by the Ethical Overseer. The
+cases to be reused in a targeted way and candidate answers                   Final Answer Picker then maps the screened output to the
+to be screened for potentially unsafe content before release.                returned answer option.
+The resulting system is therefore not only a multi-agent
+medical QA model, but also an explicit study of how system                   B. Adaptive Routing and Collaborative Reasoning
+organization changes medical QA performance.
+                                                                                AMR uses different reasoning depths for different ques-
+                           III. METHOD                                       tions. Direct recall or simple mechanism questions use
+                                                                             the low-complexity path; questions combining symptoms,
+   This section presents the proposed adaptive memory and                    findings, and specialty interpretation use specialist collab-
+reflection (AMR) agentic system, designed to address incon-                  oration; and cases with competing diagnostic or treatment
+sistent reasoning, lack of persistent memory, and absence                    interpretations follow a longer workflow with draft genera-
+of structured feedback in LLM-based medical QA. The                          tion, critique, refinement, and final decision. The Moderator
+framework combines agent-specific memory with reflection-                    assigns one of three routing labels (low, moderate, or high),
+driven feedback to support continual learning and improved                   determining the downstream execution path.
+reasoning over time.                                                            This routing avoids applying the same multi-agent pro-
+cedure to every case. For moderate-complexity questions,                                          TABLE I
+specialists generate independent opinions, refine them using                  ROLES AND R ESPONSIBILITIES OF AMR AGENTS
+the shared transcript, and a Consensus Facilitator summa-
+                                                                     Agent Node           Input               Output / Function
+rizes agreements and disagreements. For high-complexity              Moderator            User question       Assesses complexity
+questions, intermediate reports allow reasoning to be revised        Recruiter            Complexity, ques-   Allocates agents
+before final answer selection. Routing is therefore both a                                tion
+                                                                     General Practitioner Question            Single-agent reasoning
+computational shortcut and a control mechanism aligning              Collaborative Agents Question            Multi-agent reasoning
+reasoning depth with question difficulty.                            Initial Report Agent Question            Draft report
+                                                                     Review/Refine        Report              Improves report
+C. Agent-Specific Memory and Reflective Update                       Agent
+                                                                     Decision Maker       Reports             Selects best output
+   Each AMR agent maintains a separate memory rather                 Summarizer           Outputs             Consolidated rationale
+than a single shared store. Memory entries contain the               Ethical Overseer     Answer              Flags or passes output
+                                                                     Final Answer Picker Reports              Final selection
+question context, answer, post-hoc notes, role metadata, and
+timestamp for later retrieval. When reflection is enabled,
+                                                                    for potentially unsafe medical advice, unsupported diagnostic
+incorrect predictions generate an additional role-specific re-
+                                                                    statements, and treatment recommendations. Rather than
+flection entry containing corrective feedback. This design
+                                                                    modifying the underlying reasoning process, it evaluates the
+allows different roles to retrieve different prior experience for
+                                                                    final response against predefined safety criteria and either
+the same question; for example, hepatology and nephrology
+                                                                    approves the response or flags it for non-compliance. In
+agents may retrieve different cases because they reason from
+                                                                    the current implementation, this component is intended as a
+different specialty perspectives.
+                                                                    preliminary safety mechanism to reduce potentially unsafe
+   In addition to memory retrieval, AMR includes a reflection
+                                                                    outputs and should not be interpreted as a substitute for
+loop triggered only when the predicted answer differs from
+                                                                    formal clinical validation or regulatory safety assessment.
+the ground-truth label. Corrective feedback and reasoning
+summaries are stored as reflective memory to improve future         E. Agent Roles and Responsibilities
+retrieval rather than updating model parameters. Algorithm 1
+summarizes this process.                                               The AMR framework defines modular roles that jointly
+                                                                    cover assessment, recruitment, reasoning, synthesis, and
+Algorithm 1 Agentic Reflective Feedback Learning                    screening. AMR includes several agents with distinct respon-
+ 1: for each Question in Dataset do                                 sibilities; Table I summarizes their roles and functions.
+ 2:   Answer ← AMRSystem.process(Question)
+ 3:   GroundTruth ← get label(Question)                                      IV. EXPERIMENT AND DISCUSSION
+ 4:   if Answer ̸= GroundTruth then                                 A. Datasets
+ 5:      for each Agent in team do
+ 6:        Agent.memory.add(FeedbackEntry)                             We use MedQA [11] and MedMCQA [20], two established
+ 7:      end for                                                    multiple-choice medical QA benchmarks that differ in scale,
+ 8:   end if                                                        difficulty, and explanation richness. MedQA focuses on
+ 9: end for
+                                                                    USMLE-style clinical reasoning, while MedMCQA provides
+                                                                    large-scale exam questions with broader specialty coverage.
+                                                                    Table II summarizes key characteristics of the datasets.
+D. Answer Synthesis and Output Screening                               For MedQA, the official training split was used to con-
+   After specialist reasoning is complete, AMR separates            struct the retrieval corpus, while the official test split was
+answer synthesis from answer release. The Summarizer con-           reserved exclusively for evaluation. For MedMCQA, a dis-
+denses the specialist rationales into one explanation, and the      joint subset of training questions was used for retrieval, and
+Final Answer Picker maps that explanation to the returned           an independent subset was used for evaluation.
+answer option. Before release, the Ethical Overseer reviews                                     TABLE II
+the candidate response for potentially unsafe content, includ-                S UMMARY OF U TILIZED M EDICAL QA DATASETS
+ing direct diagnostic statements, harmful advice, or treatment
+recommendations that exceed the intended educational scope.                               MedQA               MedMCQA
+                                                                           Origin         USMLE (US)          AIIMS/NEET (India)
+Responses are labelled as APPROVED or FLAGGED, with                        Questions      ∼12,700             ∼194,000
+the corresponding rationale recorded for auditability.                     Format         Clinical vignette   Multiple-choice
+   The separation between synthesis and screening is impor-                Specialties    21+                 21+
+                                                                           Reasoning      High                Mixed
+tant in medical QA. A candidate answer may be factually                    Explanations   Partial             Full
+grounded yet still require filtering or abstention under a
+deployment policy [21], [19]. By isolating output screening
+as an explicit stage, AMR makes policy decisions inspectable        B. Implementation Details
+rather than burying them inside the reasoning prompt.                  Experiments used a Python pipeline with JSONL inputs
+   The Ethical Overseer functions as a policy-based post-           and GPT-4o through the OpenAI API. LangGraph orches-
+generation screening layer that reviews candidate responses         trated the workflow, while FAISS served as the persistent
+vector store. Agent memories were embedded using text-           (reflection without agent memory retrieval), Memory (agent-
+embedding-3-large and indexed for semantic retrieval. Ques-      specific retrieval without reflectiion), AMR w/o RAG (mem-
+tions were routed according to the Moderator’s complexity        ory and reflection), and AMR (full AMR augmented with
+assessment. Agents retrieved the top five role-specific prior    external retrieval).
+cases, and reflection updates were recorded after incorrect         Table IV reports performance across configurations. The
+predictions. Logs captured predictions, routing decisions,       baseline achieved 80% (MedQA) and 78% (MedMCQA).
+retrieval traces, and ethical screening outcomes.                Feedback and memory progressively improved results, AMR
+   Each agent received role-specific prompts. The Modera-        without RAG reached 90% and 87.4%, and full AMR with
+tor assessed complexity, the Recruiter selected specialists,     RAG performed best (93.2%, 90%), demonstrating comple-
+specialist agents generated independent reasoning, and the       mentary benefits from retrieval, memory, and feedback.
+Final Answer Picker returned only the final answer option.                                     TABLE IV
+Retrieval documents were built from the training corpus,                                   A BLATION STUDIES .
+chunked into overlapping passages, embedded, and indexed
+                                                                  Config              Mem      FB     RAG       MedQA       MedMCQA
+in FAISS. For computational efficiency, each benchmark            Baseline             –        –      –         80%           78%
+was evaluated in sequential batches of 50 questions. To           Feedback             –       ✓       –         82%          80.4%
+prevent test-set leakage, the retrieval corpus was constructed    Memory               ✓        –      –         86%           82%
+                                                                  AMR w/o RAG          ✓       ✓       –         90%          87.4%
+before evaluation and remained frozen throughout testing.         AMR                  ✓       ✓       ✓        93.2%         90.0%
+Evaluation samples were processed independently without
+writing test questions, predictions, or reflection feedback
+back into persistent memory.                                     F. Quantitative Comparison with Other Methods
+                                                                   Table V compares AMR with representative single-agent,
+C. Evaluation Metrics                                            human, and prior multi-agent results. AMR is competitive
+   We report accuracy and consistency. Accuracy measures         with or stronger than several automated baselines on both
+the fraction of correctly answered questions:                    MedQA and MedMCQA, and approaches the reported hu-
+                                                                 man reference level on MedMCQA.
+                              NC
+                  Accuracy =      × 100%.            (1)                                      TABLE V
+                               N
+                                                                                  C OMPARISON WITH OTHER M ETHODS
+   Consistency is assessed by the mean µ and standard
+deviation σ :                                                                     Method         MedQA       MedMCQA
+                                s                                                 GPT-4          86.1%         73.7%
+                 1 n              1 n                                             Human          87.0%         90.0%
+            µ = ∑ ai , σ =
+                 n i=1              ∑ (ai − µ)2 .
+                                  n i=1
+                                                     (2)                          MDAgents       86.5%         73.7%
+                                                                                  MedAgents      83.0%         70.0%
+                                                                                  AMR            93.2%         90.0%
+D. Functionality Comparison with Other Methods
+   AMR introduces adaptive agent-specific memory and             G. Performance Across Different Question Complexity
+reflection-driven learning, supporting continual improvement        AMR achieves high mean accuracy across all question
+and context-aware reasoning. Unlike prior multi-agent frame-     complexity levels, with accuracy values of around 0.85 or
+works, MDAgent [14], Debate [7], MedAgent [27], ReCon-           higher (Fig. 2). The model achieves its highest mean accu-
+cile [4], which rely on static or single-pass reasoning, AMR     racy and lowest standard deviation on moderate-complexity
+integrates memory, feedback, and post-generation screening       questions, which may be attributed to the multi-agent col-
+to support robustness and adaptability (Table III).              laborative reasoning and iterative debate mechanisms. The
+                          TABLE III                              experiments were done without enabling RAG.
+   C OMPARISON OF F UNCTIONS ACROSS M ULTI -AGENT M ETHODS
+ Function              AMR MDAgent Debate MedAgent ReConcile
+ Multiple Roles          ✓        ✓       ✓      ✓      ✓
+ Early Stopping          ✓        ✓       ✓      ✓      –
+ Refinement              ✓        ✓       ✓      ✓      –
+ Complexity Check        ✓        ✓       –      –      –
+ Multi-party Chat        ✓        ✓       ✓      –      –
+ Conversation Pattern Flexible Flexible Static Static Static
+ Ethical Overseer        ✓        –       –      –      –
+ RAG Integration         ✓        –       –      ✓      –
+ Agent Memory            ✓        –       –      –      –
+ Feedback Learning       ✓        –       –      –      –
+
+
+
+E. Ablation Study
+  We evaluate five settings: Baseline (multi-agent reasoning         Fig. 2.   Accuracies across different question complexity levels.
+without memory, reflection, or external retrieval), Feedback
+                                                      (a) Positive qualitative example.
+
+
+
+
+                                                     (b) Negative qualitative example.
+Fig. 3. Qualitative analysis of the proposed AMR system. (a) A positive case showing correct and consistent reasoning with adaptive memory and
+reflection support. (b) A negative case showing an error instance used for reflection-driven feedback and future refinement.
+
+H. Qualitative Analysis                                                  across roles.
+                                                                            In the error case (Figure 3b), the system produces an
+  Figure 3 presents one successful case and one failure case             incorrect answer, exposing reasoning limitations. Such cases
+of the AMR system.                                                       trigger reflection, where structured feedback (incorrect pre-
+  In the positive case (Figure 3a), agents retrieve semanti-             diction, correct answer, and reasoning correction) is stored
+cally similar prior cases, including surgical error disclosure           in memory. For example, the system selected option “E”
+scenarios, supporting consistent and context-aware reasoning             instead of “C”, prompting feedback on ethical disclosure
+prioritization. The Ethical Overseer flagged potentially un-                    [8] N. E. Epstein. Multidisciplinary in-hospital teams improve patient
+safe recommendations and recorded the reason for review,                            outcomes: A review. Surgical Neurology International, 2014.
+                                                                                [9] O. K. Gargari and G. Habibi. Enhancing medical ai with retrieval-
+illustrating the intended screening mechanism rather than a                         augmented generation: A mini narrative review. Digital Health, 2025.
+comprehensive quantitative evaluation.                                         [10] T. R. Goodwin and S. M. Harabagiu. Medical question answering for
+                                                                                    clinical decision support. In Proceedings of the 25th ACM Interna-
+                        V. CONCLUSIONS                                              tional Conference on Information and Knowledge Management, pages
+                                                                                    297–306, 2016.
+   This paper presents an adaptive memory and reflection                       [11] D. Jin, E. Pan, N. Oufattole, W.-H. Weng, H. Fang, and P. Szolovits.
+(AMR) agentic framework for medical QA that integrates                              What disease does this patient have? a large-scale open domain
+                                                                                    question answering dataset from medical exams. Applied Sciences,
+complexity-aware routing, agent-specific memory, collabora-                         11(14):6421, 2021.
+tive reasoning, reflection, and output screening. By treating                  [12] Q. Jin, Z. Yuan, G. Xiong, Q. Yu, H. Ying, C. Tan, M. Chen,
+medical QA as a structured reasoning pipeline rather than                           S. Huang, X. Liu, and S. Yu. Biomedical question answering: a survey
+                                                                                    of approaches and challenges. ACM Computing Surveys (CSUR),
+a single-prompt task, AMR enables agents to collaborate,                            55(2):1–36, 2022.
+refine intermediate reasoning, and leverage both retrieved                     [13] J. G. Johnson, M. Peralta, M. Kaur, R. S. Huang, S. Zhao, R. Guan,
+                                                                                    S. Rajaram, and M. Nebeling. Exploring collaborative genai agents
+knowledge and accumulated experience. Experiments on                                in synchronous group settings: eliciting team perceptions and design
+MedQA and MedMCQA demonstrate consistent improve-                                   considerations for the future of work. Proceedings of the ACM on
+ments over the baseline, with the combination of memory,                            Human-Computer Interaction, 9(7):1–33, 2025.
+                                                                               [14] Y. Kim, C. Park, H. Jeong, Y. S. Chan, X. Xu, D. McDuff, H. Lee,
+reflection, and RAG achieving the strongest performance.                            M. Ghassemi, C. Breazeal, and H. W. Park. Mdagents: An adaptive
+These results demonstrate the potential of structured multi-                        collaboration of llms for medical decision-making. Advances in Neural
+agent systems for more accurate and adaptive medical QA.                            Information Processing Systems, 37:79410–79452, 2024.
+                                                                               [15] P. Kumar. Large language models (llms): Survey, technical frame-
+   There are several limitations. The framework is still                            works, and future challenges. Artificial Intelligence Review, 57:260,
+constrained by retrieval quality, and the effectiveness of                          2024.
+                                                                               [16] LangChain AI. Langgraph, 2025. [Online; accessed 01-July-2025].
+memory may decline as stored experiences grow, introducing                     [17] D. Lee, T. Whang, C. Lee, and H. Lim. Towards reliable and fluent
+duplicated or less relevant cases. The reflection mechanism                         large language models: Incorporating feedback learning loops in qa
+has only been evaluated on retrospective benchmarks rather                          systems. arXiv preprint arXiv:2309.06384, 2023.
+                                                                               [18] J. Liu, W. Wang, Z. Ma, G. Huang, Y. Su, K.-J. Chang, H. Li, L. Shen,
+than real clinical workflows. In addition, the ethical overseer                     M. R. Lyu, and W. Chen. Medchain: Bridging the gap between llm
+uses LLM knowledge and has not been validated using                                 agents and clinical practice with interactive sequence. Advances in
+dedicated clinical rules or by clinicians. Finally, MedQA and                       Neural Information Processing Systems, 38, 2025.
+                                                                               [19] A. McKeown, M. Mourby, P. Harrison, S. Walker, M. Sheehan, and
+MedMCQA do not fully capture complexity and workflow                                I. Singh. Ethical issues in consent for the reuse of data in health data
+requirements of real-world clinical decision-making.                                platforms. Science and Engineering Ethics, 2021.
+                                                                               [20] A. Pal, L. K. Umapathi, and M. Sankarasubbu. Medmcqa: A large-
+   Future work will investigate more effective memory man-                          scale multi-subject multi-choice dataset for medical domain question
+agement and retrieval strategies, including memory pruning,                         answering. In Conference on Health, Inference, and Learning, pages
+confidence-based retention, recency-aware retrieval, rerank-                        248–260. PMLR, 2022.
+                                                                               [21] T. Pham. Ethical and legal considerations in healthcare ai: Innovation
+ing, and forgetting mechanisms, to improve long-term perfor-                        and policy for safe and fair use. Royal Society Open Science,
+mance. We also plan to extend AMR beyond multiple-choice                            12:241873, 2025.
+                                                                               [22] H. Selbie and T. Pakeman. Optimizing rag retrieval: Test, tune,
+benchmarks to open-ended clinical reasoning and real-world                          succeed, 2024. [Online; accessed 22-July-2025].
+decision support, while conducting systematic evaluations of                   [23] E. Shakshuki and M. Reid. Multi-agent system applications in
+safety, inference latency, token consumption, and the trade-                        healthcare: Current technology and future roadmap. In Procedia
+                                                                                    Computer Science, volume 52, pages 252–261, 2015.
+offs between reasoning quality and computational efficiency.                   [24] A. Singh, A. Ehtesham, S. Kumar, T. Khoei, and A. V. Vasilakos.
+                                                                                    Agentic retrieval-augmented generation: A survey on agentic rag.
+                             R EFERENCES                                            arXiv, 2025.
+ [1] L. M. Amugongo, P. Mascheroni, S. Brooks, S. Doering, and J. Seidel.      [25] K. Singhal, T. Tu, J. Gottweis, R. Sayres, E. Wulczyn, M. Amin,
+     Retrieval augmented generation for large language models in health-            L. Hou, K. Clark, S. R. Pfohl, H. Cole-Lewis, et al. Toward expert-
+     care: A systematic review. PLOS Digital Health, 4(6), 2025.                    level medical question answering with large language models. Nature
+ [2] A. A. Borkowski and A. Ben-Ari. Multiagent ai systems in health                Medicine, 31(3):943–950, 2025.
+     care: envisioning next-generation intelligence. Federal Practitioner,     [26] J. Sohn, Y. Park, C. Yoon, S. Park, H. Hwang, M. Sung, H. Kim,
+     42(5):188, 2025.                                                               and J. Kang. Rationale-guided retrieval augmented generation for
+ [3] E. Chang and S. Sung. Use of snomed ct in large language models:               medical question answering. In Proceedings of the 2025 Conference
+     Scoping review. JMIR Medical Informatics, 12(1), 2024.                         of the Nations of the Americas Chapter of the Association for Com-
+ [4] J. Chen, S. Saha, and M. Bansal. Reconcile: Round-table conference             putational Linguistics: Human Language Technologies, pages 12739–
+     improves reasoning via consensus among diverse llms. In Proceedings            12753, 2025.
+     of the 62nd Annual Meeting of the Association for Computational           [27] X. Tang, A. Zou, Z. Zhang, Z. Li, Y. Zhao, X. Zhang, A. Cohan,
+     Linguistics, pages 7066–7085, 2024.                                            and M. Gerstein. Medagents: Large language models as collaborators
+ [5] A. Choudhury and Z. Chaudhry. Large language models and user                   for zero-shot medical reasoning. In Findings of the Association for
+     trust: Consequence of self-referential learning loop and the deskilling        Computational Linguistics: ACL 2024, pages 599–621, 2024.
+     of health care professionals. Journal of Medical Internet Research,       [28] A. J. Thirunavukarasu, D. S. J. Ting, K. Elangovan, L. Gutierrez, T. F.
+     2024.                                                                          Tan, and D. S. W. Ting. Large language models in medicine. Nature
+ [6] J. Clusmann, F. Kolbinger, H. Muti, Z. Carrero, J.-N. Eckardt,                 Medicine, 29(8):1930–1940, 2023.
+     N. Laleh, C. M. L. Ghaffari, S.-C. Unger, M. Veldhuizen, G. P. Wagner,    [29] X. Yang, J. Bian, W. R. Hogan, and Y. Wu. Clinical concept extraction
+     S. Kather, and J. Nikolas. The future landscape of large language              using transformers. Journal of the American Medical Informatics
+     models in medicine. Communications Medicine, 2023.                             Association, 27(12):1935–1942, 2020.
+ [7] Y. Du, S. Li, A. Torralba, J. B. Tenenbaum, and I. Mordatch. Improv-      [30] K. Zuo, Y. Jiang, F. Mo, and P. Lio. Kg4diagnosis: A hierarchical
+     ing factuality and reasoning in language models through multiagent             multi-agent llm framework with knowledge graph enhancement for
+     debate. In Forty-first International Conference on Machine Learning,           medical diagnosis. In AAAI Bridge Program on AI for Medicine and
+     2024.                                                                          Healthcare, pages 195–204. PMLR, 2025.
+

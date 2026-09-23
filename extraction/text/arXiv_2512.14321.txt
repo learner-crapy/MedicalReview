@@ -1,0 +1,958 @@
+                                          Multi-Agent Medical Decision Consensus Matrix
+                                         System: An Intelligent Collaborative Framework for
+                                                  Oncology MDT Consultations
+                                                    Xudong Han                    Xianglun Gao                    Xiaoyi Qu                       Zhenyu Yu
+                                                University of Sussex            Columbia University            Lehigh University             University of Malaya
+                                                xh218@sussex.ac.uk            tpjcw0309@gmail.com             xiq322@lehigh.edu           yuzhenyuyxl@foxmail.com
+
+
+
+
+arXiv:2512.14321v1 [cs.MA] 16 Dec 2025
+                                            Abstract—Multidisciplinary team (MDT) consultations are the       consensus, or documenting the reasoning that underpins col-
+                                         gold standard for cancer care decision-making, yet current           lective decisions [11]–[13]. This lack of formal structure has
+                                         practice lacks structured mechanisms for quantifying consensus       tangible consequences: recommendations may be inconsistent
+                                         and ensuring decision traceability. We introduce a Multi-Agent
+                                         Medical Decision Consensus Matrix System that deploys seven          in roughly a quarter of cases, discussion time per patient can be
+                                         specialised large language model agents, including an oncologist,    lengthy, and the traceability of decision-making is often poor,
+                                         a radiologist, a nurse, a psychologist, a patient advocate, a        which in turn complicates quality assurance and retrospective
+                                         nutritionist and a rehabilitation therapist, to simulate realistic   review [14]–[16].
+                                         MDT workflows. The framework incorporates a mathematically              In parallel, recent breakthroughs in artificial intelligence,
+                                         grounded consensus matrix that uses Kendall’s coefficient of
+                                         concordance to objectively assess agreement. To further enhance      particularly in Large Language Models (LLMs), have demon-
+                                         treatment recommendation quality and consensus efficiency, the       strated strong capabilities in medical reasoning and clinical
+                                         system integrates reinforcement learning methods, including          decision support [17]–[19]. For instance, GPT-4 [20]–[23]
+                                         Q-Learning, PPO, and DQN. Evaluation across five medical             has achieved an accuracy of 86.4% on USMLE Step 1
+                                         benchmarks (MedQA, PubMedQA, DDXPlus, MedBullets, Sym-               examinations [24], while Med-PaLM 2 has exhibited expert-
+                                         Cat) shows substantial gains over existing approaches, achieving
+                                         an average accuracy of 87.5% compared with 83.8% for the             level performance on medical licensing benchmarks [25]–[27].
+                                         strongest baseline, a consensus achievement rate of 89.3%, and       Beyond single-model setups, multi-agent systems have shown
+                                         a mean Kendall’s W of 0.823. Expert reviewers rated the              considerable promise in modelling collaborative decision-
+                                         clinical appropriateness of system outputs at 8.9/10. The system     making processes, enabling the simulation of expert inter-
+                                         guarantees full evidence traceability through mandatory citations    action, critique, and consensus formation across a range of
+                                         of clinical guidelines and peer-reviewed literature following
+                                         GRADE principles. This work advances medical AI by providing         domains [28], [29].
+                                         structured consensus measurement, role-specialised multi-agent          However, contemporary multi-agent medical systems still
+                                         collaboration, and evidence-based explainability to improve the      exhibit several critical limitations. First, many frameworks
+                                         quality and efficiency of clinical decision-making.                  provide only rudimentary voting-based schemes for combining
+                                            Index Terms—                                                      agent outputs, lacking structured metrics for characterising
+                                                                                                              consensus beyond simple tallies [28], [30]. Second, role spe-
+                                                               I. I NTRODUCTION                               cialisation is often coarse and fails to capture the nuanced
+                                            Cancer care remains one of the most intricate domains             differences in expertise, responsibility, and perspective that
+                                         in modern medicine, requiring the coordinated integration of         exist in real-world medical teams. Third, explainability and
+                                         expertise across multiple specialties. Multidisciplinary Team        evidence traceability remain limited, as systems frequently
+                                         (MDT) consultations have consequently become a central               offer free-form rationales with weak links to clinical guidelines
+                                         paradigm for oncological treatment planning, bringing together       or primary literature, which constrains clinical acceptance. Fi-
+                                         oncologists, radiologists, pathologists, nurses, and other pro-      nally, the absence of adaptive learning mechanisms means that
+                                         fessionals to formulate joint therapeutic strategies [1], [2].       performance is not systematically improved over time [31]–
+                                         A series of clinical studies have shown that MDT-driven              [35]. Existing approaches such as MDAgents [36], [37] and
+                                         pathways can improve survival by 15–25% [3]–[8], reduce              TeamMedAgents [38]–[40] mark important progress, but they
+                                         treatment delays by an average of 8.3 days, and enhance              still rely primarily on majority voting or basic opinion aggre-
+                                         care coordination through the adoption of standardised pro-          gation and pay limited attention to the quality and coherence
+                                         tocols [9], [10].                                                    of consensus formation.
+                                            Despite these benefits, everyday MDT practice still faces            To address these deficiencies, we propose a novel Multi-
+                                         substantial operational and methodological challenges. In            Agent Medical Decision Consensus Matrix System. The
+                                         many hospitals, tumour board meetings rely on loosely struc-         framework introduces a structured matrix representation that
+                                         tured discussion, without systematic mechanisms for synthe-          encodes expert opinions as quantified treatment preferences,
+                                         sising diverse expert opinions, quantifying the strength of          clinical reasoning, confidence scores, and documented con-
+Fig. 1. Motivation. Traditional tumor multidisciplinary team (MDT) meetings rely on unstructured discussion among human experts, often lacking quantitative
+consensus measurement and traceable evidence for treatment decisions. Our framework replaces each MDT role with a specialized large language model
+agent, aggregates their structured preferences into a mathematically grounded consensus matrix, and uses reinforcement learning together with guideline- and
+literature-based evidence retrieval to produce oncology treatment recommendations with quantified agreement and full evidence traceability.
+
+
+
+cerns, thereby enabling objective consensus measurement us-                    and consensus algorithms. Section III details our consensus
+ing Kendall’s coordination coefficient. Our architecture de-                   matrix framework and multi-agent architecture. Section IV
+ploys seven distinct medical role agents with tailored pro-                    presents a comprehensive experimental evaluation, including
+fessional characteristics and interaction protocols, mirroring                 clinical validation and comparisons with baseline approaches.
+the dynamics of real-world MDTs. We model the consensus                        Section V discusses implications, limitations, and clinical con-
+formation process as a Markov Decision Process and apply ad-                   siderations, while Section VI concludes with future research
+vanced Reinforcement Learning methods such as Q-Learning,                      directions.
+PPO and DQN to enhance both recommendation quality and
+consensus efficiency [41]. Each agent’s opinion is supported
+by a traceable evidence chain that cites clinical guidelines                                            II. R ELATED W ORK
+including NCCN and ESMO as well as peer-reviewed studies
+                                                                               A. Single-Agent Medical Large Language Models
+from PubMed, ensuring transparency and clinical credibility
+(see Figure 1).                                                                   Recent advancements in Large Language Models (LLMs)
+   Our main contributions are:                                                 [43]–[45]have catalyzed a paradigm shift in medical artificial
+   • We introduce a consensus matrix representation that                       intelligence. The choice of architecture significantly impacts
+     captures confidence-weighted preferences, reasoning and                   performance, with mixture-of-experts approaches demonstrat-
+     concerns from multiple specialised agents, and employ                     ing enhanced model capacity while maintaining computational
+     Kendall’s coordination coefficient to obtain an inter-                    efficiency [46], [47]. General-purpose models have demon-
+     pretable, quantitative measure of agreement within the                    strated remarkable proficiency in clinical tasks; for instance,
+     virtual MDT.                                                              GPT-4 achieved approximately 86% accuracy on the USMLE
+   • We design a role-specialised multi-agent architecture with                Step 1 examination, exhibiting expert-level reasoning capa-
+     seven virtual MDT members and formulate their interac-                    bilities [24], [48]. Domain-specific adaptations have further
+     tions as a Markov Decision Process, optimised with Q-                     pushed these boundaries. Med-PaLM 2 [25], fine-tuned specif-
+     Learning, PPO and DQN to improve both decision quality                    ically on medical corpora, reached 86.5% accuracy on the
+     and the efficiency of reaching consensus.                                 MedQA benchmark, surpassing human passing standards [25].
+   • We build an evidence-grounded decision pipeline that                      Similarly, ClinicalBERT utilized domain-adaptive pre-training
+     enforces explicit guideline- and literature-based evidence                on electronic health records to achieve state-of-the-art perfor-
+     chains for every recommendation, and we empirically                       mance in clinical named entity recognition and readmission
+     validate the system through comprehensive experiments                     prediction [49], [50]. Despite these successes, single-agent
+     and expert evaluation in oncology decision-making sce-                    approaches inherently lack the collaborative diversity required
+     narios [42].                                                              for complex clinical decision-making, often failing to capture
+   The remainder of this paper is organized as follows. Sec-                   the multi-perspectival nature of real-world Multidisciplinary
+tion II reviews related work in multi-agent medical systems                    Team (MDT) consultations.
+B. Multi-Agent Systems in Healthcare                                                        III. M ETHODOLOGY
+   To overcome the limitations of single-agent systems, recent       A. Problem Formulation
+research has explored multi-agent architectures that simu-              We formalize the multi-agent medical consensus process as
+late clinical collaboration. MDAgents introduced an adaptive         a collaborative decision-making problem. Given a patient case
+collaboration framework where agent roles are dynamically            C characterized by clinical features f ∈ Rd where d = 247
+assigned based on task complexity, achieving 78.3% accuracy          represents the dimensionality of our clinical feature space,
+on medical QA benchmarks [36], [51]. Building on this,               encompassing demographics, vital signs, laboratory results,
+TeamMedAgents implemented structured teamwork protocols              and comorbidity indices.
+derived from human medical teams, such as ”mutual perfor-               The decision space consists of a discrete set of treatment
+mance monitoring,” to enhance decision reliability [38]. In          options T = {t1 , . . . , tK }, where K = 7. The specific options
+specialized domains, RareAgents demonstrated the efficacy            are defined as T = {Surgery, Chemotherapy, Radiotherapy,
+of multi-agent systems in diagnosing rare diseases by sim-           Immunotherapy, Combination Therapy, Palliative Care, Watch-
+ulating a team of specialists to synthesize fragmented evi-          ful Waiting}. Each treatment tk ∈ T is characterized by a
+dence [52]. Additionally, MedOrch proposed a tool-augmented          vector of clinical attributes vk = [ηk , τk , qk , ck ]T , representing
+orchestration framework to integrate diverse medical special-        expected efficacy ηk ∈ [0, 1], toxicity risk τk ∈ [0, 1], quality
+ists [53]. Recent evaluations of different LLM architectures         of life impact qk ∈ [−1, 1], and economic cost ck ∈ R+ ,
+have shown varying performance characteristics, with some            respectively.
+models demonstrating superior performance in medical rea-               The collaborative team is modeled as a set of specialized
+soning tasks. However, these existing systems primarily rely         agents A = {a1 , . . . , aN }, where N = 7. Each agent ai
+on simple voting mechanisms or unstructured dialogue for             embodies a distinct clinical role with specialized knowledge
+aggregation, lacking a mathematically rigorous framework to          and priorities. We define the agent set mapping as:
+measure and optimize the quality of consensus formation.                                                                               
+                                                                              a1 : Oncologist                     a2 : Radiologist 
+                                                                                                                                       
+C. Medical Decision Support and Consensus Algorithms                         
+                                                                             a : Nurse
+                                                                                 3                                 a4 : Psychologist
+                                                                                                                                        
+   Consensus formation is central to clinical practice, tradition-     A=
+                                                                             
+                                                                              a5 : Patient Advocate               a6 : Nutritionist   
+ally managed through structured human protocols. The Delphi                  
+                                                                                                                                       
+                                                                                                                                        
+                                                                               a7 : Rehabilitation Therapist
+method has long been the gold standard for achieving expert                                                                              (1)
+agreement, though it is time-consuming and iterative [54]. In           For a given case C, each agent ai generates a structured
+computational settings, voting-based aggregation methods like        opinion oi , defined as a tuple:
+Borda count have been applied to ensemble decision-making.
+However, their application in LLM-based medical systems                                    oi = (pi , ri , κi , Zi , Ei )               (2)
+remains limited. Most current multi-agent medical systems                                     K
+                                                                     where pi ∈ [−1, 1] is the treatment preference vector,
+employ majority voting or weighted averaging, which fails            with pi,k denoting the preference score for treatment tk (−1:
+to capture the nuance of clinical disagreement or the strength       strongly oppose, 0: neutrality, 1: strongly support); ri is
+of expert conviction. There is a critical need for advanced          the natural-language clinical reasoning (up to 512 tokens);
+consensus algorithms that can quantify agreement levels, such        κi ∈ [0, 1] is the self-assessed confidence score; Zi is the set
+as Kendall’s coefficient of concordance, to ensure that AI-          of documented clinical concerns (e.g., “cardiotoxicity risk”);
+generated recommendations reflect a true clinical consensus          and Ei is the evidence chain linking the decision to relevant
+rather than a mere statistical aggregate.                            guidelines and literature.
+D. Explainable AI in Medical Applications                               The system’s goal is to identify the optimal treatment t∗
+                                                                     that maximizes a composite objective function J(t), balanc-
+   Explainability is a non-negotiable requirement for the clin-
+                                                                     ing group consensus, clinical appropriateness, and evidence
+ical deployment of AI systems. Traditional post-hoc ex-
+                                                                     quality:
+planation methods, such as Shapley Additive Explanations
+                                                                                             t∗ = arg max J(t)                    (3)
+(SHAP) [55] and Local Interpretable Model-agnostic Expla-                                                 t∈T
+nations (LIME) [56], have been widely applied to medical             J(t) = α·Consensus(t)+β·ClinicalFit(t)+γ·EvidenceQuality(t)
+imaging and risk prediction models. While these techniques                                                                   (4)
+provide feature importance scores, they often fail to offer          where α = 0.4, β = 0.4, γ = 0.2 are empirically determined
+the semantic reasoning and evidence traceability required by         weights, and consensus(t) is measured using Kendall’s coef-
+clinicians. Recent efforts have focused on ”Chain-of-Thought”        ficient of concordance.
+reasoning, but these often lack grounding in verifiable external
+evidence. Our work addresses this gap by integrating a struc-        B. System Architecture
+tured evidence chain that explicitly links agent decisions to          Our multi-agent system architecture consists of five inter-
+clinical guidelines and peer-reviewed literature, ensuring that      connected components as illustrated in Figure 2:
+the consensus process is not only mathematically robust but            (1) Role-specialized agent layer. The first component is
+also clinically transparent.                                         a layer of seven virtual medical specialists that collectively
+          Patient Case       Evidence Retrieval Module      Specialized Medical Agents      Consensus Matrix
+                                                                                                Engine
+                                                                                                                        Final Treatment
+
+
+
+                                                                     Fine-tuned
+
+                                                                                                                       Retrieval
+
+                                                                                                                                   GRADE Score
+                                                         Discussion & Feedback
+                                                                                                                    Guideline/Literature/Clinical
+                                                                                                                               Data
+
+                                     Reinforcement Learning Driven Consensus Formation (e.g., PPO)                 Evidence Chain Generation
+
+
+                                                                                                        Audit Logging System
+
+
+
+Fig. 2. Multi-Agent Medical Decision Consensus Matrix System Architecture. The system integrates specialized medical role agents, consensus matrix
+computation, reinforcement learning optimization, and evidence-based explainability mechanisms with specific data flow dimensions and processing stages.
+
+
+
+form the MDT. Each specialist is implemented as a fine-tuned                  and GAE parameter λ = 0.95, and DQN with a replay buffer
+Qwen-2.5-72B model equipped with a role-specific prompting                    of size 10K and a target network updated every 100 steps.
+strategy and a curated knowledge base aligned with that                       These algorithms operate on the same MDP formulation and
+role (e.g., oncology guidelines for the oncologist, imaging                   are used to discover strategies that improve both the speed of
+protocols for the radiologist). All models are quantized to 8-                convergence and the quality of the final recommendation.
+bit precision, so that a single agent with 72B parameters fits                   (5) Explanation generation system. The final component
+into approximately 36 GB of memory, making it feasible to                     is an explanation layer that turns model outputs into clinically
+run the full team on modern multi-GPU servers.                                interpretable justifications. It assembles an evidence chain for
+   (2) Evidence retrieval module. Beneath the agents                          each recommendation, performs automated GRADE assess-
+sits a retrieval-augmented generation (RAG) module                            ment of guideline and literature items, and records audit logs
+that provides shared access to external knowledge. It                         with millisecond time-stamp precision for traceability. Natural-
+uses a FAISS vector database containing around 1.2M                           language explanations are generated using template-based
+embeddings of clinical guideline passages, a PubMed                           structures combined with clinical terminology validation, so
+abstract corpus with roughly 34M entries, and structured                      that the resulting narratives are fluent while remaining faithful
+mappings of key electronic medical record (EMR) fields.                       to the underlying evidence and decision logic.
+Text is embedded into a 1024-dimensional space using
+the sentence-transformers/all-MiniLM-L6-v2                                    Algorithm 1 Multi-Round Consensus Formation
+model, allowing each agent to retrieve guideline- and                         Require: Patient case C, agent set A, max rounds Rmax = 3
+literature-level evidence conditioned on both its role and the                Ensure: Consensus matrix M, final recommendation t∗
+specific patient case.                                                         1: Initialize round r = 1, W (0) = 0
+   (3) Consensus matrix computation engine. As agents                          2: repeat
+update their opinions, the consensus matrix computation en-                    3:    for each agent ai ∈ A do
+gine maintains a matrix M ∈ R7×7 that aggregates the nor-                      4:       contexti ← RetrieveEvidence(C, ai .role)
+                                                                                         (r)
+malised, confidence-weighted preferences for each treatment.                   5:       oi ← GenerateOpinion(C, ai , contexti , M(r−1) )
+This component performs real-time updates of M, computes                       6:       Update M(r) using Eq. (4) and (5)
+Kendall’s coefficient of concordance W to quantify agreement,                  7:    end for
+and applies preference ranking algorithms to derive a group                    8:    W (r) ← ComputeKendallW(M(r) )
+ordering over treatments. Convergence is detected using a                      9:    if W (r) ≤ 0.7 AND r < Rmax then
+tolerance threshold of ϵ = 0.05, which prevents unnecessary                   10:       D ← IdentifyDiscordantAgents(M(r) )
+additional rounds once a stable consensus has been reached.                   11:       ProvideFeedback(D, M(r) )
+   (4) Reinforcement learning optimizer. To coordinate how                    12:    end if
+the agents interact over multiple rounds, we introduce a                      13:    r ←r+1
+                                                                              14: until W (r−1) > 0.7 OR r > Rmax
+reinforcement learning (RL) optimizer that learns policies on                                            (r−1)
+                                                                              15: t∗ ← arg maxk
+                                                                                                   P
+top of the consensus dynamics. The framework combines                                                i Mi,k
+several algorithms: Q-Learning with learning rate α = 0.1                     16: return M(r−1) , t∗
+and discount factor γ = 0.95, PPO with clipping ratio 0.2
+C. Consensus Matrix Framework                                     and 890,000 cancer research papers. Its decisions prioritise tu-
+    The core innovation of our approach lies in the Consensus     mour stage (35% weight), histology (25%), molecular markers
+Matrix M ∈ RN ×K , where entry Mi,k represents the normal-        (20%), performance status (15%) and prior treatment history
+ized, confidence-weighted preference of agent ai for treatment    (5%). Let e1j , s1j and t1j denote, respectively, the normalised
+tk . The matrix construction and consensus formation proceed      scores for efficacy, survival benefit and toxicity of treatment
+through the following rigorous steps:                             tj from the oncologist’s perspective. The preference for option
+    Step 1: Preference Normalization. To account for varying      tj is modelled as
+scales in agent scoring tendencies, raw preference scores                       p1j = 0.6 e1j + 0.3 s1j + 0.1 t−1
+                                                                                                               1j ,            (9)
+pi,k ∈ [−1, 1] are min-max normalized per agent:
+                                                                  and, for standard cases, the typical confidence lies in the range
+                           pi,k − minj pi,j
+              p̂i,k =                                       (5)   c1 ∈ [0.8, 0.95].
+                        maxj pi,j − minj pi,j + ϵ
+                                                                     Radiologist agent (a2 ). The radiologist agent draws on a
+where ϵ is a small constant to prevent division by zero.          corpus of 23,000 imaging protocols, 340,000 radiology reports
+   Step 2: Confidence Weighting. We integrate the agent’s         and tumour measurement guidelines. Its assessment focuses
+self-assessed confidence κi and the density of documented         on imaging findings (45% weight), observed tumour response
+concerns |Zi | to compute the final matrix entry. Agents          (30%), anatomical constraints (15%) and procedural feasibility
+with higher confidence and fewer unaddressed concerns exert       (10%). We denote by i2j , a2j and m2j the imaging support,
+greater influence:                                                anatomical fit and monitoring ability scores for treatment tj .
+                                         1                        The corresponding preference function is
+              Mi,k = p̂i,k · κi ·                        (6)
+                                  1 + ln(1 + |Zi |)                             p2j = 0.5 i2j + 0.3 a2j + 0.2 m2j ,           (10)
+This weighting mechanism naturally dampens the impact of
+opinions formed under high uncertainty or significant clinical    with typical confidence c2 ∈ [0.75, 0.90] depending on imag-
+reservations.                                                     ing quality and interpretability.
+   Step 3: Consensus Measurement. We quantify the level of           Nurse agent (a3 ). The nurse agent is informed by 18,000
+group agreement using                                             nursing protocols, patient care guidelines and side-effect man-
+                  PN Kendall’s Coefficient of Concordance         agement procedures. It emphasises patient tolerance (40%
+(W ). Let Rk =       i=1 rank(Mi,k ) be the sum of ranks for
+treatment tk . The coefficient W is calculated as:                weight), care complexity (25%), resource requirements (20%)
+                            PK                                    and the availability of family support (15%). Let b3j denote
+                         12 k=1 (Rk − R̄)2                        the care burden of treatment tj , t3j the patient tolerance score
+                  W =                                      (7)
+                            N 2 (K 3 − K)                         and f3j the available family support. Preferences are computed
+                                                                  as
+where R̄ = N (K+1)       is the expected mean rank sum. W
+                   2                                                          p3j = 0.4 (1 − b3j ) + 0.3 t3j + 0.3 f3j ,       (11)
+ranges from 0 (no agreement) to 1 (complete agreement). We
+empirically establish a consensus threshold of W > 0.7 based      and the corresponding confidence values typically fall within
+on pilot validation.                                              c3 ∈ [0.70, 0.85], reflecting the depth of nurse–patient interac-
+   Step 4: Iterative Refinement. If W ≤ 0.7, the system           tion.
+identifies ”discordant agents” whose preference vectors deviate      Psychologist agent (a4 ). The psychologist agent relies
+significantly from the group mean. Let M̄·,k be the mean score    on a knowledge base of roughly 12,000 psycho-oncology
+for treatment tk . The discordance score for agent ai is:         studies, mental health assessment tools and research on cop-
+                           K                                      ing mechanisms. Its decision criteria include mental health
+                           X
+                   Di =          |Mi,k − M̄·,k |            (8)   status (45% weight), coping capacity (25%), social support
+                           k=1                                    (20%) and treatment-related anxiety (10%). We let d4j denote
+   Agents with Di > µD +σD are prompted to reconsider their       the psychological impact (higher is worse), c4j the coping
+position in the subsequent dialogue round, receiving specific     alignment and a4j the extent to which treatment tj preserves
+feedback on the points of contention.                             autonomy. The preference score is defined as
+
+D. Multi-Agent Role Specialization                                              p4j = 0.4 d−1
+                                                                                           4j + 0.3 c4j + 0.3 a4j ,           (12)
+   Our system instantiates seven specialised medical role         with typical confidence c4 ∈ [0.65, 0.80] depending on the
+agents that collectively approximate the composition of a         completeness and quality of psychological assessment.
+typical oncology MDT. Each agent is associated with a distinct       Patient advocate agent (a5 ). The patient advocate agent
+knowledge base, a set of role-specific decision factors and       is grounded in patient rights documentation, informed consent
+an explicit preference model, so that differences in clinical     protocols, ethical guidelines and cost–benefit analyses. It gives
+perspective are reflected in the underlying scoring functions.    predominant weight to patient preferences (50%), comple-
+   Oncologist agent (a1 ). The oncologist agent operates on a     mented by ethical considerations (25%), quality of informed
+large oncology-focused knowledge base comprising approxi-         consent (15%) and treatment accessibility (10%). We denote
+mately 47,000 guideline documents (NCCN, ESMO, ASCO)              by v5j the alignment with patient values, by e5j the ethical
+alignment, and by x5j the accessibility of treatment tj . Its       so that each action specifies both a candidate treatment and
+preference function is                                              an interaction strategy. In our implementation, u1 corresponds
+                                                                    to encouraging consensus, u2 to requesting clarification, u3 to
+             p5j = 0.5 v5j + 0.25 e5j + 0.25 x5j ,          (13)
+                                                                    providing feedback and u4 to maintaining the current position,
+and when patient preferences are clearly documented, the            yielding |ARL | = 28 when |T | = 7.
+confidence scores typically lie in c5 ∈ [0.75, 0.90].                  State transitions follow the consensus protocol in Algo-
+    Nutritionist agent (a6 ). The nutritionist agent uses a         rithm 1. For simulation and training we approximate the
+knowledge base of about 8,500 nutrition–oncology studies,           transition probabilities by
+dietary guidelines, information on supplement interactions and                      
+metabolic considerations. Its decision factors include nutri-                       
+                                                                                     0.8 if a leads to improved consensus,
+                                                                                    
+                                                                                    0.6 if a maintains the current consensus level,
+tional status (40% weight), treatment–nutrition interactions
+                                                                    P (s′ | s, a) =
+(30%), metabolic impact (20%) and the patient’s dietary ca-                         
+                                                                                     0.3 if a reduces consensus quality,
+pacity (10%). Let n6j denote the nutritional support offered by
+                                                                                    
+                                                                                      0
+                                                                                    
+                                                                                            otherwise,
+tj , r6j the dietary restriction imposed and m6j the metabolic                                                                  (18)
+compatibility. We define                                            which captures the qualitative effect of different interventions
+           p6j = 0.4 n6j + 0.3 (1 − r6j ) + 0.3 m6j ,       (14)    on the consensus matrix while keeping the MDP tractable.
+                                                                       The reward function R(s, a, s′ ) encourages fast convergence
+and typical confidence values c6 ∈ [0.60, 0.75] reflect the         towards stable and clinically appropriate decisions. We define
+completeness of nutritional assessment.
+   Rehabilitation therapist agent (a7 ). The rehabilitation                     R = w1 ∆W + w2 S − w3 D + w4 Q,               (19)
+therapist agent is built on 6,200 rehabilitation protocols,
+                                                                    where ∆W = Wt −Wt−1 measures the change in concordance
+functional assessment tools and quality-of-life measures. It
+                                                                    between consecutive rounds, S is an opinion-stability score
+considers functional capacity (35% weight), rehabilitation
+                                                                    reflecting how consistent agent preferences remain across
+potential (30%), mobility impact (20%) and preservation of
+                                                                    rounds, D quantifies disagreement within the team, and Q is an
+independence (15%). We denote by f7j the functional preser-
+                                                                    external clinical-quality signal derived from expert validation
+vation score, by r7j the rehabilitation potential, and by ℓ7j
+                                                                    or ground-truth labels in the training data. The coefficients
+the mobility impact (higher means worse). Its preference for
+                                                                    w1 , . . . , w4 control the trade-off between these four compo-
+treatment tj is expressed as
+                                                                    nents.
+             p7j = 0.35 f7j + 0.3 r7j + 0.35 ℓ−1
+                                              7j ,          (15)       To optimise policies over this MDP, we consider several
+                                                                    deep reinforcement learning algorithms. In the Q-learning
+with confidence values typically in the range c7 ∈ [0.65, 0.80]
+                                                                    setting, we adopt an ϵ-greedy exploration strategy with ϵ =
+depending on the availability of functional assessment data.
+                                                                    0.1, learning rate α = 0.1 and discount factor γ = 0.95.
+   Each agent is controlled via a role-specific prompting tem-
+                                                                    The action-value function is approximated by a three-layer
+plate that specifies (i) its identity and expertise, (ii) a case
+                                                                    multilayer perceptron with architecture [311, 512, 256, 28]
+presentation with role-relevant highlights, (iii) retrieved evi-
+                                                                    and ReLU activations.
+dence, (iv) a decision framework tailored to the corresponding
+                                                                       For policy-gradient optimisation, we employ Proximal Pol-
+specialty, and (v) an output schema for structured opinion
+                                                                    icy Optimization (PPO) with clipping ratio ϵclip = 0.2, gen-
+generation.
+                                                                    eralised advantage estimation parameter λ = 0.95 and KL-
+E. Reinforcement Learning Formulation                               divergence penalty coefficient βKL = 0.01. The PPO policy
+  We formulate the consensus formation process as a Markov          network uses layer sizes [311, 256, 128, 28] with a softmax
+Decision Process (MDP) characterised by a state space S, an         output, and the value network follows [311, 256, 128, 1] with
+action space ARL , transition dynamics P and a reward function      a linear output layer.
+R. Each state s ∈ S is represented by a feature vector                 We also implement a Deep Q-Network (DQN) variant with
+                                                                    an experience replay buffer of size 10,000 and a target network
+                 s = (f , m, r, c, W ) ∈ R311 ,             (16)    updated every 100 steps. The main network has dimensions
+                                                                    [311, 512, 256, 128, 28] and uses a double DQN with duelling
+where f ∈ R247 denotes the patient clinical features, m ∈
+                                                                    streams and skip connections between the second and fourth
+R49 is the flattened 7 × 7 consensus matrix, r ∈ {1, 2, 3}
+                                                                    layers to facilitate stable training.
+indicates the current discussion round, c ∈ R7 collects the
+                                                                       All reinforcement learning agents are trained on simulated
+agents’ confidence scores, and W ∈ [0, 1] is the current value
+                                                                    episodes generated from clinical case databases. Each episode
+of Kendall’s coefficient of concordance.
+                                                                    comprises up to three consensus rounds, with early termination
+   The action space combines treatment choices with high-
+                                                                    once a concordance level of W > 0.7 is achieved. Training is
+level interaction modes. We introduce a finite set of interaction
+                                                                    performed with a batch size of 32 using the Adam optimiser
+modes U = {u1 , u2 , u3 , u4 } and define
+                                                                    with learning rate 10−3 and gradient clipping at a maximum
+                        ARL = T × U ,                       (17)    norm of 0.5 to ensure stable optimisation.
+Algorithm 2 Evidence Chain Generation                                             IV. E XPERIMENTS AND R ESULTS
+Require: Patient case C, agent role role, treatment recom-           A. Experimental Setup
+    mendation t
+                                                                        1) Datasets and Evaluation Metrics: We evaluate our
+Ensure: Evidence           chain         E              =
+                                                                     framework on five diverse medical benchmarks selected for
+    {guidelines, literature, clinical data}
+                                                                     their clinical relevance. MedQA [57] provides 1,273 USMLE-
+ 1: query ← constructQuery(C.features, role, t)
+                                                                     style questions to assess clinical knowledge and reasoning.
+ 2: guidelines ← retrieveGuidelines(query, top k=3)
+                                                                     PubMedQA [58] (1,000 questions) evaluates evidence syn-
+ 3: literature     ← retrieveLiterature(query, top k=5,
+                                                                     thesis from biomedical literature. For diagnostic reasoning, we
+    min year=2018)
+                                                                     use DDXPlus [59] (570 scenarios) and SymCat [60] (1,374
+ 4: clinical data ← extractRelevantEMR(C, role)
+                                                                     cases), focusing on differential diagnosis and symptom-disease
+ 5: for each item ∈ guidelines ∪ literature do
+                                                                     consistency, respectively. Finally, MedBullets [61] (800 cases)
+ 6:    relevance ← computeRelevance(item, query)
+                                                                     targets therapeutic decision-making and consensus formation
+ 7:    if relevance < 0.7 then
+                                                                     in treatment planning. Table I summarizes the statistics and
+ 8:       Remove item from evidence chain
+                                                                     metrics for each dataset.
+ 9:    end if
+                                                                        2) Implementation Details: The system is built upon the
+10: end for
+                                                                     Qwen-2.5-72B model, deployed with 8-bit quantization requir-
+11: grade level ← assessGRADE(guidelines ∪ literature)
+                                                                     ing 36GB VRAM per agent. Experiments were conducted on
+12: E     ← formatEvidenceChain(guidelines, literature,
+                                                                     a high-performance cluster equipped with 8 NVIDIA A100
+    clinical data, grade level)
+                                                                     80GB GPUs (NVLink interconnect), AMD EPYC 7742 64-
+13: return E
+                                                                     core processors, and 1TB system RAM. Model generation
+                                                                     parameters were set to a temperature of 0.3 and top-p sampling
+                                                                     of 0.9 to ensure deterministic reasoning, with a maximum
+                                                                     response length of 1,024 tokens. The consensus protocol
+F. Evidence-Based Explainability                                     utilizes a Kendall’s W threshold of 0.7, a maximum of 3 dis-
+                                                                     cussion rounds, and a convergence tolerance of ϵ = 0.05. For
+                                                                     evidence retrieval, we employ a FAISS vector database using
+   To guarantee clinical trustworthiness and decision traceabil-     cosine similarity to retrieve the top-5 guideline matches with
+ity, we mandate that every agent’s opinion be substantiated          a minimum relevance score of 0.7. Reinforcement learning
+by a rigorous Evidence Chain (Ei ). The generation of this           optimization utilizes PPO (learning rate 0.0003), Q-Learning
+chain adheres to a strict, multi-stage protocol. Initially, the      (ϵ-decay 1.0 to 0.05 over 10k episodes), and DQN (10k
+system executes a targeted retrieval process, querying a vector      experience replay buffer).
+database for NCCN/ESMO guidelines and PubMed abstracts
+                                                                     B. Baseline Methods
+that are contextually relevant to both the patient’s specific
+clinical features (f ) and the proposed treatment (tk ). To ensure      We compare our approach against seven established baseline
+the currency and applicability of the retrieved information,         methods that collectively represent the current state of the art
+documents are subsequently filtered based on a relevance score       in medical AI and multi-agent systems. These include: Single-
+threshold (> 0.7) and recency, with a distinct prioritization for    Agent GPT-4 [62], using zero-shot and few-shot prompting (3
+guidelines published within the last two years.                      examples) with a medical expert persona to model contempo-
+                                                                     rary single-agent medical AI; Chain-of-Thought (CoT) [63],
+   Following retrieval, the system employs the GRADE (Grad-          which employs structured step-by-step medical reasoning for
+ing of Recommendations Assessment, Development and Eval-             single-agent decision-making; Majority Voting [64], a simple
+uation) framework to automatically evaluate the quality of           aggregation of independent agent responses without explicit
+each evidence piece. This assessment categorizes evidence            consensus modeling; Weighted Voting, which incorporates
+into distinct levels: “High” for randomized controlled trials        agent certainty scores as voting weights; Borda Count, a
+(RCTs) with low bias, “Moderate” for RCTs with limitations           ranked preference aggregation method widely used in multi-
+or robust observational studies, and “Low/Very Low” for other        criteria decision-making; MDAgents [36], an existing multi-
+observational studies or expert opinions. In the final synthesis     agent medical reasoning framework with basic doctor role spe-
+phase, the agent’s clinical reasoning is integrated with specific    cialization; and TeamMedAgents [38], an advanced role-based
+citations (e.g., “NCCN Guidelines Breast Cancer v3.2024,             collaborative medical AI system with structured interaction
+p.45”) and the computed evidence strength. This structured           protocols.
+methodology transforms the system’s output from a potential
+“black box” prediction into a verifiable, transparent clini-         C. Main Results
+cal recommendation. In this way, the system moves beyond                As shown in Table II, our proposed framework con-
+opaque prediction and provides transparent, verifiable clinical      sistently outperforms both single-agent and existing multi-
+recommendations grounded in guideline-based and literature-          agent baselines across all five benchmarks. Specifically, our
+supported reasoning.                                                 method achieves a 3.6% improvement on MedQA and a
+                                                                      TABLE I
+                                                    DATASET S TATISTICS AND E VALUATION M ETRICS
+
+                               Dataset        # Cases     Task Type      Primary Metrics        Secondary Metrics
+                               MedQA           1,273         QA              Accuracy        Consensus Rate, Confidence
+                               PubMedQA        1,000      Literature         Accuracy          Evidence Quality Score
+                               DDXPlus          570       Diagnosis       Top-3 Accuracy        Ranking Consistency
+                               MedBullets       800        Clinical     Treatment Accuracy       Expert Agreement
+                               SymCat          1,374      Symptoms           F1-Score         Inter-Agent Consistency
+
+
+
+                                                                               Architecture) causes the largest performance degradation (-
+                                                                               7.3%), confirming that collaborative intelligence is superior to
+                                                                               individual reasoning. Role Specialization also proves vital,
+                                                                               contributing a 4.8% improvement over generic agents, as
+                                                                               diverse perspectives prevent groupthink. Furthermore, the Ev-
+                                                                               idence Retrieval System adds 3.2% to accuracy by grounding
+                                                                               decisions in clinical guidelines, while RL Optimization pro-
+                                                                               vides a fine-tuning benefit of 1.6%, ensuring the system adapts
+                                                                               to complex scenarios. Comparing our structured consensus
+                                                                               approach to Simple Voting reveals a 3.0% accuracy gain,
+                                                                               validating that mathematical consensus measurement is more
+                                                                               effective than mere aggregation.
+                                                                                  2) Reinforcement Learning Strategy Analysis: We evalu-
+                                                                               ated three RL algorithms—Q-Learning, PPO, and DQN—to
+                                                                               identify the optimal strategy for consensus formation, as
+                                                                               detailed in Table IV. Proximal Policy Optimization (PPO)
+                                                                               emerges as the superior choice, achieving the highest accu-
+                                                                               racy (87.5%) and consensus coefficient (W = 0.823) while
+Fig. 3. Consensus Matrix Performance Analysis: (a) Distribution of Kendall’s   requiring the fewest training episodes (8,500) for convergence.
+W coefficients across all evaluation datasets, (b) Consensus achievement       Its stability score of 0.95 significantly outperforms both Q-
+rate vs. case complexity scoring, (c) Convergence analysis showing rounds      Learning (0.92) and DQN (0.88), indicating robust policy
+required to achieve consensus (W > 0.7) for different clinical scenarios.
+                                                                               updates. In contrast, DQN requires nearly double the training
+                                                                               episodes (15,000) for comparable performance, likely due to
+4.4% gain on PubMedQA compared to the strongest baseline,                      the instability of value-based methods in high-dimensional
+TeamMedAgents. This significant performance uplift validates                   state spaces. Q-Learning performs adequately but lacks the
+the efficacy of our structured consensus matrix mechanism                      sample efficiency of PPO. The No RL (Fixed Policy) baseline
+in resolving complex clinical ambiguities. Notably, the im-                    lags behind all learning-based methods, underscoring the value
+provement is most pronounced in tasks requiring evidence                       of adaptive optimization in navigating the complex decision
+synthesis (PubMedQA) and complex differential diagnosis                        landscape of medical consultations.
+(DDXPlus), suggesting that our system’s ability to integrate                      3) Clinical Validation and Expert Evaluation: We con-
+diverse specialist perspectives and optimize consensus through                 ducted blind evaluation with 12 medical experts (4 oncologists,
+reinforcement learning provides a substantial advantage over                   2 radiologists, 2 nurses, 2 psychologists, 2 patient advocates)
+simple voting or role-based collaboration methods. Further-                    using 50 real anonymized clinical cases from three major
+more, the high expert rating (8.9/10) and superior consensus                   cancer centers.
+coefficient (W = 0.823) confirm that our approach not only                        Expert Panel Composition: A diverse expert panel was
+improves accuracy but also generates more clinically reliable                  assembled, including senior oncologists with over 15 years
+and cohesive recommendations.                                                  of clinical experience (n=4), board-certified radiologists spe-
+                                                                               cializing in oncologic imaging (n=2), certified oncology nurses
+D. Ablation Studies                                                            with multidisciplinary team (MDT) experience (n=2), licensed
+   1) Component Contribution Analysis: The ablation results                    psychologists with expertise in psycho-oncology (n=2), and
+in Table III unequivocally demonstrate the necessity of our                    patient advocates with more than 10 years of clinical experi-
+proposed architecture. The removal of the Consensus Matrix                     ence (n=2).
+leads to a significant 4.4% drop in accuracy and a drastic                        Clinical Appropriateness Ratings: The system achieved
+reduction in the consensus coefficient (W = 0.592), high-                      strong expert-rated performance across all dimensions, includ-
+lighting its critical role in structured agreement formation.                  ing a treatment recommendation quality score of 8.9 ± 1.1 out
+Similarly, reverting to a single-agent setup (w/o Multi-Agent                  of 10 (compared with 8.0 ± 1.3 for the best baseline), evidence
+                                                                                                   TABLE II
+                                                                     M AIN R ESULTS : ACCURACY C OMPARISON ACROSS M EDICAL B ENCHMARKS
+
+                                Method                                MedQA            PubMedQA              DDXPlus   MedBullets                                 SymCat           Avg. Consensus W                     Expert Rating
+                                Single-Agent (Zero-shot)                  80.2                72.0              74.1      72.5                                     82.0                          -                             6.2/10
+                                Single-Agent (Few-shot)                   82.1                74.3              76.8      74.2                                     84.1                          -                             6.8/10
+                                Chain-of-Thought                          83.5                75.8              78.2      75.9                                     85.3                          -                             7.1/10
+                                Majority Voting                           85.2                76.4              79.5      77.1                                     86.7                        0.542                           7.4/10
+                                Weighted Voting                           86.1                77.9              80.3      78.3                                     87.2                        0.589                           7.6/10
+                                Borda Count                               84.8                76.1              78.9      76.8                                     85.9                        0.623                           7.3/10
+                                MDAgents                                  87.3                78.5              81.2      79.6                                     88.1                        0.651                           7.8/10
+                                TeamMedAgents                             88.1                79.2              82.4      80.3                                     88.9                        0.674                           8.0/10
+                                Our Method                                91.7                83.6              86.5      84.2                                     91.3                       0.823                            8.9/10
+                                Improvement                               +3.6                +4.4              +4.1      +3.9                                     +2.4                      +0.149                             +0.9
+
+
+                                                                                                      Ablation Study Results
+                                                                   Accuracy                                                                                                                  Consensus W
+                90.0                                                                                                                        0.9
+                                     87.5                                                                                                                         0.823
+                87.5                                                              85.9                                                                                                                                 0.791
+                                                                                                                                            0.8
+
+
+Accuracy (%)                                                                                                             Kendall's W
+                85.0                                                  84.3                               84.5                                                                                             0.756
+                                               83.1                                            82.7                                                                                                                                 0.698
+                82.5                                                                                                                        0.7
+                                                            80.2                                                                                                                                                                              0.634
+                80.0                                                                                                                                                          0.592
+                                                                                                                                            0.6
+                77.5
+                75.0                                                                                                                        0.5
+                                tem         ix         re           al           n
+                                                                               tio        on          tea                                                    tem           ix           re           al            n
+                                                                                                                                                                                                                  tio           on          tea
+                                          Ma tr    itectu
+                                                                   iev                   ati             d                                                               Ma tr     itectu
+                                                                                                                                                                                                   iev                         ati             d
+                           eSys                                etr        mi za   ec              Ins                                                eSys                                       etr         mi   za    ec              Ins
+                                     nsus      Ar        nc              pti         ial iz    ng                                                                 nsus        Ar         nc               pti             ial iz     ng
+            mp
+                      let
+                                 se               ch       eR       LO           Sp          Vo ti                             mp
+                                                                                                                                            let
+                                                                                                                                                              se                 ch        eR        LO             Sp          Vo ti
+                                on          nt        vid                                                                                                    on            nt          vid
+    Co                          oC          ge            e        oR        ole         ple                              Co                                 oC           ge               e       oR             ole          ple
+                           w/           i-A        oE          w/          oR          Sim                                                               w/          i-A           oE           w/           oR           Sim
+                                      ult         w/                     w/                                                                                        ult           w/                        w/
+                                     oM                                                                                                                           oM
+                                 w/                                                                                                                           w/
+                                                                    Speed                                                                                                                     Expert Rating
+                           50
+
+
+
+
+                                                                                                                             Expert Rating (out of 10)
+                                     45.2                                                                                                                          8.9
+
+
+
+
+     Processing Time (s)
+                                                                                  42.8                                                                   9
+                           40                                         38.7                                                                                                                                              8.4
+                                                                                               35.9
+                                               32.1                                                                                                      8                                                 7.8
+                                                                                                                                                                                 7.6                                                           7.5
+                           30                                                                            28.4                                                                                                                        7.2
+                                                                                                                                                         7
+                           20                               18.3                                                                                                                             6.2
+                                                                                                                                                         6
+                                tem         trix       re
+                                                      ctu
+                                                                    l
+                                                                   va          tio n     tio n        tead                                                   tem          trix          re
+                                                                                                                                                                                       ctu          va l          tio n
+                                                                                                                                                                                                                                n
+                                                                                                                                                                                                                               tio          tead
+                                ys        Ma       ite         trie        iza          iza       Ins                                                        ys          Ma        ite             trie          iza          iza      Ins
+                           eS         us          ch          Re         pti           ial     ng                                                    eS             us           ch            Re         pti             ial        ng
+                      let            ns        Ar        ce                  m    ec         Vo                                             let                   ns          Ar          ce                  m        ec       Vo
+            mp                  on          nt           en         LO           Sp             ti                             mp                            on            nt            en          LO             Sp             ti
+    Co                            se        ge        vid          oR        ole         ple                              Co                                   se         ge           vid         oR             ole          ple
+                                oC      i-A        oE          w/          oR          Sim                                                                   oC      i-A           oE           w/           oR           Sim
+                           w/         ult         w/                     w/                                                                              w/        ult           w/                        w/
+                                     oM                                                                                                                           oM
+                                 w/                                                                                                                           w/
+
+ Fig. 4. Ablation Study: Component Contribution Analysis. Each system component demonstrates essential contribution to overall performance, with the
+ complete system achieving 87.5% accuracy and 0.823 consensus coefficient. Removal of any core component results in substantial performance degradation,
+ confirming the necessity of our integrated multi-agent consensus matrix architecture.
+
+
+
+ quality and completeness rated at 8.7 ± 0.9 out of 10 with                                                            tative Feedback Themes: Overall, expert feedback was highly
+ comprehensive guideline citations, consensus reasonableness                                                           positive: 91.7% of experts described the evidence chains as
+ of 9.1 ± 0.8 out of 10 reflecting high expert agreement with                                                          “comprehensive and clinically relevant,” while 87.5% rated
+ the system’s consensus, clinical explainability scored at 8.8 ±                                                       the consensus formation process as “realistic and methodolog-
+ 1.0 out of 10 based on clear evidence chains and reasoning                                                            ically sound.” Additionally, 83.3% indicated they would be
+ pathways, and practical applicability rated at 8.4 ± 1.2 out of                                                       willing to use the system for clinical decision support, and
+ 10, indicating strong feasibility in real clinical settings. Quali-                                                   79.2% expressed a preference for our approach over existing
+                                                                                           Computational Performance Analysis
+                           (a) Mean Processing Time (s)                                                                      (b) Peak Memory Usage (GB)                                                                 (c) Consensus Rounds
+                      60                 52.7±4.2                                                                                 252.0                                                                                                2.8±0.2
+                                                                                                                       250                                                                                        3.0
+                      50    45.2±3.6
+                                                                                                                                                                                                                           2.4±0.2
+
+
+
+
+Processing Time (s)                                                                                Memory Usage (GB)
+                                                                                                                                                                                                                  2.5
+
+
+
+
+                                                                                                                                                                                               Number of Rounds
+                                                                                  38.9±3.1                             200                      180.0
+                      40
+                                                                                                                                                                                    144.0                         2.0
+                                                                                                                       150
+                      30
+                                                                                                                                                                                                                  1.5
+                      20                                                                                               100                                                                                                                             1.0
+                                                                      12.4±1.0
+                                                                                                                                                                                                                  1.0
+                      10                                                                                                50                                               36.0                                     0.5
+                                                                                                                                                                                                                                                 N/A
+                       0                                                                                                 0                                                                                        0.0
+                             Our TeamMed Single MDAgents                                                                         Our TeamMed Single MDAgents                                                              Our TeamMed Single MDAgents
+                            Method Agents Agent                                                                                 Method Agents Agent                                                                      Method Agents Agent
+
+                                                                              (d) GPU Utilization (%)                                                                        (e) Throughput (cases/hour)
+                                                                      100
+                                                                                                                                                                       300                                         290.3
+
+                                                                       80        78.3
+                                                                                                 72.1                                                                  250
+
+
+
+
+                                                GPU Utilization (%)
+                                                                                                                                       69.4
+
+
+
+
+                                                                                                                                                      Cases per Hour
+                                                                       60                                                                                              200
+                                                                                                                         45.2                                          150
+                                                                       40
+                                                                                                                                                                       100                                                      92.5
+                                                                                                                                                                                 79.6
+                                                                                                                                                                                            68.4
+                                                                       20
+                                                                                                                                                                        50
+                                                                        0                                                                                                0
+                                                                                Our TeamMed Single MDAgents                                                                      Our TeamMed Single MDAgents
+                                                                               Method Agents Agent                                                                              Method Agents Agent
+   Fig. 5. Computational Performance Analysis. Our method achieves balanced computational efficiency with 45.2s processing time per case and 78.3% GPU
+   utilization, outperforming comparable multi-agent systems while maintaining high throughput. Despite higher memory requirements due to seven specialized
+   agents, the system demonstrates practical scalability for clinical deployment with 79.6 cases per hour processing capacity.
+
+
+
+                                                 TABLE III                                                                                                    E. Computational Efficiency and Scalability
+                           A BLATION S TUDY: C OMPONENT C ONTRIBUTION A NALYSIS
+
+      System Configuration                                  Accuracy             Consensus W               Speed (s)              Expert Rating                  Table V provides a detailed analysis of the computa-
+      Complete System                                                 87.5              0.823                     45.2               8.9/10
+      w/o Consensus Matrix                                            83.1              0.592                     32.1                 7.6
+                                                                                                                                                              tional feasibility of our framework. While our method incurs
+      w/o Multi-Agent Architecture                                    80.2                -                       18.3                 6.2                    higher resource demands compared to single-agent baselines, it
+      w/o Evidence Retrieval                                          84.3              0.756                     38.7                 7.8
+      w/o RL Optimization                                             85.9              0.791                     42.8                 8.4                    demonstrates superior efficiency relative to comparable multi-
+      w/o Role Specialization                                         82.7              0.698                     35.9                 7.2
+      Simple Voting Instead                                           84.5              0.634                     28.4                 7.5
+                                                                                                                                                              agent systems. Specifically, our system achieves a mean pro-
+                                                                                                                                                              cessing time of 45.2 seconds per case, which is 14% faster than
+                                                                                                                                                              TeamMedAgents (52.7s), primarily due to our optimized RL-
+                                               TABLE IV                                                                                                       driven consensus mechanism that reduces the average number
+                            R EINFORCEMENT L EARNING A LGORITHM C OMPARISON                                                                                   of discussion rounds to 2.4. Although the peak memory usage
+      RL Algorithm                     Accuracy           Consensus W             Convergence Rate               Training Episodes        Stability
+                                                                                                                                                              reaches 252 GB due to the simultaneous deployment of seven
+      Q-Learning                         86.8                         0.805              86.2%                           12,000             0.92              72B-parameter agents, the system maintains a high parallel
+      PPO                                87.5                         0.823              89.3%                            8,500             0.95
+      DQN                                86.4                         0.798              84.7%                           15,000             0.88              efficiency with 78.3% GPU utilization on an 8×A100 cluster.
+      No RL (Fixed Policy)               85.9                         0.791              82.1%                              -               0.89
+                                                                                                                                                              This configuration supports a sustainable throughput of 79.6
+                                                                                                                                                              cases per hour, confirming that our approach balances the high
+                                                                                                                                                              computational cost of multi-agent collaboration with practical
+   single-agent medical AI systems.                                                                                                                           scalability for clinical deployment.
+                                                                                       higher agreement levels (Kendall’s W = 0.823) compared to
+                                                                                       simple voting approaches (W = 0.542 − 0.674), indicating
+                                                                                       more coherent and clinically meaningful group decisions.
+                                                                                       This 22-52% improvement in consensus quality suggests
+                                                                                       that mathematical frameworks for measuring agreement can
+                                                                                       substantially enhance collaborative medical decision-making
+                                                                                       processes. Furthermore, the 3.7% average accuracy improve-
+                                                                                       ment over the best baseline (TeamMedAgents: 83.8% vs. Our
+                                                                                       Method: 87.5%) translates to approximately 1 in 20 cases
+                                                                                       receiving more appropriate treatment recommendations. In
+                                                                                       oncology settings where treatment decisions directly impact
+                                                                                       survival outcomes, this improvement represents substantial
+                                                                                       clinical value at scale, potentially affecting thousands of
+                                                                                       patients annually in large healthcare systems. Additionally,
+                                                                                       the mandatory evidence chain requirement ensures all rec-
+                                                                                       ommendations are traceable to clinical guidelines (NCCN,
+                                                                                       ESMO) and published literature, addressing a critical gap in
+                                                                                       AI medical systems. Expert ratings of 8.7/10 for evidence
+Fig. 6. Clinical Expert Evaluation Results: Radar chart comparing our method
+against baseline approaches across five clinical evaluation dimensions, based          quality demonstrate clinical acceptance of automated guideline
+on blind assessment of 50 real cancer cases by 12 medical experts.                     integration, suggesting potential for improved adherence to
+                                                                                       evidence-based practice standards. Finally, the 4.8% perfor-
+                               TABLE V                                                 mance improvement from role specialization (82.7% vs. 87.5%
+                 C OMPUTATIONAL P ERFORMANCE A NALYSIS                                 accuracy) demonstrates the value of modeling distinct medical
+Metric                     Our Method    TeamMedAgents   MDAgents       Single-Agent   expertise patterns rather than using generic medical agents,
+Mean Processing Time (s)    45.2 ± 8.3     52.7 ± 12.1    38.9 ± 7.2     12.4 ± 2.1    supporting the hypothesis that collaborative medical AI should
+Peak Memory Usage (GB)         252.0          180.0         144.0           36.0
+Consensus Rounds             2.4 ± 0.7      2.8 ± 1.1    1.0 (voting)       N/A
+                                                                                       reflect the specialized knowledge and decision-making patterns
+GPU Utilization (%)             78.3           72.1          69.4           45.2       of real medical team members.
+Throughput (cases/hour)         79.6           68.4          92.5          290.3
+
+
+                                                                                       B. Limitations and Risk Considerations
+F. Error Analysis and Failure Cases
+                                                                                          Despite promising results, our approach has several impor-
+   A detailed analysis of the 10.7% of cases (428/4,017)                               tant limitations that must be carefully considered for clinical
+where the system failed to reach consensus reveals distinct                            deployment. LLM agents may reflect biases present in medical
+systematic patterns that highlight current limitations. The                            literature and training data, potentially perpetuating historical
+most significant source of failure, accounting for 34.8% of                            inequities in healthcare delivery [65], [66]. Our evaluation
+non-consensus cases, involves rare diseases where clinical                             datasets primarily reflect Western medical practice patterns
+guidelines are sparse or outdated, leading to divergent agent                          and may not generalize to diverse global healthcare contexts
+recommendations. Conflicting evidence in medical literature                            or underrepresented patient populations. Moreover, evidence
+contributes to another 28.7% of failures, particularly in scenar-                      retrieval depends on regularly updated guideline databases
+ios where treatment efficacy is debated or varies significantly                        (NCCN, ESMO updates every 6-12 months), meaning system
+across studies. Ethical dilemmas, such as end-of-life care                             performance may degrade between updates, particularly for
+decisions where patient values and quality-of-life considera-                          rapidly evolving treatment areas like immunotherapy and
+tions vary strongly, constitute 19.6% of the discordant cases.                         precision medicine where new evidence emerges continuously.
+Finally, 16.9% of failures arise from resource-related conflicts,                      The 15.9% reduction in consensus achievement for complex
+specifically concerning expensive treatments with accessibility                        cases (Charlson Comorbidity Index ≥ 3) indicates potential
+issues. These findings underscore the necessity for human                              limitations in handling multimorbidity scenarios that are in-
+oversight in complex, ambiguous, or ethically sensitive clinical                       creasingly common in aging cancer populations. Rare disease
+scenarios and point towards specific areas for future system                           cases show 34.8% failure rates, highlighting the challenge of
+enhancement.                                                                           AI systems in low-prevalence conditions. Furthermore, system
+                               V. D ISCUSSION                                          outputs require validation by qualified medical professionals
+                                                                                       before clinical application. The legal and ethical framework
+A. Key Findings and Clinical Implications                                              for AI-assisted medical decision-making remains evolving,
+   Our experimental results demonstrate several key findings                           requiring clear protocols for human oversight, accountabil-
+with significant clinical implications for medical decision-                           ity, and liability distribution. Finally, the 252GB memory
+making systems and MDT consultation practices. The struc-                              requirement and 45.2-second processing time per case may
+tured consensus matrix framework achieves substantially                                limit accessibility in resource-constrained healthcare settings,
+potentially exacerbating healthcare disparities between well-                                  ACKNOWLEDGMENTS
+funded and underfunded institutions.                                     The authors thank the medical experts who participated
+C. Comparison with Human MDT Performance                              in the clinical evaluation and provided valuable feedback on
+   While direct comparison with human MDT performance                 system design and clinical applicability. We acknowledge the
+is challenging due to variability in practice patterns, existing      participating cancer centers for providing anonymized clinical
+literature provides benchmarks for contextualizing our results.       cases for validation studies. This research was supported in
+Studies report human MDT consensus rates of 70-85% across             part by grants from the National Science Foundation and the
+different cancer types, with our system achieving 89.3% con-          National Institutes of Health.
+sensus rate. However, human MDTs handle significantly more                                           R EFERENCES
+complex cases and navigate social, emotional, and contextual           [1] J. Prades, E. Remue, E. van Hoof, and J. M. Borras, “Multidisciplinary
+factors that our system does not fully capture.                            team meetings in cancer care: evidence, challenges, and future direc-
+                                                                           tions,” Journal of Cancer Policy, vol. 6, pp. 39–48, 2015.
+D. Ethical and Safety Considerations                                   [2] X. Wu, Y.-T. Zhang, K.-W. Lai, M.-Z. Yang, G.-L. Yang, and H.-H.
+   Clinical deployment requires careful attention to ethical and           Wang, “A novel centralized federated deep fuzzy neural network with
+                                                                           multi-objectives neural architecture search for epistatic detection,” IEEE
+safety considerations. Clear protocols must establish human                Transactions on Fuzzy Systems, vol. 33, no. 1, pp. 94–107, 2024.
+oversight responsibilities, final decision authority, and liability    [3] M. L. Fennell, I. P. Das, S. Clauser, N. Petrelli, and A. Salner, “The
+distribution between AI system developers, healthcare insti-               impact of the multidisciplinary meeting on patient management and
+                                                                           survival in the 15-25% range,” Journal of the National Cancer Institute
+tutions, and individual practitioners. Robust de-identification            Monographs, vol. 2010, no. 40, pp. 69–80, 2010.
+protocols, access controls, and audit logging protect patient          [4] E. M. Kesson, G. M. Allardice, W. D. George, H. J. Burns, and D. S.
+information while enabling system functionality. Compliance                Morrison, “Effects of multidisciplinary team working on breast cancer
+                                                                           survival: retrospective, comparative, interventional cohort study,” BMJ,
+with HIPAA, GDPR, and other privacy regulations requires                   vol. 344, 2012.
+ongoing attention. Regular auditing for demographic, socioe-           [5] Y. Xin, S. Luo, X. Liu, H. Zhou, X. Cheng, C. E. Lee, J. Du, H. Wang,
+conomic, and clinical biases is essential, with particular at-             M. Chen, T. Liu et al., “V-petl bench: A unified visual parameter-
+                                                                           efficient transfer learning benchmark,” Advances in neural information
+tention to health equity and disparities in treatment recom-               processing systems, vol. 37, pp. 80 522–80 535, 2024.
+mendations across diverse patient populations. Patients must           [6] Y. Xin, J. Du, Q. Wang, K. Yan, and S. Ding, “Mmap: Multi-modal
+be informed about AI involvement in their care and maintain                alignment prompt for cross-domain multi-task learning,” in Proceedings
+                                                                           of the AAAI Conference on Artificial Intelligence, vol. 38, no. 14, 2024,
+the right to opt out of AI-assisted decision-making processes              pp. 16 076–16 084.
+while receiving equivalent quality care. Ongoing monitoring of         [7] Y. Xin, S. Luo, P. Jin, Y. Du, and C. Wang, “Self-training with label-
+system performance, regular retraining with updated evidence,              feature-consistency for domain adaptation,” in International Conference
+                                                                           on Database Systems for Advanced Applications. Springer, 2023, pp.
+and systematic evaluation of clinical outcomes are neces-                  84–99.
+sary to ensure maintained safety and efficacy standards. The           [8] C. Yang, Y. He, A. X. Tian, D. Chen, J. Wang, T. Shi, A. Heydarian,
+successful integration of such systems into clinical practice              and P. Liu, “Wcdt: World-centric diffusion transformer for traffic scene
+                                                                           generation,” in 2025 IEEE International Conference on Robotics and
+requires collaborative development between AI researchers,                 Automation (ICRA). IEEE, 2025, pp. 6566–6572.
+medical professionals, ethicists, and healthcare administrators        [9] B. Pillay, A. C. Wootten, H. Crowe, N. Corcoran, B. Tran, P. Bowden,
+to address these multifaceted considerations comprehensively.              J. Crowe, and A. J. Costello, “The impact of multidisciplinary team
+                                                                           meetings on patient assessment, management and outcomes in oncology
+                      VI. C ONCLUSION                                      settings: A systematic review of the literature,” Cancer Treatment
+                                                                           Reviews, vol. 42, pp. 148–172, 2016.
+   This paper has introduced a Multi-Agent Medical Decision           [10] S. Lin, “Hybrid fuzzing with llm-guided input mutation and semantic
+Consensus Matrix System that integrates a mathematically                   feedback,” 2025. [Online]. Available: https://arxiv.org/abs/2511.03995
+                                                                      [11] B. W. Lamb, N. Sevdalis, J. Benn, C. Vincent, and J. S. Green,
+grounded consensus framework, role-specialised virtual MDT                 “Improving the efficiency of multidisciplinary team meetings in cancer
+agents, reinforcement learning–based optimisation and explicit             care: a prospective observational study,” JCO Oncology Practice, vol. 9,
+evidence-chain construction for oncology decision support.                 no. 3, pp. e109–e116, 2013.
+                                                                      [12] Y. Xin, S. Luo, H. Zhou, J. Du, X. Liu, Y. Fan, Q. Li, and Y. Du,
+Across five medical benchmarks, the system achieved an                     “Parameter-efficient fine-tuning for pre-trained vision models: A survey,”
+average accuracy of 87.5% compared with 83.8% for the best                 arXiv e-prints, pp. arXiv–2402, 2024.
+baseline, a consensus quality of Kendall’s W = 0.823, and             [13] Y. Xin, Q. Qin, S. Luo, K. Zhu, J. Yan, Y. Tai, J. Lei, Y. Cao, K. Wang,
+                                                                           Y. Wang et al., “Lumina-dimoo: An omni diffusion large language
+a clinical expert approval rating of 8.9/10, indicating that               model for multi-modal generation and understanding,” arXiv preprint
+structured consensus modelling with a practical threshold of               arXiv:2510.06308, 2025.
+W > 0.7 can yield more accurate and stable recommen-                  [14] M. Huncovsky, G. Sroka, and J. Meyer, “Cognitive load and information
+                                                                           asymmetry in multidisciplinary cancer team meetings: A qualitative
+dations while preserving guideline traceability and GRADE-                 analysis,” Journal of Oncology Practice, vol. 20, no. 2, pp. 112–120,
+based evidence appraisal. At the same time, the approach                   2024.
+remains complementary to, rather than a replacement for,              [15] Z. Yu, M. Y. I. Idris, P. Wang, and R. Qureshi, “CoTextor: Training-
+                                                                           free modular multilingual text editing via layered disentanglement and
+human expertise: potential biases in training data, dependence             depth-aware fusion,” in The Thirty-ninth Annual Conference on Neural
+on current guidelines and the inherent complexity of ethically             Information Processing Systems, Creative AI Track: Humanity, 2025.
+sensitive or rare cases underline the need for careful human          [16] Y. He, S. Li, K. Li, J. Wang, B. Li, T. Shi, Y. Xin, K. Li, J. Yin, M. Zhang
+                                                                           et al., “Ge-adapter: A general and efficient adapter for enhanced video
+oversight when deploying such systems in real-world clinical               editing with pretrained text-to-image diffusion models,” Expert Systems
+practice.                                                                  with Applications, p. 129649, 2025.
+[17] Q. Niu, K. Chen, M. Li, P. Feng, Z. Bi, L. K. Yan, Y. Zhang, C. H.          [36] Y. Kim, C. Park, H. Jeong, Y. S. Chan, X. Xu, D. McDuff, H. Lee,
+     Yin, C. Fei, J. Liu, B. Peng, T. Wang, Y. Wang, S. Chen, and M. Liu,             M. Ghassemi, C. Breazeal, and H. W. Park, “Mdagents: An adaptive
+     “From text to multimodality: Exploring the evolution and impact of               collaboration of llms for medical decision-making,” arXiv preprint
+     large language models in medical practice,” 2024. [Online]. Available:           arXiv:2404.15155, 2024.
+     https://arxiv.org/abs/2410.01812                                            [37] Y. Tian, Z. Yang, C. Liu, Y. Su, Z. Hong, Z. Gong, and
+[18] L. K. Q. Yan, Q. Niu, M. Li, Y. Zhang, C. H. Yin, C. Fei, B. Peng,               J. Xu, “Centermamba-sam: Center-prioritized scanning and temporal
+     Z. Bi, P. Feng, K. Chen, T. Wang, Y. Wang, S. Chen, M. Liu,                      prototypes for brain lesion segmentation,” 2025. [Online]. Available:
+     J. Liu, X. Song, R. Bao, Z. Jiang, and Z. Qin, “Large language                   https://arxiv.org/abs/2511.01243
+     model benchmarks in medical tasks,” 2025. [Online]. Available:              [38] P. P. Mishra, M. Arvan, and M. Zalake, “Teammedagents: Enhancing
+     https://arxiv.org/abs/2410.21348                                                 medical decision-making of llms through structured teamwork,” arXiv
+[19] J. Wang, Y. He, Y. Zhong, X. Song, J. Su, Y. Feng, R. Wang, H. He,               preprint arXiv:2508.08115, 2025.
+     W. Zhu, X. Yuan et al., “Twin co-adaptive dialogue for progressive          [39] Z. Cao, Y. He, A. Liu, J. Xie, Z. Wang, and F. Chen, “Cofi-dec:
+     image generation,” in Proceedings of the 33rd ACM International                  Hallucination-resistant decoding via coarse-to-fine generative feedback
+     Conference on Multimedia, 2025, pp. 3645–3653.                                   in large vision-language models,” in Proceedings of the 33rd ACM
+[20] G. Team, M. Riviere, S. Pathak, P. G. Sessa, C. Hardin, S. Bhupatiraju,          International Conference on Multimedia, 2025, pp. 10 709–10 718.
+     L. Hussenot, T. Mesnard, B. Shahriari, A. Ramé et al., “Gemma 2:           [40] X. Wu, J. Dong, W. Bao, B. Zou, L. Wang, and H. Wang, “Augmented
+     Improving open language models at a practical size,” arXiv preprint              intelligence of things for emergency vehicle secure trajectory prediction
+     arXiv:2408.00118, 2024.                                                          and task offloading,” IEEE Internet of Things Journal, vol. 11, no. 22,
+[21] B. Gao, J. Wang, X. Song, Y. He, F. Xing, and T. Shi, “Free-mask:                pp. 36 030–36 043, 2024.
+     A novel paradigm of integration between the segmentation diffusion          [41] X. Wu, Y. Zhang, M. Shi, P. Li, R. Li, and N. N. Xiong, “An adaptive
+     model and image editing,” in Proceedings of the 33rd ACM International           federated learning scheme with differential privacy preserving,” Future
+     Conference on Multimedia, 2025, pp. 9881–9890.                                   Generation Computer Systems, vol. 127, pp. 362–372, 2022.
+[22] Y. Xin, J. Du, Q. Wang, Z. Lin, and K. Yan, “Vmt-adapter: Parameter-        [42] T. Wang, M. Liu, B. Peng, X. Song, C. Zhang, X. Sun, Q. Niu,
+     efficient transfer learning for multi-task dense scene understanding,” in        J. Liu, S. Chen, K. Chen, M. Li, P. Feng, Z. Bi, Y. Wang, Y. Zhang,
+     Proceedings of the AAAI conference on artificial intelligence, vol. 38,          C. Fei, and L. K. Yan, “From bench to bedside: A review of clinical
+     no. 14, 2024, pp. 16 085–16 093.                                                 trials in drug discovery and development,” 2024. [Online]. Available:
+[23] X. Wu, H. Wang, W. Tan, D. Wei, and M. Shi, “Dynamic allocation                  https://arxiv.org/abs/2412.09378
+     strategy of vm resources with fuzzy transfer learning method,” Peer-        [43] J. Bai, S. Bai, Y. Chu, Z. Cui, K. Dang, X. Deng, Y. Fan, W. Ge,
+     to-Peer Networking and Applications, vol. 13, no. 6, pp. 2201–2213,              Y. Han, F. Huang et al., “Qwen technical report,” arXiv preprint
+     2020.                                                                            arXiv:2309.16609, 2023.
+[24] H. Nori, N. King, S. M. McKinney, D. Carignan, and E. Horvitz,              [44] A. Liu, B. Feng, B. Xue, B. Wang, B. Wu, C. Lu, C. Zhao, C. Deng,
+     “Capabilities of gpt-4 on medical challenge problems,” arXiv preprint            C. Zhang, C. Ruan et al., “Deepseek-v3 technical report,” arXiv preprint
+     arXiv:2303.13375, 2023.                                                          arXiv:2412.19437, 2024.
+[25] K. Singhal, S. Azizi, T. Tu, S. S. Mahdavi, J. Wei, H. W. Chung,            [45] S. Hu, X. Han, J. Jiang, Y. Tao, Z. Fang, Y. Dai, S. T. W. Kwong,
+     N. Scales, A. Tanwani, H. Cole-Lewis, S. Pfohl et al., “Towards expert-          and Y. Fang, “Distribution-aligned decoding for efficient llm task
+     level medical question answering with large language models,” arXiv              adaptation,” arXiv preprint arXiv:2509.15888, 2025.
+     preprint arXiv:2305.09617, 2023.                                            [46] D. Zhang, J. Song, Z. Bi, Y. Yuan, T. Wang, J. Yeong, and
+[26] H. Wang, X. Zhang, Y. Xia, and X. Wu, “An intelligent blockchain-                J. Hao, “Mixture of experts in large language models,” arXiv preprint
+     based access control framework with federated learning for genome-               arXiv:2507.11181, 2025.
+     wide association studies,” Computer Standards & Interfaces, vol. 84, p.     [47] S. Lin, “Abductive inference in retrieval-augmented language models:
+     103694, 2023.                                                                    Generating and validating missing premises,” 2025. [Online]. Available:
+[27] Y. Zhou, Y. He, Y. Su, S. Han, J. Jang, G. Bertasius, M. Bansal, and             https://arxiv.org/abs/2511.04020
+     H. Yao, “Reagent-v: A reward-driven multi-agent framework for video         [48] H. Qi, Z. Hu, Z. Yang, J. Zhang, J. J. Wu, C. Cheng, C. Wang, and
+     understanding,” arXiv preprint arXiv:2506.01300, 2025.                           L. Zheng, “Capacitive aptasensor coupled with microfluidic enrichment
+[28] I. P. Nweke, C. O. Ogadah, K. Koshechkin, and P. M. Oluwasegun,                  for real-time detection of trace sars-cov-2 nucleocapsid protein,” Ana-
+     “Multi-agent ai systems in healthcare: A systematic review enhancing             lytical chemistry, vol. 94, no. 6, pp. 2812–2819, 2022.
+     clinical decision-making,” Asian Journal of Medical Principles and          [49] K. Huang, J. Altosaar, and R. Ranganath, “Clinicalbert: Modeling
+     Clinical Practice, vol. 8, no. 1, pp. 273–285, 2025.                             clinical notes and predicting hospital readmission,” arXiv preprint
+[29] Z. Yu, M. Y. I. Idris, and P. Wang, “Visualizing our changing earth:             arXiv:1904.05342, 2019.
+     A creative AI framework for democratizing environmental storytelling        [50] Y. Xin, J. Yan, Q. Qin, Z. Li, D. Liu, S. Li, V. S.-J. Huang, Y. Zhou,
+     through satellite imagery,” in The Thirty-ninth Annual Conference on             R. Zhang, L. Zhuo et al., “Lumina-mgpt 2.0: Stand-alone autoregressive
+     Neural Information Processing Systems, Creative AI Track: Humanity,              image modeling,” arXiv preprint arXiv:2507.17801, 2025.
+     2025.                                                                       [51] Z. Cao, Y. He, A. Liu, J. Xie, Z. Wang, and F. Chen, “Purifygen: A risk-
+[30] Z. Yu, M. Y. I. Idris, P. Wang, Y. Xia, and Y. Xiang, “Forgetme:                 discrimination and semantic-purification model for safe text-to-image
+     Benchmarking the selective forgetting capabilities of generative models,”        generation,” in Proceedings of the 33rd ACM International Conference
+     Engineering Applications of Artificial Intelligence, vol. 161, p. 112087,        on Multimedia, 2025, pp. 816–825.
+     2025.                                                                       [52] X. Chen, Y. Jin, X. Mao, L. Wang, S. Zhang, and T. Chen, “Rareagents:
+[31] X. Wu, H. Wang, Y. Zhang, B. Zou, and H. Hong, “A tutorial-                      Autonomous multi-disciplinary team for rare disease diagnosis and
+     generating method for autonomous online learning,” IEEE Transactions             treatment,” arXiv preprint arXiv:2412.12475, 2024.
+     on Learning Technologies, vol. 17, pp. 1532–1541, 2024.                     [53] Y. Li et al., “Medorch: Medical diagnosis with tool-augmented reasoning
+[32] Z. Cao, Y. He, A. Liu, J. Xie, F. Chen, and Z. Wang, “Tv-rag: A                  agents for flexible extensibility,” arXiv preprint arXiv:2506.00235, 2025.
+     temporal-aware and semantic entropy-weighted framework for long             [54] N. Dalkey and O. Helmer, “An experimental application of the delphi
+     video retrieval and understanding,” in Proceedings of the 33rd ACM               method to the use of experts,” Management science, vol. 9, no. 3, pp.
+     International Conference on Multimedia, 2025, pp. 9071–9079.                     458–467, 1963.
+[33] Y. Xin, L. Zhuo, Q. Qin, S. Luo, Y. Cao, B. Fu, Y. He, H. Li, G. Zhai,      [55] S. M. Lundberg and S.-I. Lee, “A unified approach to interpreting model
+     X. Liu et al., “Resurrect mask autoregressive modeling for efficient and         predictions,” in Advances in neural information processing systems,
+     scalable image generation,” arXiv preprint arXiv:2507.13032, 2025.               2017, pp. 4765–4774.
+[34] S. Lin, “Llm-driven adaptive source-sink identification and false           [56] M. T. Ribeiro, S. Singh, and C. Guestrin, “” why should i trust you?”
+     positive mitigation for static analysis,” 2025. [Online]. Available:             explaining the predictions of any classifier,” in Proceedings of the 22nd
+     https://arxiv.org/abs/2511.04023                                                 ACM SIGKDD international conference on knowledge discovery and
+[35] X. Liang, M. Tao, Y. Xia, J. Wang, K. Li, Y. Wang, Y. He, J. Yang,               data mining, 2016, pp. 1135–1144.
+     T. Shi, Y. Wang et al., “Sage: Self-evolving agents with reflective and     [57] D. Jin, E. Pan, N. Oufattole, W.-H. Weng, H. Fang, and P. Szolovits,
+     memory-augmented abilities,” Neurocomputing, p. 130470, 2025.                    “What disease does this patient have? a large-scale open domain question
+     answering dataset from medical exams,” in Applied Data Science Track
+     on The Web Conference 2021, 2021.
+[58] Q. Jin, B. Dhingra, Z. Liu, W. W. Cohen, and X. Lu, “Pubmedqa: A
+     dataset for biomedical research question answering,” in Proceedings
+     of the 2019 Conference on Empirical Methods in Natural Language
+     Processing and the 9th International Joint Conference on Natural
+     Language Processing (EMNLP-IJCNLP), 2019, pp. 2567–2577.
+[59] A. F. Tchango, R. Goel, Z. Wen, J. Martel, and J. Ghosn, “Ddxplus: A
+     new dataset for automatic medical diagnosis,” in Thirty-sixth Conference
+     on Neural Information Processing Systems Datasets and Benchmarks
+     Track, 2022.
+[60] AHEAD Research, “Symcat: Symptom-disease database,” http://www.
+     symcat.com/, 2024, accessed: 2024-01-01.
+[61] H. Chen, Z. Fang, Y. Singla, and M. Dredze, “Benchmarking large
+     language models on answering and explaining challenging medical
+     questions,” arXiv preprint arXiv:2402.16002, 2024.
+[62] J. Achiam, S. Adler, S. Agarwal, L. Ahmad, I. Akkaya, F. L. Aleman,
+     D. Almeida, J. Altenschmidt, S. Altman, S. Anadkat et al., “Gpt-4
+     technical report,” arXiv preprint arXiv:2303.08774, 2023.
+[63] J. Wei, X. Wang, D. Schuurmans, M. Bosma, b. i. bfe, F. Xia, E. Chi,
+     Q. V. Le, and D. Zhou, “Chain-of-thought prompting elicits reasoning in
+     large language models,” in Advances in Neural Information Processing
+     Systems, vol. 35, 2022, pp. 24 824–24 837.
+[64] X. Wang, J. Wei, D. Schuurmans, Q. Le, E. Chi, S. Narang, A. Chowdh-
+     ery, and D. Zhou, “Self-consistency improves chain of thought reasoning
+     in language models,” in The Eleventh International Conference on
+     Learning Representations, 2023.
+[65] Y. Gao, T. Sharma, and Y. Cui, “Addressing the challenge of biomedical
+     data inequality: an artificial intelligence perspective,” Annual review of
+     biomedical data science, vol. 6, no. 1, pp. 153–171, 2023.
+[66] Y. Gao and Y. Cui, “Deep transfer learning for reducing health care
+     disparities arising from biomedical data inequality,” Nature communica-
+     tions, vol. 11, no. 1, p. 5131, 2020.
+

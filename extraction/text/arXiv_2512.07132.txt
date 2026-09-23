@@ -1,0 +1,1224 @@
+                                            DART: Leveraging Multi-Agent Disagreement for Tool Recruitment in
+                                                                Multimodal Reasoning
+
+                                            Nithin Sivakumaran1       Justin Chih-Yao Chen1       David Wan1       Yue Zhang1
+                                                                    2                          3                 1
+                                                       Jaehong Yoon        Elias Stengel-Eskin       Mohit Bansal
+                                                          1
+                                                            UNC Chapel Hill 2 Nanyang Technological University
+                                                                   3
+                                                                     The University of Texas at Austin
+
+
+
+                                                                  Abstract                          of new knowledge, each party becomes entrenched
+                                                                                                    in their point of view. While past work (Wang
+                                                Specialized visual tools can augment large lan-     et al., 2024a; Chen et al., 2024b; Estornell et al.,
+
+
+
+
+arXiv:2512.07132v1 [cs.CL] 8 Dec 2025
+                                                guage models or vision language models with         2025a; Estornell and Liu, 2024) has found that
+                                                expert knowledge (e.g., grounding, spatial rea-
+                                                                                                    large-language model agents can improve their per-
+                                                soning, medical knowledge, etc.), but knowing
+                                                which tools to call (and when to call them) can     formance by engaging in multi-agent debate, this
+                                                be challenging. We introduce DART, a multi-         has largely been explored in unimodal, text-only
+                                                agent framework that uses disagreements be-         settings. We find that when extending debate to
+                                                tween multiple debating visual agents to iden-      multimodal settings with vision-language models
+                                                tify useful visual tools (e.g., object detection,   (VLMs), the discussion between agents frequently
+                                                OCR, spatial reasoning, etc.) that can resolve      becomes unproductive. The lack of progress in
+                                                inter-agent disagreement. These tools allow
+                                                                                                    conversation is in part due to a lack of new infor-
+                                                for fruitful multi-agent discussion by introduc-
+                                                ing new information, and by providing tool-         mation, with the VLM-based agents participating
+                                                aligned agreement scores that highlight agents      in the discussion often being unable to resolve per-
+                                                in agreement with expert tools, thereby facil-      ceptual differences (see Fig. 1.A). Moreover, each
+                                                itating discussion. We utilize an aggregator        VLM suffers from similar perceptual limitations:
+                                                agent to select the best answer by providing        past work has found that VLMs often lag behind
+                                                the agent outputs and tool information. We test     specially-trained expert models in domains like
+                                                DART on four diverse benchmarks and show            grounding, OCR, and spatial reasoning (Chiu et al.,
+                                                that our approach improves over multi-agent
+                                                                                                    2025; Chen et al., 2024a). Indeed, because of these
+                                                debate as well as over single agent tool-calling
+                                                frameworks, beating the next-strongest base-        limitations, a separate line of work has explored
+                                                line (multi-agent debate with a judge model)        using LLMs to call expert models as tools rather
+                                                by 3.4% and 2.4% on A-OKVQA and MMMU                than relying on VLMs (see Fig. 1.B) (Yang et al.,
+                                                respectively. We also find that DART adapts         2023; Lu et al., 2023; Wu et al., 2023; Surís et al.,
+                                                well to new tools in applied domains, with a        2023; Mialon et al., 2023; Yu et al., 2025b), bene-
+                                                1.3% improvement on the M3D medical dataset         fiting from the reasoning abilities of LLMs and the
+                                                over other strong tool-calling, single agent, and
+                                                                                                    visual perceptual abilities of expert models.
+                                                multi-agent baselines. Additionally, we mea-
+                                                sure text overlap across rounds to highlight the        We unify these three approaches (VLMs, multi-
+                                                rich discussion in DART compared to existing        agent debate, and tool calling) with Disagreement
+                                                multi-agent methods. Finally, we study the tool     among Agents for Recruitment of Tools (DART),
+                                                call distribution, finding that diverse tools are   a multi-agent approach which approaches visual
+                                                reliably used to help resolve disagreement.1        question-answering (VQA) tasks by engaging
+                                                                                                    VLMs in a multi-agent debate, resolving the dis-
+                                        1       Introduction                                        agreement between agents with information from
+                                                                                                    expert tools (see Fig. 1.C). This has several key ad-
+                                        A key strength of human intelligence is the ability
+                                                                                                    vantages: first, the novel information from expert
+                                        to debate and discuss our reasoning with others.
+                                                                                                    tools helps move the discussion between agents for-
+                                        However, everyone has had the experience of en-
+                                                                                                    ward productively and augments their perceptual
+                                        gaging in a debate that goes nowhere because of a
+                                                                                                    abilities. Second, it simplifies the tool-calling pro-
+                                        lack of new information: without the incorporation
+                                                                                                    cess; unlike top-down LLM-based solutions which
+                                            1
+                                                Code: https://github.com/nsivaku/dart               plan what tools to execute in a single step based
+        (A) Multiple VLM Agents                                     (B) Single LLM Agent with Tools
+                                                                                                                          Tool Planner
+                                                                                               Specialized Vision Tools
+                       No Specialized
+                       Vision Tools
+                                                                                               No Vision Conditioned      LLM Answerer
+                                                                                               Tool Recruitment
+                       Diverse Reasoning
+                                                                                               No Diverse Reasoning
+                                                    Pool of Tools                                                         Recruiter
+
+                  (C) DART: Disagreement among Agents for Recruitment of Tools (Ours)
+
+                                                                                                                          Agreement Scorer
+                                                                                               Specialized Vision Tools
+
+                         Reasoning
+                          Conflicts
+                                                                                               Vision Conditioned
+                                            Recruiter                                          Tool Recruitment
+                                   Tool
+                                  Outputs                                                                                 VLMs in
+                                                                                                                          Debate
+                                                                                               Diverse Reasoning
+                          Agreement                                     Pool of Tools
+                            Scores
+                                            Agreement
+                                              Scorer
+
+
+
+Figure 1: Previous work has explored using (A) multiple agents in debate to refine their reasoning, but this approach
+is limited to the abilities of the agents. Alternatively, some methods employ a (B) top-down LLM agent that invokes
+vision tools, yet they plan tool usage based solely on the question and overlook the visual information itself. In our
+method (C), we facilitate a discussion among multiple agents with targeted intervention from a pool of vision tools.
+These tools address disagreements detected in a debate of VLM agents, with their specialized vision outputs and
+agreement scores being used for future discussion.
+
+
+only on the question – e.g., ViperGPT (Surís et al.,                                We test DART on four different benchmarks that
+2023), Chameleon (Lu et al., 2023) – DART adap-                                  require strong and diverse perception capabilities
+tively calls tools based only on the points which                                and reasoning. We find that DART improves over
+the VLMs disagree on. This has the added bene-                                   the next best baseline (multi-agent debate with a
+fit of combining the strong reasoning abilities of                               judge model) by 3.4% on A-OKVQA (Schwenk
+VLMs (backed by LLMs) with the specialized per-                                  et al., 2022), 2.4% on MMMU (Yue et al., 2024),
+ception of vision tools. Finally, the added informa-                             and 1.2% on NaturalBench (Li et al., 2024). Sim-
+tion given by tools serves as an intuitive measure                               ilarly, DART outperforms tool-calling baselines
+of confidence in each agent: the more a given agent                              like ViperGPT (Surís et al., 2023) and Chameleon
+agrees with the expert tools (which have stronger                                (Lu et al., 2023) on A-OKVQA, MMMU, and
+perceptual abilities), the more it can be relied on.                             NaturalBench by 19.0%, 11.5%, and 5.3% respec-
+   DART consists of five steps, outlined in Fig. 2.                              tively. We also test how DART adapts to a subject-
+DART starts with (1) Initial Answer Generation,                                  specific domain, adding in a relevant domain ex-
+where each agent creates an answer and reason-                                   pert tool. Specifically, we test DART’s adaptabil-
+ing for an image-question pair. Next, our method                                 ity to medical data by testing on the M3D dataset
+uses the answers and reasoning chains from the                                   (Bai et al., 2024) while adding in MedGemma 4B
+answering agents in (2) Tool-Based Disagreement                                  (Google, 2025) into the expert tool set. We find
+Resolution, which aims to resolve disagreements                                  that our system improves performance on M3D
+that occurred during the initial answering step by in-                           by 1.3% over Qwen2.5-VL (Bai et al., 2025), the
+voking tools based on the identified conflicts. Then,                            strongest single agent baseline, and achieve pos-
+in (3) Tool-Based Agreement Scoring, DART com-                                   itive gains in a multi-agent setting compared to
+pares the expert tool outputs and agent answers to                               naive multi-agent debate (which decreases by 2.7%
+calculate agreement scores. These new tool outputs                               compared to Qwen2.5-VL). Our results indicate
+and per agent agreement scores are used during (4)                               that DART leads to stronger discussion, introduc-
+Discussion where agents refine their own answer                                  ing more novel ideas into the discussion round com-
+and reasoning. Finally, DART composes the tool                                   pared to multi-agent debate. Moreover, DART ben-
+outputs, recalculated agreement scores, and post-                                efits from calling a variety of tools based on reason-
+discussion answer outputs into a final answer in the                             ing disagreements from multiple models, without
+(5) Aggregation step.                                                            overly relying on any singular tool.
+2     Method                                               describe the distinctive blue,” the recruitment agent
+                                                           would call on the attribute detection tool to “clarify
+The problem setup is a Visual Question Answering           the colors and markings of the planes.” DART uses
+(VQA) task where we use a set of VLM agents                grounding, object detection, OCR, spatial reason-
+and tools in DART to arrive at a final answer. The         ing, captioning, and attribute detection tools.
+framework takes in an image and question as input             The grounding, object detection, OCR, and spa-
+and generates a single natural language answer.            tial reasoning tools are implemented as expert, fine-
+Formally, given a question Q and image I, we aim           tuned models. In contrast, reasoning, captioning,
+to generate a single answer a based on a discussion        and attribute detection are handled by a general-
+among generalist answering agents A = {Ai }ni=1            purpose VLM instructed to focus on those specific
+and vision expert tools V = {Vi }mi=1 .                    tasks without leveraging task-specific models. We
+                                                           use a separate VLM from the debate agents to avoid
+2.1   Initial Answer Generation
+                                                           bias, as using the same VLM might bias the output
+In initial answer generation (see Fig. 2 (Step 1),         towards that particular VLM’s idiosyncrasies.
+we prompt each answering agent Ai to use CoT to               The vision tools process image I with their re-
+generate a candidate answer ai , a corresponding           spective generated input parameters to get expert
+reasoning chain ri , and self-reported confidence          tool outputs E = {Ei }li=1 . Note that certain vi-
+score ci . Before being passed to future stages of         sion tools, such as grounding, object detection, and
+the pipeline, we group answers {ai }ni=1 , reasoning       OCR, are not naturally suited for natural language
+{ri }ni=1 , and confidence {ci }ni=1 following Chen        outputs. For tools that do not natively output natu-
+et al. (2024b) to form GI . The grouping process           ral language (Grounder, Object Detector) we per-
+lists each unique agent answer with the number of          form minimal post-processing to convert outputs
+agents supporting it and their reasoning.                  into statements suitable for language-model con-
+                                                           sumption (see Appendix E for the prompt).
+2.2   Tool-Based Disagreement Resolution
+                                                           2.3   Tool-Based Agreement Scoring
+We expect answering agents with distinct outputs
+to have reasoning chains that disagree at specific         Domain-specific models have been shown to be
+points. These disagreements mean that agents di-           stronger than VLMs within their specific skill set
+verge in their perception or analysis of the scene         (Chiu et al., 2025; Chen et al., 2024a). As such, we
+and question. As such, we aim to address these di-         hypothesize that VLMs whose outputs agree more
+vergences with tool-based disagreement resolution          closely with those of specialized tool models are
+to directly provide visual information from relevant       more likely to be accurate. The expert tools have
+vision expert tools that will ground future conversa-      better perception, meaning VLMs that match the
+tions (see Fig. 2 (Step 2). We detect disagreements        experts are likely to have correctly perceived the
+among the agents’ answers {ai }ni=1 and answer             image. Thus, these agreement scores serve as an
+reasoning chains {ri }ni=1 using a recruitment agent.      indicator for whether or not to trust a VLM output.
+For each of our vision tools, the recruitment agent           For every pair ((ai , ri ), Ej ) of output from an-
+is parameterized by an LLM provided with the ac-           swering agent i and output from tool j, an agree-
+ceptable input parameters (either none, text query,        ment scorer LLM produces a binary agreement
+list of text queries) as well as potential use cases for   score between answering agent i and output from
+each tool in the prompt (e.g., the grounder can be         invoked tool j as sij ∈ {0, 1} after comparing
+used if an agent mentioned an object that another          (ai , ri ) with the Ej ∈ E (see Fig. 2 (Step 3)). The
+agent missed). Then, given a grouped answer GI ,           agreement scorer agent produces scores that rep-
+the recruitment agent detects disagreements and            resent the degree to which an agent agrees with
+proceeds to construct a vision tool set and corre-         one specific expert tool output Ej . Agreement of
+sponding input parameters. The recruitment agent           answering agent i with the full set of tools is then
+is instructed to state the disagreement and justify        represented by the mean:
+how a given tool would address that disagreement                              1 X
+(see Appendix E for the prompt). For example, if                      Si =           sij ,      si ∈ [0, 1].
+                                                                             |E|
+                                                                              Ej ∈E
+the recruitment agent finds that “Agents disagree on
+the color and specific markings of the planes, with        Each (ai , ri ) is now annotated with its agreement
+one agent mentioning a green color while others            score Si and carried into the subsequent discussion
+          (1) Initial Answer Generation                                              (2) Tool-Based Disagreement Resolution
+        Question: What genus of animal is visible here?                                              grounder(                                  V1: Grounder
+                                                                                                        img,                                    The grounding expert
+                                                                                                        “cat”,                                  found a leopard with score
+                                        a1: The image…                                                  “leopard”,                              0.53 and a panthera with
+                                        genus panthera                                                  “panthera”                              score 0.32.
+                                                                                                     )                     Grounder
+                                        a2: …The traits are
+                                                                                                                                                V2: Attribute
+                                                                                                     attribute(
+                                        typical of a cat…                                                                                       Color: white
+                                                                                     Recruiter          img,
+                                                                                                                                                State: static image on
+                                                                                                        question,
+                                                                                                                                                monitor
+                                        a3: …The leopard is         Pool of Tools                       “animal”           Attribute            Category: animal
+                                        identifiable…
+                                                                                                     )
+
+
+
+
+               (3) Tool-Based Agreement Scoring                                     (4) Discussion                                       (5) Aggregation
+                                                                                                                             Prompt:
+  a1: The image… genus                                                                            a1: …animal is in the      GF: panthera (2 agents), leopard (1 agent)…
+                                                                                                  genus panthera             S: 2/2, 1/2, 2/2
+  panthera                                         Tool-Agreement                                                            V: The grounding tool… The attribute tool…
+                                                        Scores                                                               Please select the best answer for the question.
+  a2: …The traits are                                                                             a2: …features typical
+  typical of a cat…
+                                                        S1 =2/2                                   of a snow leopard…
+                                                        S2 =1/2
+                                                                                                                                                           Answer
+  a3: …The leopard is          Agreement                S3=2/2                                    a3: …align with the
+  identifiable…                  Scorer                                                           traits of the panthera                                   Panthera
+                                                                                                  genus.
+                                                                                                                              Aggregator
+
+Figure 2: Overview of DART. We start with (1) Initial Answer Generation from a set of answering/reasoning agents.
+This is followed by (2) Tool-Based Disagreement Resolution and (3) Agreement Scoring. The newly generated tool
+outputs and agreement scores are incorporated into the (4) Discussion and (5) Aggregation phases.
+
+
+and aggregation steps. These steps provide agree-                                    puts E, and tool-based agreement scores SF (see
+ment scores such that more trust is placed on agents                                 Fig. 2 (Step 5)). The aggregator VLM is instructed
+that align with expert information. The agents that                                  to choose, with CoT, the best answer out of all the
+do have high scores are more likely to have accu-                                    provided solutions (see Appendix E for prompt).
+rate visual understanding of the scene. We provide
+the agreement scorer prompt in Appendix E.                                           3     Results and Analysis
+2.4       Discussion                                                                 3.1         Experimental Setup
+In the discussion, each agent takes in the grouped                                   Datasets and Metrics. We evaluate our frame-
+input GI , tool outputs E, and the expert-based                                      work on four Visual Question Answering (VQA)
+agreement scores SI (see Fig. 2 (Step 4)). Recall                                    datasets: A-OKVQA (Schwenk et al., 2022),
+that the grouped agent solution form includes self-                                  MMMU (Yue et al., 2024), NaturalBench (Li
+reported confidence. This means that agents have                                     et al., 2024), and M3D-VQA (Bai et al., 2024).
+both self-reported confidence and agreement scores                                   We aim to test whether DART performs well on a
+during the discussion step. Agents are instructed                                    dataset that focuses on reasoning and world knowl-
+to place high priority on the expert outputs, even                                   edge, such as A-OKVQA. We evaluate on the di-
+over the agent solutions. Answering agents are also                                  rect answer subset using the metric from Antol
+given a 3-shot prompt with simple synthetic exam-                                    et al. (2015) following the A-OKVQA direct an-
+ples to guide them to follow the provided output                                     swer evaluation scheme. We also test on MMMU
+format (see Appendix E for the full prompt). If the                                  to assess DART’s effect on a large, diverse set of
+agent solutions contain information that contradicts                                 VQA data, and on NaturalBench, which is designed
+the tool outputs, models are told to assume that the                                 to rigorously test VLMs on their visual comprehen-
+vision tool is correct. Finally, agents are provided                                 sion using adversarial VQA pairs that are easy for
+with the tool-based agreement scores as well as the                                  humans but challenging for VLMs. Additionally,
+self-reported confidence score. This outputs the                                     we evaluate how well DART adapts to a new tool
+final group of agent answers defined as GF (see                                      by testing it on M3D-VQA, which is a medical
+Fig. 2 (Step 3)), and we recalculate final confidence                                VQA dataset on 3D medical scans of real patients.
+scores following Section 2.3 to obtain SF .                                          MMMU, NaturalBench, and M3D are all multiple
+                                                                                     choice datasets, so we measure accuracy.
+2.5       Aggregation
+Similar to the discussion step, we provide an aggre-                                 Implementation Details. We use a diverse set of
+gator agent with grouped solutions GF , tool out-                                    answering agents and visual tools. For answering
+            Method                       Agent             A-OKVQA MMMU NaturalBench
+                                                 Tool Systems
+            ViperGPT (Surís et al., 2023) Qwen                  49.9      54.0         75.3
+            Chameleon (Lu et al., 2023) Qwen                    47.5      51.6         77.2
+                                                 Single Agent
+                                         QwenVL                 61.3      58.8         79.2
+            CoT (Wei et al., 2022)       MiniCPM-o              55.7      50.4         77.9
+                                         Ovis2                  61.0      50.7         78.7
+                                         LLaVA 1.6              62.8      39.4         70.9
+                                         QwenVL                 61.8      56.5         79.0
+            Self-Refinement              MiniCPM-o              56.7      46.7         78.2
+            (Madaan et al., 2023)        Ovis2                  61.7      47.2         78.4
+                                         LLaVA 1.6              62.9      39.7         70.6
+                                         QwenVL                 63.7      60.8         80.1
+            Self-Consistency (5-way)     MiniCPM-o              58.2      52.5         78.1
+            (Wang et al., 2023)          Ovis2                  64.6      52.8         79.3
+                                         LLaVA 1.6              64.2      41.3         72.4
+                                              Multiple Agents
+                                         3×QwenVL               61.9      60.5         80.0
+            Debate with Consensus        3×MiniCPM-o            57.4      53.2         78.3
+                                         3×Ovis2                62.8      57.0         80.1
+                                         Q, M, O                64.2      63.1         80.6
+                                         3×QwenVL               62.1      60.3         79.9
+            Debate with Judge            3×MiniCPM-o            59.7      54.8         78.3
+                                         3×Ovis2                63.0      58.3         80.4
+                                         Q, M, O                65.5      63.1         81.3
+                                         Best Model             65.3     61.6         80.8
+            DART (Ours)                  Q, M, O                68.9     65.5         82.5
+Table 1: Comparison of DART and different baselines on A-OKVQA, MMMU, and NaturalBench. Q, M, and O
+stand for QwenVL, MiniCPM-o, and Ovis2 respectively. For the DART (Best Model) setting, we take the single
+best performing agent from multi-agent debate with judge and run DART with three instances of that model. The
+best models are Ovis2, QwenVL, and Ovis2 for A-OKVQA, MMMU, and NaturalBench respectively.
+
+
+agents, we test with Qwen2.5-VL (Bai et al., 2025),      Ovis2 serves as the best aggregator among a pool
+MiniCPM-o 2.6 (Yao et al., 2024), and Ovis2 (Lu          of similar VLMs. When testing on M3D-VQA, we
+et al., 2024) as our VLMs. As an additional inde-        additionally insert MedGemma 4B (Google, 2025)
+pendent single agent baseline, we include LLaVA-         into the pool of tools to serve as a medical expert.
+1.6 (Mistral) (Liu et al., 2024). Then, we con-
+struct a pool of visual expert tools with Ground-        Baselines. We compare DART to multiple single-
+ingDINO (Liu et al., 2023) (grounding), YOLOv11          agent, multi-agent, and tool-calling baselines. We
+(Khanam and Hussain, 2024) (object detection),           include comparisons to training-free single-agent
+SpaceLLaVA (Chen et al., 2024a) (spatial), OCR-          tool-calling baselines: ViperGPT (Surís et al.,
+Qwen (OCR), and InternVL-2.5 MPO (Wang et al.,           2023) and Chameleon (Lu et al., 2023). ViperGPT
+2024b) (captioning, attribute, and reasoning) as         utilizes a code generation model to predict exe-
+vision tools. We use InternVL-2.5 to serve as an         cutable code that leverages required tools for a
+expert tool in multiple domains, as prior work has       given question. In contrast to the flexibility of-
+shown that models can be designed to be more ef-         fered by free-form code generation in ViperGPT,
+fective in specific domains when prompted to do          Chameleon adopts a more robust compositional ap-
+so (Xu et al., 2025; Wang et al., 2024c). We intro-      proach, utilizing an LLM-based planner to directly
+duce a separate VLM for this task to reduce over-        invoke various tools in sequence via word match-
+lap between answering agent information and tool         ing. We update these methods to use our pool of
+calling information. We also test the effectiveness      experts and also incorporate more recent models as
+of DART by ablating the VLM-based tools (see             planners to ensure a fair comparison.
+Section 3.3). We use Qwen2.5 (7B) as the recruit-           Our single agent baselines are zero-shot CoT
+ment agent and agreement scorer. We also find that       (Wei et al., 2022), self-refinement (Madaan et al.,
+2023), and self-consistency (Wang et al., 2023).        can adapt to domains where its current pool of ex-
+For multi-agent baselines, we use Debate with           perts is unsuited for a task, we test on M3D with
+Consensus and Debate with Judge. Specifically,          an additional medical expert. If DART is able to
+we follow the ReConcile LLM debate framework            adapt to new experts, we expect the accuracy to
+outlined by Chen et al. (2024b) for both consen-        increase, as the medical tool provides valuable info
+sus and InternVL2.5 as a judge. Debate with con-        to guide a better discussion. In Table 2, our method
+sensus counts the most frequent answer from the         outperforms the baselines by 1.54% even given the
+agents while debate with judge uses a separate          disparities in individual model strengths on this
+VLM model to choose an answer. See Appendix B           task (i.e., Ovis2 is 10.0% weaker than QwenVL
+for more details about the baselines.                   on this dataset). While multi-agent debate under-
+                                                        performs compared to the strongest single-agent
+3.2   Results                                           baseline by 2.72%, DART can effectively use the
+DART is stronger than all tool-calling, single-         medical expert and multiple agent reasoning paths
+agent, and multi-agent baselines. DART outper-          to bridge this gap and improve even further over
+forms training-free tool-calling systems by a wide      the next best method (Qwen2.5-VL) by 1.5%. This
+margin as seen in Table 1. On A-OKVQA, we see           indicates that DART can effectively incorporate
+19.0% and 21.4% improvements over ViperGPT              new experts, allowing it to adapt to new tasks with
+and Chameleon respectively (see Table 1 for full re-    minimal implementation effort.
+sults). The gap on both MMMU and NaturalBench
+compared to gap between DART and single/multi-          DART leads to more diverse and fruitful discus-
+agent baselines. These tool-calling systems plan        sion compared to existing multi-agent methods.
+their tool execution in a single step based solely      To evaluate the diversity and novelty of ideas dur-
+on the question, and they lack the ability to rea-      ing discussion, we measure the textual overlap be-
+son directly on the image as an input. This is in       tween agents’ initial responses and their responses
+contrast to our own system that effectively incor-      after one round of discussion, comparing DART
+porates tools on top of existing VLM systems, al-       with the standard multi-agent debate. For DART,
+lowing for better vision understanding with tools       tool outputs are appended to the initial responses,
+while building on the existing capabilities of VLMs.    enabling the metrics to account for all available in-
+The performance gain of DART over LLM-based             formation during the discussion round. As shown
+tool calling methods illustrates the strengths of our   in Table 3, DART exhibits substantially lower over-
+targeted tool-calling approach for a debate among       lap across all metrics (ROUGE-1/2/L (Lin, 2004)
+multiple VLM agents.                                    and Jaccard Index), with ROUGE-L and Jaccard
+   We also see consistent gains across all              Index decreasing by 0.173 and 0.289 respectively
+three benchmarks over all baselines. On A-              compared to multi-agent debate (MAD) (Du et al.,
+OKVQA, DART reaches 68.9%, exceeding the                2024). This indicates that discussions in DART
+best single-agent baseline (Self-Consistency with       are more diverse, with agents introducing novel
+Ovis2) by 4.3% and the best multi-agent baseline        reasoning paths rather than repeating prior content.
+(multi-model debate with judge) by 3.4%. This           The integration of tool-based resolution enables
+trend continues across both MMMU and Natural-           each agent to refine or challenge other perspectives
+Bench, where DART consistently outperforms both         with visual or textual evidence, resulting in richer
+the strongest single and multi-agent baselines. The     discussion. In contrast, multi-agent debate seems
+gains are highest on A-OKVQA, which requires            to converge in terms of word usage, with agents re-
+advanced reasoning and world knowledge, indicat-        peating similar or nearly identical reasoning. These
+ing that our system improves the overall reason-        findings show that DART fosters more fruitful dis-
+ing process of the answering agents. These im-          cussion among agents.
+provements indicate that resolving disagreements
+with expert tools and using tool-aligned agreement
+scores yields better reasoning and perception than      Additional Results. We conduct additional ex-
+prior single- or multi-agent approaches.                periments to study calibration, multi-round perfor-
+                                                        mance, efficiency, tool benefits, and prompt sensi-
+DART can adapt to diverse domains by adding             tivity in DART. This additional analysis is included
+appropriate expert tools. To show how DART              in Appendix D.
+        Method                                              Plane Phase Organ Abnormality Location Avg.
+        CREMA (Yu et al., 2025a)                            14.9        26.7     15.9           17.3            13.0      17.2
+        GPT-4o (OpenAI et al., 2024)                        83.3        42.7     50.0           41.3            41.3      51.7
+        MEXA (Yu et al., 2025b)                             65.0        48.1     60.9           44.8            48.0      53.3
+        Ovis2                                               59.6        34.0      39.8         55.4            43.0       46.4
+        MiniCPM-o                                           79.8        28.4      53.9         49.2            37.8       49.8
+        QwenVL                                              91.2        33.5      49.7         60.0            47.7       56.4
+        Debate with Consensus                               81.2        32.0      43.1         60.9            51.9       53.7
+        Debate with Judge                                   79.5        32.0      45.6         61.2            51.7       53.4
+        DART (Ours)                                         92.8        40.7      47.6          55.9            51.8      57.8
+Table 2: Accuracy on the M3D medical dataset by question type and overall. DART performs the best out of the
+tested methods.
+
+
+ Method                            R-1   R-2      R-L       Jac. Index          Method                                    Accuracy
+ Debate with Consensus 0.679 0.529 0.550                        0.559
+ DART                  0.452 0.310 0.377                        0.270           DART                                             68.9
+                                                                                w/o Diverse Answerers (only Ovis)                65.3
+Table 3: Comparison of DART and multi-agent debate                              w/o Tool Agreement Scores                        67.8
+across text similarity metrics. R and Jac. Index stand                          w/o Expert Tool Outputs†                         65.7
+for ROUGE and Jaccard Index respectively.                                      Table 4: Ablations of DART on A-OKVQA.
+                                                                               †
+                                                                                 Agreement scores are impossible to calculate without
+                                         Spatial Reasoning: 6.34%
+                                                                               tool outputs, so they are withheld.
+ Attribute Detection: 21.23%                      OCR: 10.04%
+
+                                                                                Method                                    Accuracy
+                                                                                DART                                             68.9
+                                                                                DART (VLM as all tools)                          66.0
+                                                         Grounder: 27.14%       DART (no VLM-based tools)                        66.7
+   Captioning: 22.82%                                                           DART (no specialized model tools)                65.6
+                                                                               Table 5: Comparison between the full DART system
+             Object Detection: 5.20%     Reasoning: 7.22%
+                                                                               and its variant using VLMs as tools. VLM-based tools
+                                                                               are the captioning, attribute detection, and reasoning
+Figure 3: Breakdown of total tool calling of DART on                           tools. Specialized model tools are the grounding, object
+A-OKVQA.                                                                       detection, spatial reasoning, and OCR tools.
+
+3.3     Analysis and Ablation Study
+                                                                               Multiple different answerers lead to more dis-
+DART calls on a variety of tools. In Figure 3,                                 agreements. We compare using multiple models
+we present the distribution of tool calls made by                              (i.e., QwenVL, MiniCPM-o, and Ovis2) as answers
+DART when evaluated on A-OKVQA. The most                                       to multiple instances of the same model (i.e., Ovis2
+common tools called were Grounder, Captioning,                                 with higher temperature). From Table 1, we see
+and Attribute Detection, with each called for over                             that using a single model in DART results in a de-
+20% of questions with tool calls. These tools are                              crease of 4.6% accuracy on A-OKVQA. Then, we
+mostly focused on physical scene understanding                                 find that using a single model results in less than
+and composition, indicating that the VLM agents                                half the disagreements than DART with multiple
+often differ in their vision understanding capabili-                           models, where we count 0.49 and 1.32 disagree-
+ties. The less called tools were OCR, Reasoning,                               ments on average respectively. This indicates that
+Spatial Reasoning, and Object Detection respec-                                the diverse perspectives inherent in a multi-model
+tively, with each called for ≤ 10% of questions.                               system yields a richer disagreement signal that al-
+These are less holistic, more fine-grained vision                              lows for better expert tool calling.
+skills that may not be needed for most questions.
+Overall, every tool is being invoked and contribut-                            Effect of using a VLM as an expert tool. While
+ing towards more detailed vision understanding.                                VLMs exhibit strong general capabilities across
+perception and reasoning tasks, they often un-          accuracy from 68.9% to 65.3%, highlighting the
+derperform compared to specialized models on            value of model diversity. This indicates that DART
+domain-specific tasks (i.e., grounding, spatial rea-    benefits from having the diverse reasoning and ex-
+soning, etc.). In our original setting, we use a        panded knowledge base of multiple VLMs. Fur-
+general VLM for three tasks: captioning, attribute      thermore, retaining a diverse set of VLM agents
+detection, and reasoning. We extend this to check       without expert confidence yields a 1.1% perfor-
+whether a single VLM could indeed serve as a            mance drop, showing that the calibrated confidence
+substitute for all tools. To quantify the trade-off     from the experts improves the discussion beyond
+between specialized models and general VLMs, we         regular self-reported confidence. Additionally, we
+replace all specialized tools in DART with a sin-       test the discussion framework without vision expert
+gle general-purpose VLM (InternVL2.5) prompted          outputs. This setting is almost equivalent to Debate
+to handle OCR, spatial reasoning, grounding, and        with Judge (from Table 1) but with only one debate
+object detection on top of its original tasks. As       round. Accuracy drops by 3.2% in this experiment.
+shown in Table 5, this setting results in a 2.9%        This result suggests that visual information from ex-
+decrease in overall accuracy on A-OKVQA. Al-            perts leads to a higher-quality discussion compared
+though VLMs are a convenient solution, their gen-       to that of only answerers. In fact, the performance
+erality may come at the cost of reliability particu-    dip is comparable to that of having no diverse an-
+larly for fine-grained visual understanding tasks.      swerers, indicating that they are relatively equally
+   We also measure the effect of ablating each          important to the overall system. The ablations high-
+tool type in this heterogeneous tool set: VLM-          light the importance of having multiple VLMs and
+based tools and specialized model tools. Removing       vision experts working together in discussion.
+the VLM-based tools (captioning, attribute detec-
+tion, reasoning) lowers accuracy from 68.9% to          4   Related Work
+66.7%, suggesting that the VLM tools are still          Tool-Calling Systems. Past efforts have aug-
+able to provide a complementary signal for a            mented large language models with external tools
+domain-specific task even without designated ex-        to overcome knowledge and reasoning limitations,
+pert capabilities. Removing only specialized model      especially in vision-language tasks (Surís et al.,
+tools (grounder, object detection, spatial reasoning,   2023; Lu et al., 2023; Qin et al., 2024; Gupta and
+OCR) while keeping VLM-based tools lowers ac-           Kembhavi, 2022; Chung-En et al., 2025; Yang et al.,
+curacy to 65.3%, showing the importance of us-          2023; Shen et al., 2023; Schick et al., 2023; Parisi
+ing specialized models in the tool pool. Overall,       et al., 2022). This tool augmentation has enabled
+these ablations indicate that the strongest perfor-     LLMs to tackle tasks such as finding real-time in-
+mance occurs when combining specialized model           formation through web search (Lu et al., 2023;
+tools with VLM-based tools, with specialized ex-        Nakano et al., 2022), accessing vision information
+pert tools contributing the larger share of the per-    (Lu et al., 2023; Surís et al., 2023; Wu et al., 2023;
+formance gains.                                         Yang et al., 2023; Gupta and Kembhavi, 2022),
+                                                        and acquiring expert domain-specific knowledge
+DART component ablations. We assess the im-             (Das et al., 2024; Yu et al., 2025c). One direction
+pact of key components in our system, including         has used a programmatic approach by leveraging
+diverse answering agents, expert tools, and tool-       LLMs inherent code generation capabilities to han-
+aligned agreement scores (results in Table 4). We       dle tool calls (Shen et al., 2024; Surís et al., 2023)
+conduct the ablation studies on A-OKVQA as it           while other work has experimented with directly
+is specifically designed to test commonsense rea-       prompting an LLM to construct a series of tool
+soning and needs precise visual understanding for       calls (Lu et al., 2023; Chung-En et al., 2025; Yang
+questions reliant on world knowledge. Removing          et al., 2023). While past work has mostly focused
+the multiple agent answerers or vision-expert com-      on using a single LLM agent for tool calling, we
+ponents degrades performance compared to the full       investigate how using disagreements in multimodal
+DART system. We evaluate DART without diverse           multi-agent debate can lead to more effective tool
+answerers and with only the strongest performing        calling and discussion.
+model (i.e., Ovis2) on A-OKVQA. Using only the
+strongest single model (Ovis2) on A-OKVQA (i.e.,        Multi-Agent Systems. Another line of research
+without diverse answerers) leads to a decline in        improves reasoning by enlisting multiple LLM
+agents that collaborate or compete among one an-         authors and should not be interpreted as represent-
+other to arrive at a stronger conclusion (Chen et al.,   ing official policies, either expressed or implied, of
+2024b; Estornell et al., 2025b; Qian et al., 2024;       the NIH or other sponsors.
+Zhao et al., 2024; Tang et al., 2024; Yin et al.,
+2024; Zhang et al., 2024; Du et al., 2023). A
+large body of work has explored designing a de-          References
+bate framework for agents to interact and refine         Stanislaw Antol, Aishwarya Agrawal, Jiasen Lu, Mar-
+their answers through multiple rounds of discus-            garet Mitchell, Dhruv Batra, C. Lawrence Zitnick,
+sion (Chen et al., 2024b; Estornell and Liu, 2024;          and Devi Parikh. 2015. VQA: Visual Question An-
+Du et al., 2023). Others have tried assigning agents        swering. In International Conference on Computer
+                                                           Vision (ICCV).
+specific functions or roles to accomplish different
+goals or subtasks for a given query (Estornell et al.,   Fan Bai, Yuxin Du, Tiejun Huang, Max Q. H. Meng, and
+2025b; Hong et al., 2024; Wang et al., 2024c). Past        Bo Zhao. 2024. M3d: Advancing 3d medical image
+work has also tested how to control the level of           analysis with multi-modal large language models.
+                                                           Preprint, arXiv:2404.00578.
+disagreement in a debate (Khan et al., 2024; Liang
+et al., 2024; Chang, 2025). Our method contributes       Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wen-
+several novelties along a number of axes. First,           bin Ge, Sibo Song, Kai Dang, Peng Wang, Shi-
+prior multi-agent debate methods have largely omit-        jie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu,
+                                                           Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei
+ted tool use while we inject novel information via
+                                                           Wang, Wei Ding, Zheren Fu, Yiheng Xu, and 8 others.
+disagreement-triggered tool use. Moreover, we ex-          2025. Qwen2.5-vl technical report. arXiv preprint
+pand this into a less explored frontier by examining       arXiv:2502.13923.
+multimodal agents instead of text.
+                                                         Edward Y. Chang. 2025. Evince: Optimizing multi-llm
+5   Conclusion                                             dialogues using conditional statistics and information
+                                                           theory. Preprint, arXiv:2408.14575.
+In this work, we introduce DART, a multi-agent
+                                                         Boyuan Chen, Zhuo Xu, Sean Kirmani, Brain Ichter,
+framework that recruits domain-specific vision             Dorsa Sadigh, Leonidas Guibas, and Fei Xia. 2024a.
+tools based on disagreements among VLM agents.             Spatialvlm: Endowing vision-language models with
+By identifying points of disagreement in agent dis-        spatial reasoning capabilities. In Proceedings of the
+cussions and selectively invoking expert tools to          IEEE/CVF Conference on Computer Vision and Pat-
+                                                           tern Recognition (CVPR), pages 14455–14465.
+resolve these disagreements, DART combines the
+reasoning flexibility of VLMs with the specialized       Justin Chih-Yao Chen, Swarnadeep Saha, and Mohit
+perception capabilities of expert tools. Through           Bansal. 2024b. Reconcile: Round-table conference
+this, DART sees consistent improvements across             improves reasoning via consensus among diverse
+                                                           llms. Preprint, arXiv:2309.13007.
+four diverse benchmarks over strong baselines on
+A-OKVQA, MMMU, NaturalBench, and M3D.                    Ming-Chang Chiu, Fuxiao Liu, Karan Sapra, Andrew
+DART represents a promising direction for mul-             Tao, Yaser Jacoob, Xuezhe Ma, Zhiding Yu, and
+timodal reasoning that harnesses the strengths of          Guilin Liu. 2025. Aide: Agentically improve vi-
+generalist models and specialized tools through            sual language model with domain experts. Preprint,
+                                                           arXiv:2502.09051.
+disagreement resolution.
+                                                         Chung-En, Yu, Hsuan-Chih, Chen, Brian Jalaian, and
+Acknowledgments                                            Nathaniel D. Bastian. 2025. Hydra: An agentic rea-
+                                                           soning approach for enhancing adversarial robust-
+This work was supported by NSF-CAREER                      ness and mitigating hallucinations in vision-language
+Award 1846185, DARPA ECOLE Program No.                     models. Preprint, arXiv:2504.14395.
+HR00112390060, ONR Grant N00014-23-1-2356,
+                                                         Debrup Das, Debopriyo Banerjee, Somak Aditya,
+ARO Award W911NF2110220, Microsoft Accel-                  and Ashish Kulkarni. 2024. Mathsensei: A tool-
+erate Foundation Models Research (AFMR) grant              augmented large language model for mathematical
+program, NSF AI Engage Institute DRL-2112635,              reasoning. Preprint, arXiv:2402.17231.
+National Institutes of Health (NIH) under other
+                                                         Yilun Du, Shuang Li, Antonio Torralba, Joshua B.
+transactions 1OT2OD038045-01, and Cisco and                Tenenbaum, and Igor Mordatch. 2023. Improving
+Capital One Faculty Awards. The views and con-             factuality and reasoning in language models through
+clusions contained in this document are those of the       multiagent debate. Preprint, arXiv:2305.14325.
+Yilun Du, Shuang Li, Antonio Torralba, Joshua B Tenen-    Tian Liang, Zhiwei He, Wenxiang Jiao, Xing Wang,
+   baum, and Igor Mordatch. 2024. Improving factual-        Yan Wang, Rui Wang, Yujiu Yang, Shuming Shi, and
+   ity and reasoning in language models through multia-     Zhaopeng Tu. 2024. Encouraging divergent thinking
+   gent debate. In International Conference on Machine      in large language models through multi-agent debate.
+   Learning, pages 11733–11763. PMLR.                       Preprint, arXiv:2305.19118.
+
+Andrew Estornell and Yang Liu. 2024. Multi-LLM            Chin-Yew Lin. 2004. ROUGE: A package for auto-
+  debate: Framework, principals, and interventions.         matic evaluation of summaries. In Text Summariza-
+  In The Thirty-eighth Annual Conference on Neural          tion Branches Out, pages 74–81, Barcelona, Spain.
+  Information Processing Systems.                           Association for Computational Linguistics.
+                                                          Haotian Liu, Chunyuan Li, Yuheng Li, Bo Li, Yuanhan
+Andrew Estornell, Jean-Francois Ton, Yuanshun Yao,
+                                                            Zhang, Sheng Shen, and Yong Jae Lee. 2024. Lla-
+  and Yang Liu. 2025a. ACC-collab: An actor-critic
+                                                            vanext: Improved reasoning, ocr, and world knowl-
+  approach to multi-agent LLM collaboration. In The
+                                                            edge.
+  Thirteenth International Conference on Learning
+  Representations.                                        Shilong Liu, Zhaoyang Zeng, Tianhe Ren, Feng Li,
+                                                            Hao Zhang, Jie Yang, Chunyuan Li, Jianwei Yang,
+Andrew Estornell, Jean-Francois Ton, Yuanshun Yao,          Hang Su, Jun Zhu, and 1 others. 2023. Ground-
+  and Yang Liu. 2025b. Acc-collab: An actor-critic          ing dino: Marrying dino with grounded pre-training
+  approach to multi-agent llm collaboration. Preprint,      for open-set object detection.    arXiv preprint
+  arXiv:2411.00053.                                         arXiv:2303.05499.
+Google. 2025. Medgemma hugging face. https:               Pan Lu, Baolin Peng, Hao Cheng, Michel Galley, Kai-
+  //huggingface.co/collections/google/                      Wei Chang, Ying Nian Wu, Song-Chun Zhu, and
+  medgemma-release-680aade845f90bec6a3f60c4.                Jianfeng Gao. 2023. Chameleon: Plug-and-play com-
+                                                            positional reasoning with large language models. In
+Tanmay Gupta and Aniruddha Kembhavi. 2022. Vi-              The 37th Conference on Neural Information Process-
+  sual programming: Compositional visual reasoning          ing Systems (NeurIPS).
+  without training. Preprint, arXiv:2211.11559.
+                                                          Shiyin Lu, Yang Li, Qing-Guo Chen, Zhao Xu, Wei-
+Sirui Hong, Mingchen Zhuge, Jonathan Chen, Xiawu            hua Luo, Kaifu Zhang, and Han-Jia Ye. 2024. Ovis:
+   Zheng, Yuheng Cheng, Jinlin Wang, Ceyao Zhang,           Structural embedding alignment for multimodal large
+   Zili Wang, Steven Ka Shing Yau, Zijuan Lin, Liyang       language model. arXiv:2405.20797.
+   Zhou, Chenyu Ran, Lingfeng Xiao, Chenglin Wu,
+   and Jürgen Schmidhuber. 2024. MetaGPT: Meta pro-       Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler
+   gramming for a multi-agent collaborative framework.     Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon,
+   In The Twelfth International Conference on Learning     Nouha Dziri, Shrimai Prabhumoye, Yiming Yang,
+   Representations.                                        Sean Welleck, Bodhisattwa Prasad Majumder,
+                                                           Shashank Gupta, Amir Yazdanbakhsh, and Peter
+Akbir Khan, John Hughes, Dan Valentine, Laura              Clark. 2023. Self-refine: Iterative refinement with
+  Ruis, Kshitij Sachan, Ansh Radhakrishnan, Edward         self-feedback. In 37th Conference on Neural Infor-
+  Grefenstette, Samuel R. Bowman, Tim Rocktäschel,         mation Processing Systems.
+  and Ethan Perez. 2024. Debating with more persua-       Grégoire Mialon, Roberto Dessì, Maria Lomeli, Christo-
+  sive llms leads to more truthful answers. Preprint,       foros Nalmpantis, Ram Pasunuru, Roberta Raileanu,
+  arXiv:2402.06782.                                         Baptiste Rozière, Timo Schick, Jane Dwivedi-Yu,
+                                                            Asli Celikyilmaz, Edouard Grave, Yann LeCun, and
+Rahima Khanam and Muhammad Hussain. 2024.
+                                                            Thomas Scialom. 2023. Augmented language mod-
+  Yolov11: An overview of the key architectural en-
+                                                            els: a survey. Preprint, arXiv:2302.07842.
+  hancements. Preprint, arXiv:2410.17725.
+                                                          Reiichiro Nakano, Jacob Hilton, Suchir Balaji, Jeff Wu,
+Baiqi Li, Zhiqiu Lin, Wenxuan Peng, Jean de Dieu            Long Ouyang, Christina Kim, Christopher Hesse,
+  Nyandwi, Daniel Jiang, Zixian Ma, Simran Khanuja,         Shantanu Jain, Vineet Kosaraju, William Saunders,
+  Ranjay Krishna, Graham Neubig, and Deva Ramanan.          Xu Jiang, Karl Cobbe, Tyna Eloundou, Gretchen
+  2024. Naturalbench: Evaluating vision-language            Krueger, Kevin Button, Matthew Knight, Benjamin
+  models on natural adversarial samples. In The Thirty-     Chess, and John Schulman. 2022. Webgpt: Browser-
+  eight Conference on Neural Information Processing         assisted question-answering with human feedback.
+  Systems Datasets and Benchmarks Track.                    Preprint, arXiv:2112.09332.
+Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi.    OpenAI, :, Aaron Hurst, Adam Lerer, Adam P. Goucher,
+  2023. BLIP-2: Bootstrapping language-image pre-           Adam Perelman, Aditya Ramesh, Aidan Clark,
+  training with frozen image encoders and large lan-        AJ Ostrow, Akila Welihinda, Alan Hayes, Alec
+  guage models. In Proceedings of the 40th Interna-         Radford, Aleksander M ˛adry, Alex Baker-Whitcomb,
+  tional Conference on Machine Learning, volume 202         Alex Beutel, Alex Borzunov, Alex Carney, Alex
+  of Proceedings of Machine Learning Research, pages        Chow, Alex Kirillov, and 401 others. 2024. Gpt-4o
+  19730–19742. PMLR.                                        system card. Preprint, arXiv:2410.21276.
+OpenAI. 2025. GPT-5 system card. Technical report,      Qineng Wang, Zihao Wang, Ying Su, Hanghang Tong,
+  OpenAI. OpenAI system card, August 13, 2025.            and Yangqiu Song. 2024a. Rethinking the bounds of
+                                                          llm reasoning: Are multi-agent discussions the key?
+Mahdi Pakdaman Naeini, Gregory Cooper, and Milos          In Long Papers, Proceedings of the Annual Meet-
+ Hauskrecht. 2015. Obtaining well calibrated proba-       ing of the Association for Computational Linguistics,
+ bilities using bayesian binning. Proceedings of the      pages 6106–6131. Association for Computational
+ AAAI Conference on Artificial Intelligence, 29(1).       Linguistics (ACL). The authors of this paper were
+                                                          supported by the NSFC Fund (U20B2053) from the
+Aaron Parisi, Yao Zhao, and Noah Fiedel. 2022.            NSFC of China, the RIF (R6020-19 and R6021-20),
+  Talm: Tool augmented language models. Preprint,         and the GRF (16211520 and 16205322) from RGC
+  arXiv:2205.12255.                                       of Hong Kong. We also thank the support from the
+                                                          UGC Research Matching Grants (RMGS20EG01-
+Chen Qian, Wei Liu, Hongzhang Liu, Nuo Chen, Yufan        D, RMGS20CR11, RMGS20CR12, RMGS20EG19,
+  Dang, Jiahao Li, Cheng Yang, Weize Chen, Yusheng        RMGS20EG21, RMGS23CR05, RMGS23EG08).;
+  Su, Xin Cong, Juyuan Xu, Dahai Li, Zhiyuan Liu,         62nd Annual Meeting of the Association for Com-
+  and Maosong Sun. 2024. Chatdev: Communica-              putational Linguistics, ACL 2024 ; Conference date:
+  tive agents for software development. Preprint,         11-08-2024 Through 16-08-2024.
+  arXiv:2307.07924.                                     Weiyun Wang, Zhe Chen, Wenhai Wang, Yue Cao,
+                                                         Yangzhou Liu, Zhangwei Gao, Jinguo Zhu, Xizhou
+Yujia Qin, Shihao Liang, Yining Ye, Kunlun Zhu, Lan      Zhu, Lewei Lu, Yu Qiao, and Jifeng Dai. 2024b. En-
+  Yan, Yaxi Lu, Yankai Lin, Xin Cong, Xiangru Tang,      hancing the reasoning ability of multimodal large
+  Bill Qian, Sihan Zhao, Lauren Hong, Runchu Tian,       language models via mixed preference optimization.
+  Ruobing Xie, Jie Zhou, Mark Gerstein, dahai li,        arXiv preprint arXiv:2411.10442.
+  Zhiyuan Liu, and Maosong Sun. 2024. ToolLLM:
+  Facilitating large language models to master 16000+   Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V Le,
+  real-world APIs. In The Twelfth International Con-      Ed H. Chi, Sharan Narang, Aakanksha Chowdhery,
+  ference on Learning Representations.                    and Denny Zhou. 2023. Self-consistency improves
+                                                          chain of thought reasoning in language models. In
+Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta      The Eleventh International Conference on Learning
+  Raileanu, Maria Lomeli, Luke Zettlemoyer, Nicola        Representations.
+  Cancedda, and Thomas Scialom. 2023. Toolformer:
+  Language models can teach themselves to use tools.    Zhenhailong Wang, Shaoguang Mao, Wenshan Wu, Tao
+  Preprint, arXiv:2302.04761.                             Ge, Furu Wei, and Heng Ji. 2024c. Unleashing the
+                                                          emergent cognitive synergy in large language mod-
+Dustin Schwenk, Apoorv Khandelwal, Christopher            els: A task-solving agent through multi-persona self-
+  Clark, Kenneth Marino, and Roozbeh Mottaghi. 2022.      collaboration. Preprint, arXiv:2307.05300.
+  A-okvqa: A benchmark for visual question answering    Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+  using world knowledge. In Computer Vision–ECCV           Bosma, brian ichter, Fei Xia, Ed H. Chi, Quoc V Le,
+  2022: 17th European Conference, Tel Aviv, Israel,        and Denny Zhou. 2022. Chain of thought prompt-
+  October 23–27, 2022, Proceedings, Part VIII, pages       ing elicits reasoning in large language models. In
+  146–162. Springer.                                      Advances in Neural Information Processing Systems.
+Ruoyue Shen, Nakamasa Inoue, and Koichi Shinoda.        Chenfei Wu, Shengming Yin, Weizhen Qi, Xiaodong
+  2024. Pyramid coder: Hierarchical code gener-           Wang, Zecheng Tang, and Nan Duan. 2023. Visual
+  ator for compositional visual question answering.       chatgpt: Talking, drawing and editing with visual
+  Preprint, arXiv:2407.20563.                             foundation models. Preprint, arXiv:2303.04671.
+
+Yongliang Shen, Kaitao Song, Xu Tan, Dongsheng Li,      Benfeng Xu, An Yang, Junyang Lin, Quan Wang,
+  Weiming Lu, and Yueting Zhuang. 2023. Hugging-          Chang Zhou, Yongdong Zhang, and Zhendong Mao.
+  gpt: Solving ai tasks with chatgpt and its friends      2025. Expertprompting: Instructing large lan-
+  in huggingface. In Advances in Neural Information       guage models to be distinguished experts. Preprint,
+  Processing Systems.                                     arXiv:2305.14688.
+                                                        Zhengyuan Yang, Linjie Li, Jianfeng Wang, Kevin
+Dídac Surís, Sachit Menon, and Carl Vondrick. 2023.       Lin, Ehsan Azarnasab, Faisal Ahmed, Zicheng Liu,
+  Vipergpt: Visual inference via python execution for     Ce Liu, Michael Zeng, and Lijuan Wang. 2023. Mm-
+  reasoning. Proceedings of IEEE International Con-       react: Prompting chatgpt for multimodal reasoning
+  ference on Computer Vision (ICCV).                      and action. arXiv preprint.
+Xunzhu Tang, Kisub Kim, Yewei Song, Cedric Lothritz,    Yuan Yao, Tianyu Yu, Ao Zhang, Chongyi Wang, Junbo
+  Bei Li, Saad Ezzini, Haoye Tian, Jacques Klein, and     Cui, Hongji Zhu, Tianchi Cai, Haoyu Li, Weilin
+  Tegawende F. Bissyande. 2024. Codeagent: Au-            Zhao, Zhihui He, and 1 others. 2024. Minicpm-v:
+  tonomous communicative agents for code review.          A gpt-4v level mllm on your phone. arXiv preprint
+  Preprint, arXiv:2402.02172.                             arXiv:2408.01800.
+Xiangyu Yin, Chuqiao Shi, Yimo Han, and Yi Jiang.       penalty 1.05. We use SpaceLLaVA (Apache-2.0
+  2024. Pear: A robust and flexible automation frame-   License) for spatial reasoning with a temperature
+  work for ptychography enabled by multiple large
+                                                        of 0.2 and repetition penalty of 1.1. InternVL2.5-
+  language model agents. Preprint, arXiv:2410.09034.
+                                                        MPO 8B (MIT License) uses temperature 0.8 for
+Shoubin Yu, Jaehong Yoon, and Mohit Bansal. 2025a.      all three expert tool functionalities.
+  CREMA: Generalizable and efficient video-language
+  reasoning via multimodal modular fusion. In The
+  Thirteenth International Conference on Learning       B    Baseline Details
+  Representations.
+                                                        We compare DART to multiple single-agent and
+Shoubin Yu, Yue Zhang, Ziyang Wang, Jaehong Yoon,       multi-agent baselines. The single agent base-
+  and Mohit Bansal. 2025b. Mexa: Towards general
+  multimodal reasoning with dynamic multi-expert ag-    lines include zero-shot CoT (Wei et al., 2022),
+  gregation. arXiv preprint arXiv:2506.17113.           self-refinement (Madaan et al., 2023), and self-
+                                                        consistency (Wang et al., 2023). In zero-shot COT,
+Shoubin Yu, Yue Zhang, Ziyang Wang, Jaehong Yoon,
+  and Mohit Bansal. 2025c. Mexa: Towards general        we prompt models to first output their reasoning
+  multimodal reasoning with dynamic multi-expert ag-    before providing their final answer. With self-
+  gregation. Preprint, arXiv:2506.17113.                refinement, models are asked to provide feedback
+Xiang Yue, Yuansheng Ni, Kai Zhang, Tianyu Zheng,       on their own output and update their answer accord-
+  Ruoqi Liu, Ge Zhang, Samuel Stevens, Dongfu           ingly. This assesses whether models can improve
+  Jiang, Weiming Ren, Yuxuan Sun, Cong Wei, Botao       themselves based on their own feedback. With self-
+  Yu, Ruibin Yuan, Renliang Sun, Ming Yin, Boyuan       consistency, we sample multiple reasoning paths
+  Zheng, Zhenzhu Yang, Yibo Liu, Wenhao Huang, and
+  3 others. 2024. Mmmu: A massive multi-discipline      from a model and take the most consistent answer.
+  multimodal understanding and reasoning benchmark      This takes advantage of the existence of multiple
+  for expert agi. In Proceedings of CVPR.               reasoning paths to arrive at an answer by increasing
+Ceyao Zhang, Kaijie Yang, Siyi Hu, Zihao Wang,
+                                                        the number of generated samples per question.
+  Guanghe Li, Yihang Sun, Cheng Zhang, Zhaowei             We include comparisons to training-free single-
+  Zhang, Anji Liu, Song-Chun Zhu, Xiaojun Chang,        agent tool-calling baselines: ViperGPT (Surís et al.,
+  Junge Zhang, Feng Yin, Yitao Liang, and Yaodong       2023) and Chameleon (Lu et al., 2023). ViperGPT
+  Yang. 2024. Proagent: Building proactive cooper-
+  ative agents with large language models. Preprint,    utilizes a code generation model to predict exe-
+  arXiv:2308.11339.                                     cutable code that leverages required tools for a
+                                                        given question. In contrast to the flexibility of-
+Xiutian Zhao, Ke Wang, and Wei Peng. 2024.
+  An electoral approach to diversify llm-based
+                                                        fered by free-form code generation in ViperGPT,
+  multi-agent collective decision-making. Preprint,     Chameleon adopts a more robust compositional ap-
+  arXiv:2410.15168.                                     proach, utilizing an LLM-based planner to directly
+                                                        invoke various tools in sequence via word matching.
+A   Model Configurations                                We update both implementations, using Qwen2.5
+We use the default generation configurations from       7B Instruct as the code generation model and in-
+HuggingFace for Qwen2.5-VL 7B (Apache-2.0 li-           corporating our expert tools into both systems. For
+cense), MiniCPM-o 2.6 8B (Apache-2.0 license),          ViperGPT specifically, we also update its VLM
+and Ovis2 8B (Apache-2.0 license). Qwen2.5-VL           module (called on by the code generation model)
+uses a temperature of 10−6 and repetition penalty       from BLIP2 (Li et al., 2023) to InternVL-2.5 MPO
+of 1.05. MiniCPM-o and Ovis2 both use a tem-            for a fairer comparison with our system.
+perature of 0.7 and repetition penalty of 1.05. For        Finally, we also evaluate against strong multi-
+instances of multi-agent debate and DART where          agent baselines designed for text-based tasks, in-
+we would like more answer diversity with a sin-         cluding both consensus-based debate and debate
+gle model, we increase temperature to 0.9 for all       with a judge. We follow the ReConcile LLM de-
+agents.                                                 bate framework outlined by Chen et al. (2024b)
+   We use the grounding-dino-base implementa-           for both consensus and InternVL2.5 as a judge. In
+tion in HuggingFace of GroundingDINO (Apache-           the consensus setting, the majority – or consensus
+2.0 license) with box and text thresholds of 0.3. We    – answer is automatically taken (a random answer
+use OCR-Qwen (Apache 2.0 License), a Qwen2.5            is taken if all agents disagree). In the judge setting,
+7B model finetuned for OCR, with default genera-        a judge model is given the image along with each
+tion configuration of temperature 0.1 and repetition    answer, justification, and confidence before picking
+a single final answer.                                     Round QwenVL MiniCPM Ovis w/ Aggregation
+                                                            Initial              61.3        55.7      61.0         59.4
+      Tool Conf.? Metric                  ECE↓                1                  68.6        66.8      69.2         68.9
+                                                              2                  68.7        67.2      68.7         68.4
+           ✗         Self-Reported       0.4581               3                  68.4        67.4      68.7         68.5
+           ✓         Self-Reported   0.3859
+                                                          Table 7: DART performance over three rounds of
+           ✓         Tool-Confidence 0.4901
+                                                          disagreement resolution and expert confidence on A-
+                                                          OKVQA.
+Table 6: Expected calibration error (ECE) of DART with
+and without tool confidence on self-reported confidence
+metrics and our tool-based agreement score metric.                               Accuracy on A-OKVQA over Multiple Rounds
+                                                                            70
+                                                                            68
+C    Dataset Details                                                        66
+
+
+                                                             Accuracy (%)
+                                                                            64
+    • A-OKVQA (Apache-2.0 License): We evalu-
+                                                                            62
+      ate on the validation split of 1135 samples.
+                                                                            60
+    • MMMU (Apache-2.0 License): We evaluate                                58
+                                                                                                             MAD with Judge
+      on the validation split of 900 samples.                               56                               DART
+                                                                                 0           1             2              3
+    • NaturalBench (Apache-2.0 License): We                                                      Rounds
+      evaluate on the full dataset of 7600 question-
+      image pairs.                                        Figure 4: Performance of DART and multi-agent debate
+                                                          over three rounds. The error bars indicate the standard
+D    Additional Results                                   deviation among the individual answering agents.
+DART provides a stronger confidence metric
+based on vision tools. We test the effectiveness
+of calculating confidence based on agreement to           pattern emerges. We compare the improvement of
+vision tools. For this, we run DART under two set-        DART to multi-agent debate with judge over three
+tings: 1) using only self-reported confidence, and        rounds in Fig. 4. DART after one round of expert
+2) combining self-reported confidence with tool-          tool intervention outperforms the round three per-
+based agreement scores. Both settings still involve       formance of multi-agent debate with judge. Both
+disagreement resolution with tools. We then mea-          methods have the largest improvement in round
+sure the effectiveness using expected calibration         after the initial answer generation. The improve-
+error (ECE) (Pakdaman Naeini et al., 2015) of self-       ment is likely due to initial exposure to other agent
+reported confidence only, tool-based confidence,          outputs and, in the case of DART, tool outputs.
+and self-reported confidence given tool-based con-        However, after the first round of discussion both
+fidence during discussion. Recall that both self-         stagnate in subsequent rounds (with <2% accuracy
+reported confidence and tool-based confidence are         gains between rounds 1 and 3). For multi-agent
+used in DART during discussion.                           debate, the agents are not able to effectively refine
+   We observe higher ECE when relying solely on           their reasoning and answer after round one as there
+self-reported confidence (i.e., without tool-based        is no new information being introduced. For DART,
+agreement scores) than when including those               we observe that the most major disagreements are
+scores: 0.4581 vs. 0.3859 respectively (see Ta-           resolved in round 1. Future rounds are prone to re-
+ble 6). Note however that the raw tool-based              solving more minor disagreements that can distract
+confidence calculated in DART has ECE of                  from the question. We find that it is insufficient to
+0.4901, which indicates weaker calibration than           give any piece of new information in a multimodal
+self-reported confidence on its own.                      multi-agent system. In fact, the new expert tool
+                                                          information must be sufficiently good and relevant
+Multiple rounds of debate in multimodal multi-            to advance discussion.
+agent systems is ineffective. Encouraged by the
+success of multiple debate rounds in text-based           Robustness of DART aggregator to model choice.
+multi-agent environments, we apply our framework          We test four different VLMs as aggregator models:
+across successive debate rounds to see if the same        Qwen2.5-VL, MiniCPM-o, Ovis2, and InternVL-
+    Model              All Choices Accuracy              majority vote underperforms aggregation in all but
+    InternVL2.5              ✗           68.3            one setting tested in Table 8, demonstrating that
+    Qwen2.5-VL               ✗           68.7            proper processing of agent reasoning and tool out-
+    MiniCPM-o 2.6            ✗           67.8            puts creates better final answers. Finally, removing
+    Ovis2                    ✓           68.5            the discussion phase causes the largest performance
+    Ovis2                    ✗           68.9            drop by 6.4%, emphasizing its role in refining the
+                                                         preliminary answers. In fact, the quality of an-
+Table 8: Aggregator Ablation on A-OKVQA. All             swers after the initial reasoning phase is substan-
+choices indicates whether answers from initial genera-   tially higher (up to 11.1% higher for the weakest
+tion are used.                                           agent as reported in Table 7). This indicates the
+                                                         discussion step allows for stronger reasoning and
+2.5 MPO. The results are shown in Table 8. Be-           responses, yielding to a more accurate downstream
+tween the strongest and weakest aggregator (Ovis2        system output. The ablations emphasize the impor-
+and MiniCPM-o, respectively), there is a differ-         tance of incorporating multiple VLMs, expert tool
+ence in accuracy of 1.1%. In fact, among the top 3       information, and discussion steps to the system.
+models, accuracies are within 0.6% of each other.
+This indicates DART has relatively low sensitivity        Model                       Avg. Tokens Generated
+to aggregator choice and will generalize well to          Ovis2                                             74.3
+new models as aggregators. Additionally, we test          MiniCPM-o                                         36.7
+                                                          QwenVL                                            80.5
+how the aggregator model responds when answer             MAD with Consensus                              1031.8
+choices from the initial generation stage are pro-        MAD with Judge                                  1196.8
+vided in addition to the discussion stage answers.        DART                                              928.5
+We find that including these additional answers
+slightly lowers performance by 0.4%. This sug-           Table 10: We calculate the average tokens generated of
+gests that having a more concise answer set after        each method on A-OKVQA. This represents the relative
+using tools (i.e., post discussion answers) makes ag-    cost of each method.
+gregation easier compared to lower quality answers
+from initial generation.                                  Method             Total Runtime (hrs) TFLOPs Latency (s)
+   We also find that the tool-based agreement scores      Ovis2                     0.13         21.17      0.38
+are beneficial in improving calibration during ag-        MiniCPM-o                0.09         18.92      0.26
+                                                          QwenVL (7B)              0.05         19.04      0.16
+gregation (see Table 6 in the Appendix.). When            QwenVL (32B)             0.20         88.01      0.64
+                                                          MAD w/ Consensus         7.97         215.66     21.84
+aggregating with agreement scores, the final self-        MAD w/ Judge              8.88        236.83     27.92
+reported confidence values in DART are better cal-        DART                     10.52        158.15     32.75
+
+ibrated and obtain a relative decrease of 15.8%
+                                                         Table 11: Comparison of system efficiency across dif-
+in expected calibration error (ECE) compared to
+                                                         ferent methods on A-OKVQA.
+self-reported confidence values without tool-based
+agreement scores. More discussion on the calibra-
+tion calculations is in Appendix D.                      DART provides a balance between performance
+                                                         and computation compared to both single and
+ Method                                  Accuracy        multi-agent baselines. We investigate the cost
+ DART                                           68.9     of using DART compared to single and multi-agent
+ w/o Aggregation (i.e., Majority Vote)          67.9     baselines. We first count the average number of
+ w/o Discussion                                 62.5     tokens generated per method on A-OKVQA and
+                                                         present the results in Table 10. As expected, sin-
+Table 9: Ablations of discussion and aggregation steps   gle agent methods with CoT are the cheapest, with
+of DART on A-OKVQA.
+                                                         QwenVL (the most token-heavy single agent base-
+                                                         line) generating 80.5 tokens compared to DART’s
+Additional Method Ablations. We observe that             928.5. However, compared to multi-agent systems,
+removing aggregation and instead using a simple          DART needs 103.3 fewer tokens on average than a
+majority vote leads to reduced accuracy by 1.0%          multi-agent debate system.
+in Table 9, confirming that the aggregation step is         We further assess computational efficiency in
+more effective than naive majority vote. In fact,        Table 11, reporting total runtime, floating-point op-
+erations (TFLOPs), and latency per query. While              degradation of more than 2% in accuracy. The re-
+DART incurs higher runtime and latency than                  maining tools (OCR, spatial reasoning, attribute
+single-model systems such as QwenVL, its cost                detection, and reasoning) yield smaller decreases,
+remains competitive with other multi-agent meth-             typically within 1%, suggesting that DART remains
+ods. In fact, in terms of FLOPs, DART requires               relatively robust to their absence. Interestingly, the
+fewer FLOPs than the multi-agent baselines (al-              omission of object detection does not noticeably
+though still behind in total runtime and latency).           affect accuracy, implying that visual grounding and
+The observed difference in runtime and latency be-           caption-based context already provide sufficient
+tween multi-agent debate and DART is likely due              perceptual cues for most questions. Overall, these
+to inefficient tool-calling implementation relative          results highlight that while certain tools (particu-
+to discussion/answering implementations.                     larly grounding and captioning) play a dominant
+   Additionally, we test a larger VLM (Qwen2.5-              role, the complementary interaction among all tools
+VL 32B) to compare efficiency and performance                contributes to the system’s strong performance,
+when scaling versus using multiple agents. While             demonstrating that DART effectively leverages its
+Qwen2.5-VL 32B is more cost-effective, its per-              tool reasoning capabilities.
+formance gains are modest (scoring 62.7% on
+                                                             DART is robust to prompt choice. We test
+A-OKVQA). Although pricier, multi-agent ap-
+                                                             DART’s performance under an altered set of
+proaches like DART may offer a viable path to
+                                                             prompts to test the system’s sensitivity to prompt
+improved results when scaling yields diminishing
+                                                             choice. Each stage’s prompt is passed into GPT-5
+returns. Overall, DART achieves stronger perfor-
+                                                             (OpenAI, 2025) with the prompt “I am creating
+mance from the incorporation of tools at the cost of
+                                                             a prompt for a system that uses tools and agents.
+reduced efficiency compared to multi-agent meth-
+                                                             Rephrase the following prompt:” while we manu-
+ods and single-agent methods.
+                                                             ally adjust the newly generated prompt to ensure
+                                                             the output format and handling of string variables
+     Tool Witheld                      Accuracy              is consistent. Testing this new set of prompts
+     DART                                     68.9           on A-OKVQA, we achieve accuracy of 68.7%, a
+     w/o Grounder                             66.5           0.2% decrease from our previous baseline of 68.9%.
+     w/o Captioning                           67.5           While there is a dip in performance, the change is
+     w/o Attribute Detection                  68.6           relatively small, and our method still outperforms
+     w/o OCR                                  68.1           the other baselines.
+     w/o Reasoning                            68.4
+     w/o Spatial Reasoning                    68.0           E   Prompts
+     w/o Object Detection                     68.9           We provide the prompts used in our methods for
+                                                             reproducibility. The details on how these prompts
+Table 12: Ablation for tools of DART on A-OKVQA.             are used are provided in Section 2.
+We measure performance impact on the entire system
+when we remove a single tool from the tool set. Tools        F   Qualitative Examples
+are ordered in terms of most to least frequent as reported
+in Fig. 3.                                                   We provide two qualitative examples showcasing
+                                                             the full DART pipeline in Fig. 6 and Fig. 5.
+
+Each tool complements DART’s performance.
+We seek to test whether DART is able to effectively
+use the tools that it has been equipped with. From
+Table 12 we can infer the relative importance of
+each tool to DART’s overall performance on A-
+OKVQA. In fact, we observe that the performance
+drops roughly correlate with the tool usage fre-
+quency recorded in Fig. 3. More specifically, the
+grounder and captioning tools – each contributing
+to over 20% of tool invocations on A-OKVQA –
+are the most critical, as their removal leads to a
+Initial Answer Generation Prompt
+
+<question>
+
+Answer the question with only one word or phrase, then provide step-by-step reasoning for the answer. Finally, provide a confidence score from 0-1 for
+your answer (0 meaning not confident at all, 1 meaning complete confidence)
+
+You must output in the following format:
+Answer: [answer]
+Reasoning: [reasoning]
+Confidence: [confidence]
+
+
+Disagreement Resolution Prompt
+
+Here was the initial prompt: <full initial answer generation prompt>
+
+Carefully review the following solutions from other agents for the provided question. Now, analyze what disagreements are occurring between the
+different agents.
+
+<grouped solution>
+You have the ability to call on different experts, each with their own specialized capabilities. Based on the disagreements you observed, pick out the set of
+experts (could be just one) that would be best equipped to solve all the disagreements.
+
+Here are all the experts, their inputs, and their capabilities/usage:
+
+"spatial" (input: list. objects that have confused spatial relations) - Has perfect understanding of spatial relations between objects. Use this when agents
+are unsure about the placement of items in a scene. "ocr" (input: none)- Can correctly read all text in an image. Use this when agents have differing
+views on what the text is in an image. "grounder" (input: list. objects you are trying to find) - Will find any object if it is an image, otherwise it will
+return nothing. Use this when agents are not agreeing on what’s present in an image. "detector" (input: none) - Will provide a list of objects in the
+image, their counts, and their bounding boxes. Only use this when agents are differing in their counts of objects in an image. "captioning" (input:
+list. objects you want captions for) - Can give a detailed description of what’s going in the image relevant to the question. Use this when agents
+might need a better idea of the general scene or descriptions of specific objects. "attribute" (input: list. objects you want attributes for) - Will give
+information on different features of objects in the image, including color, properties, catgories, and more. Use this when agents are confused about
+the features of relevant objects and need many surface level features. "reasoning" (input: list. objects you want reasoning for) - Has better world
+knowledge and advanced reasoning capabilities about what might be going on in an image. Use this when agents are confused or conflicting in their in-
+ferences about the scene. This is essentially a meta-reasoning agent that intervenes when models have different conclusions based on the same assumptions.
+
+Output the expert(s) you need to resolve the disagreements to answer the original question: . This should be a JSON with this format like this. You can
+call more or less experts than this as needed:
+
+{
+  "experts": ["grounder", "attribute", "ocr"],
+  "inputs": {
+     "grounder": {
+        "disagreement": "Agent 1 mentioned that there is a cat, but Agent 2 said there is no cat and instead said it is a dog.",
+        "justification": "The grounder will help resolve the disagreement about the presence of a cat or dog in the image.",
+        "arguments": ["cat", "dog"]
+     },
+     "attribute": {
+        "disagreement": "Agent 1 said the flower is red, Agent 2 said it is orange, and Agent 3 did not specifically mention anything about the flower.
+There also was confusion about the details of the car.",
+        "justification": "The attribute expert will help resolve the disagreement about the color of the flower and provide details about the car.",
+        "arguments": ["flower", "car"]
+     },
+     "ocr": {
+        "disagreement": "Agents conflict on the text they see in the image.",
+        "justification": "The OCR expert will see the text in the image and resolve the disagreement.",
+        "arguments": []
+     }
+  }
+}
+
+Now give the expert output in the given format for the previous agent solutions and the question provided above. Do not be redudant on disagreements
+unless the expert is adding new information that better resolves the disagreement. Do not add an expert unless absolutely necessary.
+
+Reminder, the question is: <question>
+
+
+Tool Agreement Prompt
+
+You are an aligning agent. That means that you determine whether or not two different outputs are misaligned (0) or aligned (1). An expert output has
+provided a response to a disagreement between multiple different agents. Your task is to determine whether or not the expert output is aligned with a
+single agent’s output. Reason about the alignment of the agent output with the expert output. Then, output a 0 if the agent output is not aligned with the
+expert’s output, and a 1 if it is aligned.
+
+Output Format:
+{
+  "reasoning": "Your reasoning for the alignment of the agent output with the expert output.",
+  "alignment": "0 if the agent output is not aligned with the expert’s output, and 1 if it is aligned."
+}
+
+Disagreement: <disagreement>
+Expert Output: <expert_output>
+Agent Output: <agent_output>
+Discussion Prompt
+
+Carefully review the following solutions from other agents as additional information, and provide your own answer and step-by-step reasoning to the
+question. Then, give your confidence in your new answer.
+
+Clearly state which point of view you agree or disagree with and why.
+
+<grouped_solutions>
+
+Here is information about the image from expert(s). You should take any information presented in this as factual unless you truly notice something wrong
+with the expert info (and make sure to state this).
+
+<tool_outputs>
+
+Output your response in the following format:
+
+Reasoning: [reasoning for your answer to the original question based on the other agents responses]
+Answer: [new answer]
+Confidence: [confidence]
+Some example outputs:
+
+Reasoning: I agree with Agent 1’s reasoning that the answer is A because it aligns with the medical expert’s analysis of the CT scan. The medical expert
+confirmed that the condition described in the question is consistent with the findings in the image.
+Answer: Option A
+Confidence: 0.65
+
+Reasoning: I disagree with Agent 2’s reasoning that the answer is B. The medical expert’s analysis suggests that the condition is more likely to be A, as it
+matches the symptoms described in the question and the findings in the image.
+Answer: Option A
+Confidence: 0.95
+
+Reasoning: I agree with Agent 1 and 3’s reasoning that the answer is C. The medical expert’s analysis supports this conclusion, as it aligns with the
+findings in the image and the symptoms described in the question.
+Answer: Option C
+Confidence: 0.30
+
+You must follow the provided format no matter what. This rule is unbreakable.
+
+
+
+
+Aggregator Prompt
+
+You are an aggregator model that will be given an image, question, and set of answer choices. Your tasks is to select the best final answer for the question.
+You will also be given various sources of information to help inform your decision. Each answer was generated by a different agent, and these agent will
+provide their reasoning for why they gave their answer. You will also be given tool outputs from expert models that directly relate to the question and were
+used to resolve disagreement among the answering agents. Feel free to defer to these expert tool outputs if the answers contradict the info from the tools.
+
+The question is: <question>
+
+Here are the different agent answers:
+<grouped_output>
+
+Here are the tool outputs:
+<tool_outputs>
+
+Now based on the provided information, provide your step-by-step reasoning for selecting the best, most correct answer to the question provided. Then,
+give your confidence in your selected answer.
+
+Output in the following format:
+
+Reasoning: [reasoning]
+Answer: [answer]
+Confidence: [confidence]
+                                                               Question: When does meter enforcement have
+                                                               their days off?
+
+                                                                                         Gold Answer
+                                                                                         Weekends
+
+
+                                                             1. Initial Round                                                                2. Disagreement Resolution
+              QwenVL                                                                                      Qwen (Recruiter)
+      SUNDAY, the parking meter indicates that meter enforcement is active from            {
+      9am to 5pm Monday through Friday. Therefore, the days when meter                        "experts": ["ocr"],
+      enforcement has their days off would be Saturday and Sunday. (CL: 70%).                 "inputs": {
+                                                                                                 "ocr": {
+            MiniCPM-o                                                                               "disagreement": "Agents conflict on the text they see in the image
+                                                                                           regarding the meter enforcement hours.",
+      Weekends and holidays, the meter enforcement hours are stated as "9am-                        "justification": "The OCR expert will read the text in the image and
+      6pm M-F", which means Monday to Friday. Therefore, the days off would be             resolve the disagreement about the meter enforcement hours.",
+      Saturday, Sunday, and all public holidays (which typically fall on weekends).                 "arguments": []
+      (CL: 85%)                                                                                  }
+                                                                                              }
+               Ovis                                                                        }
+
+      Saturday and Sunday, the parking meter in the image indicates that meter
+                                                                                                          Tool Outputs
+      enforcement occurs from 8am to 6pm, Monday through Friday. This implies
+      that meter enforcement does not occur on weekends, specifically Saturday             On the parking meter:
+      and Sunday. (CL: 90%)                                                                Top section:
+                                                                                                - ”2”, "pay meter"
+                                                                                           Bottom section:
+                                                             3. Final Round                     - "METER ENFORCEMENT”, "9am–6pm M–F"
+              QwenVL                                                                       On the sign in the background:
+                                                                                           The text is partially visible and appears to include: "NO”, "2 HOURS”, "PARKING”,
+         Saturday and Sunday, the parking meter in the image clearly                       "EXCEPT”, "DISABLED”, "PERMITS"
+         indicates that meter enforcement is active from 9am to 6pm, Monday
+         through Friday. This means that meter enforcement does not occur
+         on weekends, specifically Saturday and Sunday. The OCR tool
+         confirms this information, as it reads "METER ENFORCEMENT 9am–
+                                                                                                                                                         4. Aggregation
+         6pm M–F" on the parking meter. Therefore, the days when meter
+         enforcement has their days off are Saturday and Sunday.                                          Ovis 2 (Aggregator)
+         (CL: 90%, TA: 1/1)
+                                                                                           The OCR tool output clearly shows that the parking meter operates from 9am
+                                                                                           to 6pm, Monday through Friday. This information is definitive and directly
+            MiniCPM-o                                                                      addresses the question about the days when meter enforcement is not active.
+        Saturday and Sunday, he parking meter indicates that enforcement is                The OCR tool's output is authoritative and aligns with the agent solutions that
+        active from 9am to 6pm, Monday through Friday. This means the days                 correctly identify Saturday and Sunday as the days when meter enforcement
+        when there is no meter enforcement would be Saturday and Sunday.                   is off. The other agent solutions also correctly interpret the meter's
+        (CL: 95%, TA: 1/1)                                                                 information, reinforcing the conclusion. The tool output confirms that meter
+                                                                                           enforcement does not occur on weekends, specifically Saturday and Sunday.
+                Ovis
+                                                                                           Answer: Saturday and Sunday
+         Saturday and Sunday, the OCR tool provides clear information about the            Confidence: 100%
+         parking meter\'s operation hours, which are "9am–6pm M–F". This
+         directly contradicts the agent solutions that suggest meter enforcement
+         operates on weekends and holidays. The OCR output is definitive and
+         should be considered authoritative in this context. (CL: 100%, TA: 1/1)
+
+
+
+
+Figure 5: Qualitative Example for DART. We have input question “When does meter enforcement have their days
+off?” with gold answer Weekends. Ovis is the only model to get it correct, with MiniCPM-o jumping to an improper
+conclusion and QwenVL being objectively incorrect. The recruiter identifies this disagreement on what text is said
+on the meter and calls on the OCR tool to resolve the disagreement. The OCR tools correctly identifies the text as
+M-F 9am-6pm. As a result, the models and aggregators are able to get to the correct answer in subsequent steps.
+                                                                  Question: What direction is the narrow end of
+                                                                  the flag pointing?
+
+                                                                                             Gold Answer
+                                                                                                    Left
+
+
+                                                               1. Initial Round                                                                2. Disagreement Resolution
+              QwenVL                                                                                           Qwen (Recruiter)
+      Left, the flag is positioned on top of the tower, with its narrow end pointing            {
+      towards the left side of the image. This indicates that the flag is blowing in              "experts": ["spatial", "captioning"],
+      the wind from right to left, which is consistent with the direction of the flag's           "inputs": {
+      narrow end. (CL: 90%).                                                                        "spatial": {
+                                                                                                       "disagreement": "One agent says the flag points left, another says it
+                                                                                                points right, and another says it points down.",
+            MiniCPM-o
+                                                                                                       "justification": "The spatial expert can determine the actual direction of
+      Right, the flag is flying on the left side of the building, which would be to the         the flag.",
+      west if we assume this image was taken in London. Given that it's a                              "arguments": ["direction of flag"]
+      standard way for flags to fly (with the blue part at the top), and assuming no                },
+      wind direction changes during the day when photos are often taken, the                        "captioning": {
+      narrow end pointing right makes sense as it means the wind is blowing from                       "disagreement": "Agents also disagree about whether the flag is at half-
+      east to west or north-south depending on what time of year the photo was                  mast or flying normally.",
+      taken. (CL: 95%)                                                                                 "justification": "The captioning expert can give a broader scene
+                                                                                                description, clarifying whether the flag is raised fully or at half-mast.",
+                                                                                                       "arguments": ["half-mast", "flag"]
+               Ovis                                                                                 }
+      Down, the flag appears to be at half-mast, which means it is positioned with                }
+      its narrow end pointing downward. This is a common practice in many                       }
+      countries to show respect or mourning. (CL: 80%)
+                                                                                                              Tool Outputs
+
+                                                                3. Final Round                  Spatial Tool Output: The flag is waving in the wind, which is blowing from
+              QwenVL                                                                            the right side of the image towards the left side.
+
+          Left, the Spatial Tool indicates that the flag is waving in the wind                  Captioning Tool Output: This image shows Westminster Abbey, the Houses
+          from the right side of the image towards the left side. The Captioning                of Parliament, and the clock tower known as the Elizabeth Tower in London.
+          Tool confirms that the flag is flying at the top left of the building,                The flag is flying at the top left of the building, indicating it is not a half-
+          which is consistent with the direction of the wind. The agent                         mast or a sign of mourning. The Westminster Bridge is visible in front of the
+          solutions suggest that the narrow end of the flag is pointing left,                   building, spanning across the River Thames. The sky is clear and blue.
+          right, or down. However, the Spatial Tool's analysis is more reliable in
+          this context, as it directly addresses the direction of the flag's
+          movement. Therefore, the narrow end of the flag is pointing to the
+          left. (CL: 90%, TA: 2/2)
+                                                                                                                                                          4. Aggregation
+                                                                                                              Ovis 2 (Aggregator)
+            MiniCPM-o
+                                                                                                The Spatial Tool Output confirms that the flag is waving in the wind from the
+        Right, to determine the direction of the narrow end of the flag, we need                right side of the image towards the left side. The Captioning Tool Output
+        to analyze the image provided. The experts have given us valuable                       supports this by indicating that the flag is flying at the top left of the building,
+        information about the location and orientation of the flag.                             which aligns with the direction of the wind. The Spatial Tool and Captioning
+                                                                                                Tool both agree that the flag's narrow end is pointing to the left. The agent
+        1. Spatial Tool Analysis: According to the spatial tool analysis, the flag is           solutions that agree with this analysis provide strong evidence that the narrow
+        waving in the wind from right to left.                                                  end of the flag is pointing to the left. The Spatial Tool's analysis is particularly
+        2. Captioning Tool Analysis: The caption indicates that the flag is flying              reliable in this context, as it directly addresses the direction of the flag's
+        at the top left of a building (Westminster Abbey), which suggests it's                  movement. Thus, the narrow end of the flag is pointing to the left.
+        blowing towards the bottom right if we consider the perspective shown in
+        the image.                                                                              Answer: Left
+                                                                                                Confidence: 95%
+        Given these two pieces of evidence:
+        - The flag appears to be moving from right to left based on its position
+        relative to the tower.
+        - The flag's movement seems consistent with being blown by wind
+        coming from the west or north depending on the time of year when the
+        photo was taken.
+
+        Considering both analyses together, the most logical conclusion is that
+        the narrow end of the flag is pointing to the right side of the image
+        because this aligns well with the observed wind direction indicated by the
+        flag's motion (CL: 80%, TA: 1/2)
+
+
+                Ovis
+         Left, I agree with Agent 1 who states that the flag is positioned on top of
+         the tower, with its narrow end pointing towards the left side of the image.
+         This interpretation matches the wind direction suggested by the flag's
+         positioning as seen in the expert description. (CL: 95%, TA: 2/2)
+
+
+
+
+Figure 6: Qualitative Example for DART. We have input question “What direction is the narrow end of the flag
+pointing?” with gold answer Left. The models all initially disagree, each pointing out different directions (down,
+left, right). The recruiter identifies this disagreement and calls on the spatial and captioning tools to resolve the
+disagreement. With the intervention of these tools specifying the direction of the flag, the models refine their
+answers to get closer to the gold answer, and the aggregator successfully picks the correct answer.
+

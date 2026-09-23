@@ -1,0 +1,403 @@
+                                                 Talk Before You Retrieve: Agent-Led Discussions for Better RAG in
+                                                                            Medical QA
+
+                                                            Xuanzhao Dong1* , Wenhui Zhu1* , Hao Wang2* , Xiwen Chen2* ,
+                                                                       Peijie Qiu3 , Rui Yin1 , Yi Su4 , Yalin Wang1
+                                                   1
+                                                     Arizona State University, 2 Clemson University, 3 Washington University in St.Louis
+                                                                                4
+                                                                                  Banner Alzheimer’s Institute
+                                                                                         Correspondence: xdong64@asu.edu
+
+
+
+                                                                     Abstract                                  Can I use ibuprofen to                 •   ( General Drug Info ) …
+                                                                                                               a patient with a history     RAG       •   ( Isolated Ulcer Info ) …
+                                                                                                               of gastric ulcers?                     •   ( Mild Side Effect ) …
+                                                 Medical question answering (QA) is a
+                                                                                                                                                                 VS
+                                                 reasoning-intensive task that remains challeng-
+                                                                                                                                    Human
+
+
+
+
+arXiv:2504.21252v1 [cs.CL] 30 Apr 2025
+                                                                                                                                                  •   (Drug Mechanism) …
+                                                 ing for large language models (LLMs) due                                                         •   (Serious Side Effect) …
+                                                                                                                                                  •   (Contraindications and
+                                                 to hallucinations and outdated domain knowl-                                                     •
+                                                                                                                                                      Guidelines) …
+                                                                                                                                                      (Alternative Medications) …
+
+                                                 edge. Retrieval-Augmented Generation (RAG)
+                                                 provides a promising post-training solution by
+                                                 leveraging external knowledge. However, exist-           Figure 1: The illustration of difference between RAG
+                                                 ing medical RAG systems suffer from two key              and human for a medical query.
+                                                 limitations: (1) a lack of modeling for human-
+                                                 like reasoning behaviors during information
+                                                 retrieval, and (2) reliance on suboptimal medi-          research (Zhang et al., 2023). As a result, LLMs
+                                                 cal corpora, which often results in the retrieval        face notable limitations in dynamic, reasoning-
+                                                 of irrelevant or noisy snippets. To overcome             intensive tasks (e.g., medical question answering
+                                                 these challenges, we propose Discuss-RAG, a              (QA)), where both up-to-date knowledge and com-
+                                                 plug-and-play module designed to enhance the             plex logical inference are essential. Retrieval-
+                                                 medical QA RAG system through collabora-                 Augmented Generation (RAG) has emerged as a
+                                                 tive agent-based reasoning. Our method in-
+                                                                                                          promising approach to address the aforementioned
+                                                 troduces a summarizer agent that orchestrates
+                                                 a team of medical experts to emulate multi-              limitations (Borgeaud et al., 2022; Guu et al., 2020;
+                                                 turn brainstorming, thereby improving the rel-           Izacard and Grave, 2020). By incorporating re-
+                                                 evance of retrieved content. Additionally, a             trieved document snippets into the input prompt,
+                                                 decision-making agent evaluates the retrieved            RAG allows LLMs to generate responses that are
+                                                 snippets before their final integration. Exper-          grounded in up-to-date and trustworthy knowledge
+                                                 imental results on four benchmark medical                sources. Despite its success on several benchmarks,
+                                                 QA datasets show that Discuss-RAG consis-
+                                                                                                          two concerns remain underexplored.
+                                                 tently outperforms MedRAG, especially sig-
+                                                 nificantly improving answer accuracy by up                  First, current medical RAG systems lack a
+                                                 to 16.67% on BioASQ and 12.20% on Pub-                   human-like information retrieval process. They
+                                                 MedQA. The code is available at https://                 typically rely on statistical similarity metrics (e.g.,
+                                                 github.com/LLM-VLM-GSL/Discuss-RAG.                      cosine similarity) between the query(e.g., ques-
+                                                                                                          tions) and document embeddings to retrieve rele-
+                                         1       Introduction                                             vant content (Ke et al., 2024). This approach often
+                                                                                                          fails to capture deeper contextual understanding,
+                                         Large Language Models (LLMs) have significantly                  leading to the retrieval of superficially related but
+                                         advanced a wide range of medical tasks (Sing-                    clinically irrelevant information. In contrast, as
+                                         hal et al., 2023; Nori et al., 2023; Kim et al.,                 shown in Fig. 1, nurses in real-world clinical prac-
+                                         2024). However, their reliance on next-token pre-                tice are more likely to recall and apply relevant
+                                         diction makes them susceptible to generating hal-                clinical knowledge (e.g., drug contraindications) to
+                                         lucinated responses (Ji et al., 2023). Addition-                 guide decision-making, rather than relying solely
+                                         ally, once trained, LLMs operate with static pa-                 on surface-level textual similarity. Second, existing
+                                         rameters, meaning their internal knowledge re-                   systems often lack enough post-retrieval verifica-
+                                         mains fixed and cannot adapt to newly emerging                   tion mechanisms (Barnett et al., 2024; He et al.,
+                                             *
+                                                 These authors contributed equally to this paper.         2024). Consequently, directly incorporating ex-
+                                                                                                                                                                              Noisy Snippets
+
+                                              𝑸𝟐 : … Which of the following
+                                                                                                                                                              (B)      e.g., 𝑺𝒊𝟏 : (Temperature) Higher
+                                                                                                                                                                       temperatures increase the rate                          𝑨𝟏 : … which aligns with the concept
+                                              power levels corresponds to the                                                                                          of larval development and                               of controlling the population at the
+                                              absolute threshold for hearing                                                                             𝑸𝟏            accelerate …       adult Aedes                          carrying capacity. (Inaccurate
+                                                                                                                                                                                                                               Response)
+                                                                                                                                                                                                                           ✘
+                                              the decibels produced by the                                                                                             mosquitoes …
+                                              bell? (College Medicine)                                                                                                                                                         𝑨𝟐 : … The documents provided … but
+                                                                                                                                                                       e.g., 𝑺𝒋𝟐 : (Genetic Reason) A
+         𝑸𝟏 : … the most effective means                                                                                                                                                                                       there is no direct information about …
+         of controlling the mosquito                                            𝑸𝟑 : If both parents are affected with the                                             mutation that disrupts the gene                         Since there is no specific information
+                                                                                same autosomal recessive disorder then                                          𝑸𝟐     that … causes cochlear and
+                                                                                                                                                RAG
+         population is to (College Biology)                                                                                                                                                                                    given … we cannot determine
+                                                                                the probability that each of their children                                            vestibular symptoms …                                          (Conservative Answer)
+                                                                                will be affected equals (Medical
+                                                                                Genetics)                                                                     𝑸𝟑           Misleading Snippets
+        (A)                                                                                                                                                            e.g., 𝑺𝟑𝒌 : Disorders of                                          𝑨𝟑 : … in the case of two
+                                                                                                                                                                       Autosomal … siblings have
+                                                                                                                                                                                                                                     ✘ … on average, 1/4 of their
+                                                                                                                                                                                                                                         carrier (heterozygous) parents
+                                                                                                                                                                       one chance in four of being          LLMs (e.g., GPT-3.5)
+                                                                                                                                                                       affected (i.e., the recurrence                                    children will be affected …
+                                                                                                                                                                       risk is 25% for each birth)                                          (Overgeneralization)
+                                                                                                                          𝑸𝟑
+                                                                                                                                 e.g., 𝐑𝟑𝒊 : … know the fundamentals
+                                                                                                                                                                       Nuanced Snippets (Order & Content)
+                                                                                                                                                                                                                                                      VS
+                                                                                                                                of autosomal recessive inheritance,
+                                                                                                                                including how homozygosity …
+                                                                                                                                                                       e.g., 𝑺𝟑𝒎 : In most instances,
+                                                                                                                                                                       an affected individual is the                               𝑨𝟑: … both parents being affected
+                                                                                                                                                                       offspring of heterozygous                                   … the probability that each of their
+                                                                                                                                                          RAG          parents. In this situation, there                           children will be affected is 100%
+                                                                                                                                                                       is a 25% chance that the                                    or 1 in 1 … both parents would
+                                                                                                                                                                       offspring will have a normal                                pass on the mutant allele …
+                                                                                                                                                                       genotype, a 50% probability                                         (Proper Reasoning)
+                                                                                                                                                                       of a heterozygous state …            LLMs (e.g., GPT-3.5)
+                                                                                                                                                              (C)
+                                                                                                                      Agent (e.g., medical geneticist)
+
+
+
+
+Figure 2: Preliminary experiments on the MMLU-Med benchmark. (A). Accuracy trends as the number of retrieved
+documents k varies. Three representative questions (Q1 , Q2 and Q3 ) are selected to illustrate. (B). Examples
+of retrieved snippets and the corresponding LLM (e.g., GPT-3.5) responses. (C). Example of agent-led snippet
+selection and the resulting response for query Q3 . Additional details are discussed in Sec. 2.
+
+
+ternal knowledge may lead to overly cautious or                                                                                             Discuss-RAG with standard RAG systems, demon-
+outdated responses. In real-world settings, a judg-                                                                                         strating its effectiveness in improving both answer
+mental role, such as a senior clinician reviewing                                                                                           accuracy and snippet quality.
+a junior’s recommendation (Fig. 1), is often nec-
+essary to assess the correlation between retrieved                                                                                          2           Preliminary
+context and context before a final decision is made.
+                                                                                                                                            In our empirical experiments, we found that limita-
+   To address these gaps between current medi-                                                                                              tions hinder the performance of medical RAG sys-
+cal RAG systems and real-world clinical decision-                                                                                           tems in medical QA tasks. As shown in Fig. 2(A),
+making processes, we proposed Discuss-RAG, an                                                                                               when the corpus is fixed (i.e., textbooks (Jin et al.,
+agent-led framework that enhances both the in-                                                                                              2021)), varying the number of retrieved documents
+formation retrieval and post-verification stages of                                                                                         k results in fluctuating accuracy across six medical
+medical RAG pipelines. Specifically, a summa-                                                                                               subjects. To better understand the influence of doc-
+rizer agent collaborates with a team of specialized                                                                                         ument selection, we selected three representative
+medical agents to generate progressively refined                                                                                            questions (Q1 , Q2 , Q3 ) across different k values
+and context-rich background insights, which are                                                                                             and subject domains. A qualitative analysis reveals
+incorporated into the retrieval process alongside                                                                                           factors contributing to suboptimal model behavior.
+the original query. Additionally, a decision-maker                                                                                             First, snippets selected based solely on dense
+agent evaluates the relevance and coherence of the                                                                                          vector similarity with the query often retrieve con-
+retrieved snippets and determines whether auxil-                                                                                            tent that is conceptually related but task-irrelevant.
+iary components should be triggered. Notably, our                                                                                           These snippets introduce excessive background in-
+framework is modular and can be seamlessly inte-                                                                                            formation that may confuse the LLM. As shown
+grated into any existing training-free medical RAG                                                                                          in Fig. 2(B) for Q1 , high-scoring snippets focus
+pipeline. Experiments on four benchmark medical                                                                                             on environmental factors such as climate and tem-
+QA datasets demonstrate that Discuss-RAG con-                                                                                               perature in relation to mosquitoes, rather than ad-
+sistently improves response accuracy compared to                                                                                            dressing strategies for population control. This
+baseline systems.                                                                                                                           misalignment leads to noisy inputs, resulting in
+   In summary, this paper makes the following key                                                                                           either inaccurate or overly cautious responses, as
+contributions: (1). We propose Discuss-RAG, an                                                                                              seen in Q2 . Second, even factually correct snippets
+agent-led RAG framework that simulates a human-                                                                                             can mislead the model. In the case of Q3 , retrieved
+like reference retrieval through multi-agent discus-                                                                                        snippets emphasize the 25% probability associated
+sion and iterative summarization. (2). We introduce                                                                                         with autosomal inheritance, prompting the LLM to
+a post-retrieval verification agent that assesses the                                                                                       overgeneralize from heterozygous to homozygous
+relevance and logical coherence of retrieved snip-                                                                                          cases. These findings further suggest that directly
+pets before they are used in answer generation. (3).                                                                                        using retrieved snippets without verification can
+We conduct comprehensive experiments comparing                                                                                              lead to reasoning errors.
+                                                                    𝒋   𝒋       𝒋
+                                     Output summary 𝑻𝒋 ∶= 𝒇𝑪 (𝑰𝟏 , 𝑰𝟐 … 𝑰𝒏 ; 𝑻𝒋−𝟏 , 𝑸)                                                         e.g., 𝑺𝟏 : ... These data
+       Medical Query 𝑸                                                                                  Trivial RAG                            can be used to monitor
+       e.g., Are performance                                                                                                                   and reduce unnecessary
+                                                                                Summarizer 𝑪                                                   variations in care ...
+       measurement systems
+       useful?
+                                                                                                                                               e.g., 𝑺𝟐 : ... pay-for-
+       A. Yes B. No C. Maybe                                                                                                                   performance        should
+                                                                                                                         Snippets 𝑺𝟏 … 𝑺𝒌      make it much easier for
+                                                        Discussion Turn 𝒋
+                                                                                                                                               organizations to justify
+                                                                                                                                               investments in ...
+                                     Medical Team                                               Verifier 𝑽        Decision maker 𝑼
+                                                                                                                                               e.g., 𝑺𝟓 : ... according to
+                                                                                                                               (B)             performance ...       with
+                                                                                          𝑻𝒎                                                   substantial improvements
+                                                                                                                                               in reported quality
+                                                                                                                                               performance ...
+                                                                            𝒋   𝒋   𝒋
+           Recruiter 𝑹                    Agent 𝑯𝟏              Insights 𝑰𝟏 , 𝑰𝟐 ⋯ 𝑰𝒏
+                                                                                                                             e.g., 𝑨: ... performance measurement
+                                                                                                                             systems are considered useful.
+                                                                                                                             Document [0] mentions that electronic
+               (A)                                                                                                           m ed ica l re co rd s ... Do cum en t [1 ]
+                                                                                                                             discusses the importance of improving ...
+                               Agent 𝑯𝟐              Agent 𝑯𝒏                                                                        A. Yes B. No C. Maybe
+                                                                                                  LLMs (e.g., GPT-3.5)
+
+
+
+Figure 3: Illustration of the Discuss-RAG pipeline. (A). depicts the multi-turn brainstorming and summarization
+process. (B). presents the agent-led post-retrieval verification module. A medical query, the corresponding snippets,
+and the LLM’s generated answer are used for illustration. Further details are provided in Sec 3.
+
+
+   To further examine the limitations of hard                                       1, 2 . . . n), each contributing their domain-specific
+similarity-based retrieval, we conducted an ex-                                     perspectives Iij at turn j ( for j in 0, 1 . . . m). A
+ploratory experiment using the same query (Q3 ).                                    summarizer agent C is then prompted to extract
+As shown in Fig. 2(C), we prompted a domain-                                        key medical knowledge, background concepts, and
+specific agent (i.e., a medical geneticist) to iden-                                reasoning steps from these inputs to generate a con-
+tify the essential knowledge required to answer                                     cise summary T j . This iterative process is formally
+the question (mimicking the behavior of nurses, as                                  denoted as:
+illustrated in Fig. 1). When we used the agent’s
+response, in conjunction with the original query,                                              T j := fC (I1j , I2j , . . . , Inj ; T j−1 , Q)                               (1)
+to guide retrieval, the resulting snippets were both
+more topically relevant and better organized. Un-                                   Here fC (·) denotes the summarization process per-
+der this setting, the LLM successfully distinguished                                formed by agent C, and T j reflects the progres-
+between carriers and affected individuals and gen-                                  sively refined understanding of the query, based on
+erated a well-reasoned response.                                                    the current reflection Iij , previous summary T j−1
+                                                                                    and the original query Q ( with T 0 initialized as an
+   These findings motivate two key directions for
+                                                                                    empty summary). After the discussion concludes,
+better medical RAG: (1). While a single role-based
+                                                                                    a verifier agent V is introduced to evaluate the
+agent can benefit retrieval quality, can a multi-agent
+                                                                                    consistency and sufficiency of the final summary
+setup, engaging diverse medical expertise in an it-
+                                                                                    T m . The verifier produces a distilled, verification-
+erative, self-refining discussion, yield a more com-
+                                                                                    passed summary D, which is subsequently used for
+prehensive and contextually rich background? (2).
+                                                                                    snippet retrieval, together with the original query
+Given that structured agent involvement benefits
+                                                                                    Q.
+retrieval, can a similar structure be extended to the
+                                                                                       As shown in Fig. 3(A), the recruiter R recruits a
+response stage? To address these questions, we
+                                                                                    team consisting of three specialized agents (e.g., a
+propose an agent-led RAG paradigm, the details of
+                                                                                    health care quality specialist, a hospital administra-
+which are presented in the following section.
+                                                                                    tor, and a health economist), who collaborate with
+3   Methodology                                                                     the summarizer C to share their insights for the per-
+                                                                                    formance measurement system. The conversation
+Our method contain two components: (1) A human-                                     terminates either when the maximum number of
+like multi-turn discussion and summarization mod-                                   discussion rounds m is reached, or when all agents
+ule. (2) A post-retrieval verification module.                                      decline to contribute further. Notably, all agents in
+Multi-turn Discussion and summarization. This                                       this module are explicitly instructed not to answer
+module simulates a collaborative brainstorming                                      the original query or infer a final conclusion. This
+process between a team of medical experts and                                       design ensures that the process remains focused on
+a summarizer (acting as a moderator). Specifically,                                 context construction for retrieval, rather than direct
+given a medical query Q, a recruiter agent R assem-                                 answer generation.
+bles a team of medical domain experts Hi ( for i in                                 Post-retrieval Verification. This module leverages
+                                                         Response                                           Snippets
+                                                 Step-by-Step thinking: 1. The      𝑺𝟏 : To determine cardiac output by this method, three values
+                                                 oxygen content in the blood is     must be known: (1) O2 consumption of the body, (2) the O2
+                                                 determined by … 2. The oxygen      concentration in pulmonary venous blood ([O2] pv), and (3)
+               Medical QA                        content in the pulmonary artery    the O2 concentration in pulmonary arterial blood ([O2]
+                                           (A)   is typically lower than … 6. …     pa) … (O2 in pulmonary arteries and veins)
+       A healthy 23-year-old male is             lowest oxygen content at both
+       undergoing an exercise stress             time points would be the           𝑺𝟐 : Most important, any of the following signs during
+       test as part of his physiology            pulmonary artery.                  noninvasive testing indicates a high risk for coronary
+       class. If blood were to be
+                                                    Answer: Pulmonary artery        events … (Signature of coronary events)
+       sampled at different locations
+       before and after the stress test,
+       which area of the body would
+                                                                                                                                                          Medical Team & Distilled Summary
+       contain the lowest oxygen                                                    𝑺𝟏 : …Consumption of O2 by the heart depends on the
+                                                 Step-by-Step thinking: 1. The                                                                      Medical Team: Cardiologist; Pulmonologist; Anesthesiologist
+       content at both time points?                                                 amount and type of activity that the heart performs. … The
+                                                 document mentions … arterial                                                                       Summary 𝑫: Understanding oxygen saturation levels in
+       A.   Inferior vena cava                   blood is fully saturated with      O2 content of cardiac venous blood is normally low              arterial and venous blood at rest and during exercise, as
+       B.   Coronary sinus                       oxygen even during strenuous       (\u22485 mL/ dL), and the myocardium can receive little         well as factors like the oxygen-hemoglobin dissociation
+       C.   Pulmonary artery                     exercise at sea level. 2. The      additional O2 by further extraction of O2 from coronary         curve, is crucial. Oxygen extraction by tissues plays a
+       D.   Pulmonary vein
+                                           (B)   document also states that the O2   blood.                                                          significant role in determining the area with the lowest
+                                                 content of cardiac venous blood    𝑺𝟐 : … Failure by the lungs to oxygenate blood fully can be     oxygen content … Expertise in oxygen transport,
+                                                 is normally low … 3. …             ruled out because even with the most strenuous exercise         cardiovascular responses to exercise, oxygen extraction by
+                                                     Answer: Coronary sinus         at sea level, arterial blood is fully saturated with O2. …      tissues, and blood gas analysis interpretation are key …
+
+
+
+
+Figure 4: Example from the MedQA-US benchmark comparing MedRAG (A) and Discuss-RAG (B). Answers and
+key phrases are highlighted in red.
+
+
+structured agent reasoning to mitigate the adverse                                                         gpt-3.5-turbo-0125 (OpenAI, 2024)) was selected.
+effects of suboptimal retrieval. Specifically, given
+                                                                                                           Table 1: Benchmark dataset results. Answer accuracy
+the distilled summary D and the medical query Q,
+                                                                                                           was used as the evaluation metric.
+a specialized decision-maker agent U is introduced
+to evaluate the top-k document chunks Si retrieved                                                                Dataset                      MedRAG               + Discuss-RAG                         ∆
+by the underlying retrieval algorithm. If U returns a                                                           MMLU-Med                        71.53%                  77.23%                         +5.70%
+                                                                                                                MedQA-US                        62.45%                  66.85%                         +4.40%
+negative judgment, an alternative retrieval strategy                                                             BioASQ                         58.61%                  75.28%                         +16.67%
+is triggered (e.g., a CoT-based prompt (Wei et al.,                                                             PubMedQA                        35.60%                  47.80%                         +12.20%
+2022) is used as a fallback in our implementation).
+Otherwise, the accepted snippets are incorporated                                                          Experimental results and analysis. Leverag-
+into the context prompt for answer generation. As                                                          ing the multi-turn discussion and post-retrieval
+shown in Fig. 3(B), the verified snippets tend to                                                          verification modules, Discuss-RAG enriches the
+be closely aligned with the intended focus of the                                                          background information available and mitigates
+query. In the shown example, the selected evi-                                                             the impact of suboptimal retrieval. As shown
+dence explicitly highlights the effect (marked in                                                          in Tab. 1, integrating our method consistently
+red) of performance measurement systems, pro-                                                              improves MedRAG performance across all four
+viding grounded support for a more accurate and                                                            benchmarks, especially achieving gains of up to
+contextually appropriate response.                                                                         16.67% on the BioASQ dataset and 12.20% on
+    It is important to emphasize that both compo-                                                          PubMedQA. Further, as illustrated in Fig. 4, for
+nents of our proposed pipeline are designed as plug-                                                       the same query, the top-2 snippets retrieved by
+and-play enhancements for any training-free RAG                                                            Disscuss-RAG provide more grounded and fac-
+system. The multi-turn brainstorming process en-                                                           tual support for correctly answering the question.
+riches the information fed to the retriever, while                                                         Specifically, snippets S1 explicitly mention the low
+the post-retrieval verification module dynamically                                                         oxygen (O2 ) content in cardiac venous blood, while
+filters and validates the retrieved content, providing                                                     snippets S2 support the reasoning process from a
+improved reliability and quality in the answer.                                                            contrasting perspective. Additionally, the final dis-
+                                                                                                           tilled summary D generated by the medical team
+                                                                                                           highlights the essential knowledge required to fo-
+4   Experiments
+                                                                                                           cus the retrieval process, leading to more reliable
+Experimental details. We evaluated the re-                                                                 and contextually appropriate evidence selection.
+trieval ability of our method on four medical QA
+                                                                                                           5         Conclusion
+benchmark datasets: MMLU-Med (Hendrycks
+et al., 2020), MedQA-US (Jin et al., 2021),                                                                In this work, we propose Discuss-RAG, an agent-
+BioASQ (Tsatsaronis et al., 2015), and Pub-                                                                led framework designed to enhance the response ac-
+MedQA (Jin et al., 2019). MedRAG (Xiong et al.,                                                            curacy of LLMs in medical QA. Specifically, we in-
+2024). To ensure a fair comparison, we employed                                                            troduce a multi-turn discussion and summarization
+the same medical textbooks (Jin et al., 2021) as                                                           module to facilitate context-rich and self-refined
+the corpus and MedCPT (Jin et al., 2023) as the                                                            document retrieval, and a post-retrieval verification
+retriever with MedRAG. For LLM, GPT-3.5 (i.e.,                                                             agent to make the final judgment on the retrieved
+content. Experiments conducted on four medical              Madotto, and Pascale Fung. 2023. Survey of hal-
+QA benchmark datasets demonstrate that Discuss-             lucination in natural language generation. ACM com-
+                                                            puting surveys, 55(12):1–38.
+RAG consistently improves both response accuracy
+and snippet quality.                                      Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng,
+                                                            Hanyi Fang, and Peter Szolovits. 2021. What disease
+6   Limitation                                              does this patient have? a large-scale open domain
+                                                            question answering dataset from medical exams. Ap-
+We acknowledge that Discuss-RAG is hindered by              plied Sciences, 11(14):6421.
+two primary limitations. (1). Limited interaction
+                                                          Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William W
+among team members. The specialized medical                 Cohen, and Xinghua Lu. 2019. Pubmedqa: A dataset
+agents Hi do not communicate directly with one              for biomedical research question answering. arXiv
+another, but interact through the summary from the          preprint arXiv:1909.06146.
+previous round. Direct peer-to-peer interaction may       Qiao Jin, Won Kim, Qingyu Chen, Donald C Comeau,
+facilitate deeper and more dynamic reasoning. (2).          Lana Yeganova, W John Wilbur, and Zhiyong Lu.
+Increased computational overhead. Our framework             2023. Medcpt: Contrastive pre-trained transformers
+involves prompting multiple LLM-based agents,               with large-scale pubmed search logs for zero-shot
+                                                            biomedical information retrieval. Bioinformatics,
+each requiring careful instruction design to perform
+                                                            39(11):btad651.
+their respective roles effectively. This introduces
+additional computational and engineering costs.           YuHe Ke, Liyuan Jin, Kabilan Elangovan, Hairil Rizal
+                                                            Abdullah, Nan Liu, Alex Tiong Heng Sia, Chai Rick
+                                                            Soh, Joshua Yi Min Tung, Jasmine Chiat Ling Ong,
+                                                            and Daniel Shu Wei Ting. 2024. Development and
+References                                                  testing of retrieval augmented generation in large
+Scott Barnett, Stefanus Kurniawan, Srikanth Thudumu,        language models–a case study report. arXiv preprint
+  Zach Brannelly, and Mohamed Abdelrazek. 2024.             arXiv:2402.01733.
+  Seven failure points when engineering a retrieval
+  augmented generation system. In Proceedings of          Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik Siu
+  the IEEE/ACM 3rd International Conference on AI           Chan, Xuhai Xu, Daniel McDuff, Hyeonhoon Lee,
+  Engineering-Software Engineering for AI, pages 194–       Marzyeh Ghassemi, Cynthia Breazeal, Hae Park,
+  199.                                                      et al. 2024. Mdagents: An adaptive collaboration
+                                                            of llms for medical decision-making. Advances in
+Sebastian Borgeaud, Arthur Mensch, Jordan Hoff-             Neural Information Processing Systems, 37:79410–
+  mann, Trevor Cai, Eliza Rutherford, Katie Milli-          79452.
+  can, George Bm Van Den Driessche, Jean-Baptiste
+  Lespiau, Bogdan Damoc, Aidan Clark, et al. 2022.        Harsha Nori, Nicholas King, Scott Mayer McKinney,
+  Improving language models by retrieving from tril-        Dean Carignan, and Eric Horvitz. 2023. Capabili-
+  lions of tokens. In International conference on ma-       ties of gpt-4 on medical challenge problems. arXiv
+  chine learning, pages 2206–2240. PMLR.                    preprint arXiv:2303.13375.
+
+Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasu-         OpenAI. 2024. Gpt-3.5 turbo. https://platform.
+  pat, and Mingwei Chang. 2020. Retrieval augmented         openai.com/docs/models/gpt-3-5-turbo. Ac-
+  language model pre-training. In International confer-     cessed: 2025-04-27.
+  ence on machine learning, pages 3929–3938. PMLR.
+                                                          Karan Singhal, Shekoofeh Azizi, Tao Tu, S Sara Mah-
+Bolei He, Nuo Chen, Xinran He, Lingyong Yan,                davi, Jason Wei, Hyung Won Chung, Nathan Scales,
+  Zhenkai Wei, Jinchang Luo, and Zhen-Hua Ling.             Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl,
+  2024. Retrieving, rethinking and revising: The chain-     et al. 2023. Large language models encode clinical
+  of-verification can improve retrieval augmented gen-      knowledge. Nature, 620(7972):172–180.
+  eration. arXiv preprint arXiv:2410.05801.
+                                                          George Tsatsaronis, Georgios Balikas, Prodromos
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou,       Malakasiotis, Ioannis Partalas, Matthias Zschunke,
+  Mantas Mazeika, Dawn Song, and Jacob Steinhardt.          Michael R Alvers, Dirk Weissenborn, Anastasia
+  2020. Measuring massive multitask language under-         Krithara, Sergios Petridis, Dimitris Polychronopou-
+  standing. arXiv preprint arXiv:2009.03300.                los, et al. 2015. An overview of the bioasq large-scale
+                                                            biomedical semantic indexing and question answer-
+Gautier Izacard and Edouard Grave. 2020. Leverag-           ing competition. BMC bioinformatics, 16:1–28.
+  ing passage retrieval with generative models for
+  open domain question answering. arXiv preprint          Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+  arXiv:2007.01282.                                          Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,
+                                                             et al. 2022. Chain-of-thought prompting elicits rea-
+Ziwei Ji, Nayeon Lee, Rita Frieske, Tiezheng Yu, Dan         soning in large language models. Advances in neural
+  Su, Yan Xu, Etsuko Ishii, Ye Jin Bang, Andrea              information processing systems, 35:24824–24837.
+Guangzhi Xiong, Qiao Jin, Zhiyong Lu, and Aidong
+  Zhang. 2024. Benchmarking retrieval-augmented
+  generation for medicine. In Findings of the Associa-
+  tion for Computational Linguistics ACL 2024, pages
+  6233–6251.
+Zihan Zhang, Meng Fang, Ling Chen, Mohammad-Reza
+  Namazi-Rad, and Jun Wang. 2023. How do large
+  language models capture the ever-changing world
+  knowledge? a review of recent advances. arXiv
+  preprint arXiv:2310.07343.
+

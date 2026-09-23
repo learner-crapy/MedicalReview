@@ -1,0 +1,1659 @@
+                                                           Process-Supervised Multi-Agent Reinforcement Learning
+                                                                       for Reliable Clinical Reasoning
+
+
+                                                               Chaeeun Lee 1 T. Michael Yates 1 Pasquale Minervini 1 2 T. Ian Simpson 1
+
+
+                                                                  Abstract
+                                              Clinical decision-making requires nuanced
+
+
+
+
+arXiv:2602.14160v1 [cs.AI] 15 Feb 2026
+                                              reasoning over heterogeneous evidence and
+                                              traceable justifications. While recent LLM
+                                              multi-agent systems (MAS) show promise,
+                                              they largely optimise for outcome accuracy
+                                              while overlooking process-grounded reasoning
+                                              aligned with clinical standards. One critical
+                                              real-world case of this is gene–disease validity
+                                              curation, where experts must determine whether
+                                              a gene is causally implicated in a disease by                 Figure 1. Overview of the hierarchical Agent-as-Tool framework
+                                              synthesising diverse biomedical evidence. We                  for gene–disease validity curation task. The supervisor orchestrates
+                                              introduce an agent-as-tool reinforcement learning             specialised sub-agents to produce both a validity classification and
+                                              framework for this task with two objectives: (i)              a structured evidence trace matching a clinical SOP.
+                                              process-level supervision to ensure reasoning
+                                              follows valid clinical pathways, and (ii) efficient
+                                              coordination via a hierarchical multi-agent                   tasks. Recent works on LLM agents (Yao et al., 2023;
+                                              system. Our evaluation on the ClinGen dataset                 Schick et al., 2023; Shinn et al., 2023; Jin et al., 2025) have
+                                              shows that with outcome-only rewards, MAS                     extended LLM reasoning through tool use, self-reflection,
+                                              with a GRPO-trained Qwen3-4B supervisor agent                 and retrieval, while multi-agent systems (MAS; Wu et al.,
+                                              substantially improves final outcome accuracy                 2023; Chen et al., 2024; Yang et al., 2025c) further ex-
+                                              from 0.195 with a base model supervisor to                    pand this paradigm by enabling coordination of specialised
+                                              0.732, but results in poor process alignment                  agents. These advances provide a promising pathway for un-
+                                              (0.392 F1). Conversely, with process + outcome                derexplored biomedical domains where process fidelity and
+                                              rewards, MAS with GRPO-trained supervisor                     auditability are essential (Hunter et al., 2016; Thaxton et al.,
+                                              achieves higher outcome accuracy (0.750)                      2022; Wright et al., 2024). In particular, many such settings
+                                              while significantly improving process fidelity to             require not only correct conclusions through complex rea-
+                                              0.520 F1. Our code is available at https:                     soning but also structured, traceable evidence aligned with
+                                              //github.com/chaeeunlee-io/                                   formal clinical standards. The medical specialty of Clinical
+                                              GeneDiseaseCurationAgents.                                    Genetics provides a representative real-world case. Rare
+                                                                                                            genetic diseases (RD) affect over 300 million people world-
+                                                                                                            wide (International Rare Diseases Research Consortium
+                                                                                                            (IRDiRC), 2017), and diagnosis of these conditions relies
+                                         1. Introduction
+                                                                                                            on establishing valid gene–disease relationships from litera-
+                                         Large language models (LLMs) have shown promise in                 ture. With an increasing number of reported gene–disease
+                                         biomedical applications, but their deployment in real-world        relationships, developing a shared framework for consistent
+                                         clinical settings remains limited due to the need for domain       assessment has become increasingly important. This need
+                                         expertise and the heterogeneity of biomedical reasoning            is exemplified by the Gene Curation Coalition (GenCC), an
+                                              1
+                                                                                                            international coalition of groups engaged in gene–disease
+                                              School of Informatics, University       of Edinburgh,         validity evaluation (DiStefano et al., 2022), including the
+                                         UK 2 Miniml.AI. Correspondence to:           Chaeeun Lee
+                                         <chaeeun.lee@ed.ac.uk>.                                            Clinical Genome Resource (ClinGen). ClinGen has de-
+                                                                                                            veloped an internationally recognised standard operating
+                                         Preprint. February 17, 2026.                                       procedure (SOP) that defines formal criteria for evaluating
+
+                                                                                                        1
+                    Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+evidence supporting gene–disease relationships (Rehm et al.,             Table 1. Dataset statistics. Breakdown of dataset construction
+                                                                         from the ClinGen gene–disease validity curation database to the
+2015; Andersen et al., 2025). These criteria decompose evi-              final data splits. Exp. Ev. = records containing experimental
+dence into modular categories, providing a structured basis              evidence annotations. Note that articles may overlap across splits.
+for decision-making. In this work, we introduce an agent-                Only records (gene–disease pairs) with experimental evidence
+as-tool reinforcement learning (RL) framework designed                   annotations linked to open-access article(s) are retained for the
+to align LLM reasoning with rigorous clinical standards.                 final data splits.
+We propose a hierarchical multi-agent architecture where                                                Records          Unique Articles
+a supervisor agent directs specialised sub-agents to follow               Stage          #Panels
+                                                                                                    Total   Exp. Ev.    Total   PMC-OA
+valid reasoning pathways. Each sub-agent is responsible
+                                                                          Raw Source           58   3,182      2,797    8,766       2,062
+for a distinct evidence category and produces structured
+outputs relevant to that category. By training the supervisor             Train                40       –         931      –        1,345
+                                                                          Dev                   4       –         224      –          231
+agent with a hybrid approach that combines outcome-based                  Test                  8       –         220      –          299
+and process-based rewards, we improve outcome accuracy                      Total Used         52       –      1,375       –        1,994
+while enforcing adherence to the clinical SOP. In addition,
+the multi-agentic system produces evidence-specific reason-
+ing traces and structured outputs that mirror clinical curation          based rewards. Med-PRM (Yun et al., 2025) has shown
+practices, providing the traceability and auditability that are          that process-level rewards can improve performance on
+crucial in real-world clinical decision-making.                          biomedical benchmarks by verifying intermediate steps
+                                                                         with an LLM-as-a-judge and retrieved evidence. While
+2. Related Works                                                         DoctorAgent-RL encourages clinically structured interac-
+                                                                         tions through a protocol compliance reward, it still relies
+Biomedical Agentic Systems. Recent progress in LLM                       on a fixed penalty structure for procedural adherence and
+agents has highlighted biomedicine and healthcare as natu-               focuses on a single agent’s behavior rather than coordination
+ral application areas, where many tasks benefit from agentic             of specialised agents. Our work incorporates process-level
+abilities such as literature grounding and integration with ex-          reward signals in a hierarchical multi-agent system using a
+ternal data sources and tools. Systems such as MMedAgent                 real-world SOP-governed task to illustrate applicability in
+(Li et al., 2024), Biomni (Huang et al., 2025), AgentMD (Jin             settings where process objectives are explicitly defined and
+et al., 2024), and MedAgent-Pro (Wang et al., 2025) demon-               established standards require modular intermediate reason-
+strate the potential of LLM agents to support biomedical                 ing (Hunter et al., 2016; Thaxton et al., 2022). While prior
+reasoning through explicit planning, tool use, and workflow              works such as ToolRL (Qian et al., 2025) have shown that
+execution across a wide range of biomedical tasks (Rose                  tool-call rewards can improve reasoning quality in general
+et al., 2025; Gao et al., 2025). Studies on MAS further show-            domain, we extend this idea to settings where the tools are
+case that coordination among specialised agents can yield                LLM-based agents operating within an MAS.
+additional improvements, either through enhanced cognitive
+roles (e.g., planner, critic, verifier) or from task-specific role
+assignment (Wu et al., 2023; Chen et al., 2024; Yang et al.,             3. Gene–Disease Validity Assessment
+2025c; Liu et al., 2025; Yang et al., 2025b). AI Hospital                Developing AI systems that comply with established clinical
+(Fan et al., 2024) simulates doctor–patient interactions via             standards is essential for real-world biomedical applications.
+a multi-agent framework to benchmark multi-turn symp-                    A representative example is gene–disease validity assess-
+tom collection and diagnosis. MDAgents (Kim et al., 2024)                ment, a complex reasoning task that determines whether a
+introduces a multi-agent framework that assigns solo or col-             candidate gene is causally implicated in a disease by syn-
+laborative LLM structures based on medical task complexity,              thesising evidence from the literature. Under ClinGen’s
+improving knowledge-intensive benchmarks. Multi-agentic                  internationally recognised SOP, clinical experts derive a va-
+benchmarks such as AgentClinic (Schmidgall et al., 2025)                 lidity classification from a predefined outcome set Y 1 by
+and Agent Hospital (Li et al., 2025) facilitate medical agents           evaluating evidence according to a consistent set of guide-
+under simulated environments mirroring real-world clinical               lines that define modular evidence categories, where
+scenarios.
+                                                                             Y ={Definitive, Strong, Moderate,
+Reinforcement Learning for Biomedical Agents. RL for
+LLMs has been explored as a way to further improve agen-                             Limited, No Known Disease Relationship}.
+tic capabilities for biomedical tasks. While studies such as
+                                                                         While the SOP encompasses both genetic and experimental
+SiriuS (Zhao et al., 2025), Med-R1 (Lai et al., 2025), and
+                                                                         evidence, this work focuses on experimental evidence. The
+DoctorAgent-RL (Feng et al., 2025) report gains on task
+                                                                             1
+performances through RL, they largely rely on outcome-                         We exclude categories associated with conflicting or contra-
+                                                                         dictory evidence (e.g., Disputed and Refuted).
+
+                                                                     2
+                    Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+Table 2. ClinGen’s experimental evidence schema. Experimental           4. Process-Supervised Multi-Agent RL
+evidence categories and subtypes defined by ClinGen’s SOP. Each
+category contains two or more subtype labels that may be assigned       We frame the gene–disease validity curation task as a hierar-
+based on literature analysis.                                           chical MAS, in which a Supervisor Agent πθ orchestrates the
+    Category         Subtypes                                           reasoning process by invoking a set of K = 6 specialised
+                                                                        sub-agents A = {a1 , . . . , aK }. Each sub-agent specialises
+    Biochemical      (A) Shared biochemical function with
+                                                                        in a single evidence category (e.g., Model Systems, Rescue,
+    Function         genes implicated in the disease;
+                     (B) Biochemical function consistent                Expression) via prompt-based role assignment. When in-
+                     with disease phenotype.                            voked, a sub-agent evaluates a single article for evidence of
+                     Physical association;                              that type.
+    Protein          Genetic interaction (sensu unexpected);
+    Interaction      Negative genetic interaction;                      4.1. Task Definition and Agent Trajectories
+                     Positive genetic interaction.
+                                                                        An input instance is defined as a global context x =
+    Gene             (A) Gene expressed in tissues relevant
+    Expression       to the disease of interest;                        (g, d, Dabs ), consisting of a gene g, a disease d, and a set
+                     (B) Gene altered in expression in pa-              of relevant scientific abstracts Dabs = {D1 , . . . , DN }. The
+                     tients who have the disease.                       supervisor delegates the evaluation of specific evidence cat-
+    Functional       Patient cells;                                     egories on full-text articles to LLM sub-agents through dis-
+    Alteration       Non-patient cells.                                 crete tool calls:
+    Model            Non-human model organism;                                           c = (ak , idj ) ∈ A × Dabs ,                (1)
+    Systems          Cell culture model.
+                     Rescue in human;                                   where each call links a specific expert agent ak to a target
+                     Rescue in patient cells;                           document identifier idj .
+    Rescue
+                     Rescue in non-human model organism;
+                     Rescue in cell culture model.                      Supervisor Trajectory. Given a global input context x =
+                                                                        (g, d, Dabs ), the supervisor generates a trajectory:
+                                                                                                                       
+                                                                                      τsup = x, zplan , C, O, zsynth , y .    (2)
+detailed schema of the categories of experimental evidence              Here, zplan is the model’s reasoning before invoking the
+defined by ClinGen’s SOP is summarised in Table 2.                      tools C. C = {c1 , . . . , cm } denotes a batch of parallel
+                                                                        tool calls, while O = {o1 , . . . , om } represents the resulting
+                                                                        structured observations returned by the sub-agents. Finally,
+                                                                        the supervisor produces zsynth to generate the final validity
+Dataset Construction Training, development, and eval-
+                                                                        classification y ∈ Y. In this study, we constrain our experi-
+uation data are derived from the ClinGen Gene–Disease
+                                                                        ments to a single round of tool usage. While the supervisor
+Validity Curation database (Rehm et al., 2015; Wright et al.,
+                                                                        reasons in two stages (planning zplan and synthesis zsynth ),
+2024). We filtered the curated records to identify entries
+                                                                        all tool calls C are generated as a single parallel batch. Fig-
+containing experimental evidence annotations linked to pub-
+                                                                        ure 2 illustrates the supervisor trajectory and its interaction
+lications within the PubMed Central Open Access (PMC-
+                                                                        with specialised sub-agents as tool environment.
+OA) subset. This process yielded a final corpus of 1,994
+valid articles. We define each data instance as a case tu-
+                                                                        Supervisor Rollout with Ground-Truth Agent Obser-
+ple (g, d, D, E, y), comprising the unique gene–disease pair
+                                                                        vations. During supervisor training, rolling out all sub-
+(g, d), the set of associated open-access articles D, the aggre-
+                                                                        agents to obtain structured observations O = (o1 , . . . , om )
+gate evidence annotations E, and the final validity classifica-
+                                                                        can incur substantial computational overhead, particularly
+tion y. ClinGen records are organised into Gene Curation
+                                                                        under Group Relative Policy Optimisation (GRPO; Shao
+Expert Panels (GCEPs), each chaired by specialists in spe-
+                                                                        et al., 2024), where the number of sampled trajectories
+cific clinical domains (e.g., the Hereditary Cardiovascular
+                                                                        scales with the group size. To reduce this cost, we adopt
+Disease panel). While all 58 active panels adhere to the SOP,
+                                                                        a strategy in which the supervisor πθ is conditioned on
+the specific literature distributions and annotation nuances
+                                                                        ground-truth sub-agent observations rather than on sampled
+vary by domain. We exploit this organisational structure
+                                                                        LLM sub-agent outputs. Formally, for a given input instance
+by assigning entire panels exclusively to the training, de-
+                                                                        x = (g, d, Dabs ) and a set of tool calls C = (c1 , . . . , cm ),
+velopment, or test splits. The held-out panel split enables
+                                                                        where each ci = (ak , idj ) routes agent ak to document Dj ,
+evaluation of generalisation, as the model must transfer rea-
+                                                                        we construct a synthetic observation
+soning patterns to evidence curated by unseen expert groups                                                         
+and across novel clinical specialties.                                                       Õ = õ1 , . . . , õm                  (3)
+
+                                                                    3
+                     Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+
+
+
+Figure 2. Training trajectories for single-agent and multi-agent settings. In the single-agent setting (left), a single model optionally
+retrieves full text and directly predicts evidence subtypes and the final validity class. Process reward is applied at the level of evidence
+subtypes. In the multi-agent setting (right), a supervisor model invokes specialised sub-agents through tool calls, and aggregates their
+outputs to construct (subtype-level) evidence profile and predicts the final validity class. Process reward is applied at the level of the
+supervisor’s agent call(s).
+
+
+by retrieving from ground-truth subtype labels. Each in-                 for real-world deployment, where evidence assessment must
+jected õi includes the correct evidence subtype label for               be transparent and incrementally updated as new studies
+(ak , Dj ) as well as natural-language evidence summary by               emerge.
+a clinician. This allows the supervisor to generate training
+time trajectories                                                        4.2. Reward Design
+                                                                         We train πθ to predict the correct validity class while in-
+                                                  
+              τ̃sup = x, zplan , C, Õ, zsynth , y ,      (4)
+                                                                         voking specialised sub-agents to ground decisions in evi-
+reducing training costs and mitigating the noise introduced              dence categories defined by the SOP. We optimise this with
+by incorrect or incomplete sub-agent predictions during                  GRPO (Shao et al., 2024) using a reward R that combines
+training.                                                                outcome reward with tool call-level process reward.
+
+Sub-Agent Trajectory. During inference, each invoked                     Outcome Reward (Rout ). Outcome reward evaluates the
+sub-agent ak operates on a specific document instance with               correctness of the final validity classification y. Given the
+full-text visibility. Upon receiving a call c = (ak , idj ), the         ordinal nature of the ClinGen scale (Definitive > Strong >
+sub-agent’s trajectory is defined as:                                    Moderate > Limited > No Known Disease Relationship),
+                                                                       we map the label set Y to integer ranks rank(·) ∈ {0, . . . , 4}
+               τsub = (g, d, Djfull ), zreason , e ,         (5)         (where 0 = No Known Disease Relationship and 4 = Defini-
+                                                                         tive). We employ a centered distance-based reward:
+where Djfull is the full text of the article specified by the
+supervisor in the tool argument. Each sub-agent generates                   Rout (y, y ∗ ) = σ · (1 − α · |rank(y) − rank(y ∗ )|) ,     (6)
+a local reasoning trace zreason and returns a structured evi-
+dence object e which forms the observation o ∈ O, where                  where α = 0.5 centers the base metric to [−1, +1] (penal-
+e = (S, M). S is the set of predicted evidence subtypes                  ising catastrophic errors while rewarding exact matches),
+for document Dj (possibly empty), and M is an evidence-                  and σ = 4.0 scales the final reward signal. This results in a
+specific rationale summarising the reasoning behind the                  value range of Rout ∈ [−4, +4], incentivising the model to
+sub-agent’s conclusion, mirroring the real-world clinical cu-            predict labels that are ordinally close to the ground truth.
+ration workflow in which clinicians record natural-language
+summaries together with evidence annotations. We empha-                  Process Reward (Rproc ). The process reward Rproc eval-
+sise that providing such rationales is a crucial prerequisite            uates the quality of agent invocations. Given the set of
+
+                                                                     4
+                                      Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+         3.5
+                                                                      2.0                                                       0.5                                                             1.6
+         3.0
+                                                                      1.5                                                                                                                       1.4
+
+         2.5                                                                                                                    0.0
+                                                                      1.0                                                                                                                       1.2
+
+
+
+Reward                                                       Reward                                                    Reward                                                          Reward
+         2.0                                                                                                                                                                                    1.0
+                                                                      0.5
+                                                                                                                                0.5
+                                                                                                                                                                                                0.8
+         1.5                                                          0.0
+                                                                                                                                                                                                0.6
+         1.0                                    Model Size            0.5                                 Model Size            1.0                                       Model Size                                                 Model Size
+                                                     1.7B                                                      1.7B                                                            1.7B             0.4                                       1.7B
+         0.5                                         4B               1.0                                      4B                                                              4B                                                         4B
+                                                     8B                                                        8B               1.5
+                                                                                                                                                                               8B               0.2
+                                                                                                                                                                                                                                          8B
+               0         100              200                               0          100          200                               0           100               200                               0           100          200
+                               Step                                                          Step                                                       Step                                                            Step
+
+                   (a) Outcome-Only                                             (b) Hybrid (Total)                                        (c) Hybrid (Process)                                            (d) Hybrid (Outcome)
+Figure 3. Supervisor reward trajectories. Reward progression over training steps for (a) outcome-only total reward, (b) hybrid reward,
+(c) process component of the hybrid reward, and (d) outcome component of the hybrid reward. Longer convergence trajectories and
+single-agent trajectories are provided in the Appendix C.
+
+
+predicted tool calls C and ground-truth tool calls C∗ , we                                                                      the supervisor is conditioned on ground-truth observations
+compute the base alignment score s as the F1 score:                                                                             during training. For each input x, the model samples a group
+                                                  2 · |C ∩ C∗ |                                                                 of G trajectories {τ̃1 , . . . , τ̃G } following Equation (4) from
+                                       s=                       ,                                            (7)                the policy πθold . GRPO uses the group mean reward as a
+                                                   |C| + |C∗ |
+                                                                                                                                baseline, removing the need for a learned value function.
+where the intersection ∩ denotes exact matches on both                                                                          We exclude the KL divergence term from the loss. The
+agent type and input arguments. To discourage suboptimal                                                                        objective is:
+agent invocation strategies and accelerate convergence, we
+                                                                                                                                                                                                                 G
+apply a cubic shaping function to the base score. Since
+                                                                                                                                                                                                            
+                                                                                                                                                                                       1 X      
+we leverage foundational models with native tool-calling                                                                              JGRPO (θ) =Ex∼D E{τ̃i }G
+                                                                                                                                                             i=1 ∼πθ
+                                                                                                                                                                                             min ρi Ai ,
+                                                                                                                                                                                   old G i=1
+capabilities, we do not introduce complex format rewards.                                                                                                                               
+Instead, we include a minimal penalty term for malformed                                                                                                       clip(ρi , 1 − ϵ, 1 + ϵ)Ai ,
+tool blocks. We define a tool block as the text segment
+enclosed within <tool call> and </tool call> tags.                                                                                                                                                                                      (10)
+A block is penalised if its content fails to parse as valid
+                                                                                                                                where the importance sampling ratio is defined over the
+JSON or if the parsed object lacks required argument keys
+                                                                                                                                generated tokens of the trajectory:
+(i.e., PMID, PMCID, gene, and disease) required by the
+agent schema. Denoting nerr as the number of malformed                                                                                                                             πθ (τ̃i | x)
+tool blocks, the final process reward is:                                                                                                                          ρi =                                                                 (11)
+                                                                                                                                                                                  πθold (τ̃i | x)
+                               γ                
+        Rproc = clip γ · s3 − − λ · nerr , −4, 4 ,      (8)                                                                     and the group-relative advantage normalises the hybrid re-
+                                2
+                                                                                                                                ward Rhybrid in Equation (9) against the group statistics:
+where γ = 8.0 scales the base score s ∈ [0, 1] to [−4, +4],
+and λ = 0.5 is the penalty coefficient for each malformed                                                                                        Rhybrid (τ̃i ) − mean({Rhybrid (τ̃j )}G
+                                                                                                                                                                                       j=1 )
+tool calls.                                                                                                                               Ai =                             G
+                                                                                                                                                                                             .                                          (12)
+                                                                                                                                                       std({Rhybrid (τ̃j )}j=1 ) + δ
+Hybrid Process + Outcome Reward (RHybrid ). To incen-
+tivise the ”right answer for the right reasons” trajectories,
+we employ a hybrid reward configuration. The total reward                                                                       Single-Agent Baseline. We implement a single-agent
+Rhybrid is computed as the weighted sum of the process and                                                                      pipeline as a baseline for comparison with our hierarchi-
+outcome components:                                                                                                             cal multi-agent framework. In this setting, a single agent is
+                                                                                                                                responsible for both identifying relevant evidence, including
+                       Rhybrid = σ · [βRout + (1 − β)Rproc ] .                                               (9)                subtype distinctions, and producing the final validity classifi-
+We set the balancing coefficient β = 0.5, ensuring that                                                                         cation y. Given an input context x = (g, d, Dabs ), the agent
+both the final diagnosis and the supporting evidence path                                                                       produces a trajectory τsingle = (x, Cft , Dfull , zreason , Jout ),
+contribute equally to the combined reward within the global                                                                     where Cft denotes optional tool invocations to the function
+range of [−4, +4].                                                                                                              get full text() that retrieves the full text of an article
+                                                                                                                                given its identifier, and Dfull denotes any retrieved full-text
+                                                                                                                                articles. The response concludes with a structured JSON
+4.3. Group Relative Policy Optimisation (GRPO)
+                                                                                                                                object Jout that contains (i) a list of evidence items Efine
+We optimise the supervisor policy πθ using Group Relative                                                                       predicted at the subtype level for individual articles, and (ii)
+Policy Optimisation (GRPO). As described in Section 4.1,                                                                        a single predicted validity label y. While the process reward
+
+                                                                                                                       5
+                    Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+Table 3. Main Experimental Results. We compare results from the proposed hybrid process + outcome reward (shaded) against the
+base model and an outcome-only GRPO baseline across single-agent and multi-agent settings. GRPO with hybrid reward consistently
+improves process metrics (Agent Call and Evidence accuracy/F1) while also improving outcome accuracy. Best metrics are bolded,
+second-best are underlined. In all multi-agent configurations, the supervisor and sub-agents share the same base model. The supervisor
+model is subsequently trained in GRPO settings, while sub-agents remain frozen (base model).
+
+  Model           Setting                              Single-Agent                                       Multi-Agent
+                                             Outcome    Evidence      Evidence    Outcome    Agent Call    Agent Call     Evidence        Evidence
+                                              Acc.        Acc.           F1        Acc.        Acc.           F1            Acc.             F1
+  DeepSeek-V3.2   Base Model                  0.209       0.086           0.451     0.209      0.177         0.464          0.114           0.455
+  GPT-5-mini      Base Model                  0.209       0.027           0.207     0.191      0.114         0.485          0.095           0.331
+                  Base Model                  0.214       0.000           0.171     0.314      0.186         0.467         0.014            0.353
+  Qwen3-1.7B      GRPO (Outcome Only)         0.777       0.082           0.164     0.786      0.114         0.383         0.109            0.184
+                  GRPO (Process + Outcome)    0.782       0.332           0.575     0.750      0.395         0.485         0.291*           0.501
+                  Base Model                  0.045       0.032           0.367     0.195      0.105         0.504         0.068            0.417
+  Qwen3-4B        GRPO (Outcome Only)         0.782       0.095           0.286     0.732      0.082         0.479         0.045            0.392
+                  GRPO (Process + Outcome)    0.786       0.382           0.557     0.732      0.455         0.588         0.291*           0.520
+                  Base Model                  0.077       0.005           0.324     0.218      0.132         0.436          0.095           0.469
+  Qwen3-8B        GRPO (Outcome Only)         0.764       0.118           0.300     0.705      0.127         0.426          0.077           0.396
+                  GRPO (Process + Outcome)    0.795       0.323           0.565     0.718      0.459         0.611          0.327           0.542
+
+
+
+for the supervisor in a multi-agentic system targets high-                 tool use and strong instruction-following behaviour. Exper-
+level agent routing, the process reward in this setting directly           iments with Qwen3-1.7B and Qwen3-4B were conducted
+targets fine-grained subtype predictions. For training, we                 on a compute node with four NVIDIA H100 (80GB) GPUs,
+apply corresponding outcome, process, and hybrid reward                    while experiments with Qwen3-8B used a node with four
+formulations to Jout , with the distinction that the process               NVIDIA H200 (141GB) GPUs. Training Configuration.
+component computes the base F1 score s at the evidence                     All GRPO training utilises multi-turn rollouts with a global
+subtype level:                                                             batch size of 16 and 8 responses per query, 5 epochs. We
+                     s = F1(Efine , E∗fine ).               (13)           set the sampling temperature to 0.8 and remove KL regular-
+                                                                           isation. For SFT, we used a micro-batch size of 1, a global
+Figure 2 illustrates the single-agent trajectory and compares
+                                                                           batch size of 4, and a maximum sequence length of 32,600
+it with that of the MAS supervisor.
+                                                                           tokens over 4 epochs. See Appendix D for full training
+                                                                           details.
+Sub-Agent Supervised Fine-Tuning. A key difference
+between the single-agent and multi-agent settings lies in                  Evaluation Metrics. We evaluate performance at three
+the granularity of the process reward. In the single-agent                 levels of granularity: final validity classification, evidence
+setup, evidence subtypes are predicted directly, whereas the               category, and evidence subtypes. Given a test set {xi }N   i=1 ,
+supervisor in the MAS is trained only to route queries to                  where each input is xi = (gi , di , Di ), outcome accuracy
+broader agent categories. We additionally evaluate the ef-                 measures whether the predicted validity classification (e.g.,
+fect of training both the supervisor and sub-agents. To this               Moderate) matches the ground truth on a per-input basis.
+                                                                           Agent call accuracy and evidence accuracy are exact-set
+end, we train a shared sub-agent LLM via supervised fine-                  metrics averaged over inputs:
+tuning (SFT) on high-quality traces generated by DeepSeek-
+                                                                                                                N
+V3.2 (DeepSeek-AI et al., 2025) to fulfill all agent roles.                                                     X           (i)       (i)
+                                                                                   Agent Call Accuracy = N1            1[Cpred = Ctrue ]
+Although all sub-agents share the same model weights, each
+                                                                                                                 i=1
+invocation uses a role-specific prompt and constrains the                                                       N
+output space to the evidence subtypes relevant to that cate-
+                                                                                                                X          (i)       (i)
+                                                                                    Evidence Accuracy = N1             1[Spred = Strue ]
+gory.                                                                                                           i=1
+
+                                                                                   (i)          (i)
+4.4. Experimental Settings                                                 Here Cpred and Ctrue denote the predicted and ground-
+                                                                           truth sets of tool calls for input i.            Each tool
+We implement all RL and SFT experiments using the veRL                     call consists of a tool name (e.g., “ExperimentalEvi-
+framework (Sheng et al., 2025). To support tool use and                    dence BiochemicalFunction agent”) and the required ar-
+multi-agentic topology, both single- and multi-agent settings              guments (PMID, PMCID, gene, disease) supplied to the
+are implemented using LangGraph, leveraging veRL’s inte-                           (i)       (i)
+                                                                           agent. Spred and Strue denote the predicted and ground-truth
+gration to enable graph-structured agentic workflows. We                                                         (i)
+use Qwen3 models (Yang et al., 2025a) at three scales (1.7B,               evidence profiles for input i. Spred is obtained from the
+                                                                                                                                    (i)
+4B, and 8B) for our experiments. All models support native                 outputs of the invoked sub-agents, whereas Strue is defined
+
+                                                                      6
+                               Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+                                                                                                        250
+                   0.9                                                                                                                                  TP
+                                                                                                                                                        TN                 150
+                                                                                                                                                                                                                  TP
+                                                                                                                                                                                                                  TN
+                                                                                                                                                        FN                                                        FN
+                                                                                                                                                        FP                                                        FP
+                                                                                                        200
+                   0.8
+                                                                                                        150                                                                100
+                   0.7
+                                                                                                Count                                                              Count
+                                                                                                        100
+
+
+
+
+Outcome Accuracy
+                   0.6                                                                                                                                                     50
+
+                                                                                                        50
+                   0.5
+                                                                                                         0                                                                  0
+                   0.4                                                                                   tio  n    on
+                                                                                                                  ssi    rat
+                                                                                                                            ion
+                                                                                                                               lSy
+                                                                                                                                    m
+                                                                                                                                           cti
+                                                                                                                                             Re
+                                                                                                                                                  on
+                                                                                                                                                scu
+                                                                                                                                                                            tio  n    on
+                                                                                                                                                                                     ssi    rat     lSy ste
+                                                                                                                                                                                                           ion
+                                                                                                    nc                            ste   ter         e                  nc                     inI nte       m
+                                                                   Training + Type
+                                                                                                               pre                                                                pre
+                                                Model Size                                      ica                     lte                 a                      ica                     lte        rac tio n
+                                                                                                   lFu        Ex      alA   Mo
+                                                                                                                              de     inI n                            lFu        Ex     alA   Mo
+                                                                                                                                                                                                 de  Re scu   e
+                   0.3                                                                      em                     on             Pro                          em                     on          Pro
+                                                DeepSeek-V3.2        No Training           ch
+                                                                                          Bio                  Fu
+                                                                                                                  cti
+                                                                                                                  n
+                                                                                                                                      te                      ch
+                                                                                                                                                             Bio                 Fu n
+                                                                                                                                                                                     cti              te
+                                                GPT-5-mini           GRPO (Outcome)
+                   0.2
+                                                Qwen3-8B             GRPO (P+O)                               (a) Outcome-Only                                        (b) Process + Outcome
+                   0.1                          Qwen3-4B             Single-Agent
+                                                Qwen3-1.7B           Multi-Agent          Figure 5. Sub-agent performance. Stacked bars show TP, TN,
+                   0.0                                                                    FN, and FP counts for each evidence agent called by supervisor
+                         0.0   0.1        0.2                0.3            0.4
+                                     Evidence Accuracy                                    trained with (a) outcome-only and (b) hybrid rewards. TP/FP/FN
+                                                                                          indicate correct/incorrect subtype predictions; TN indicates cor-
+Figure 4. Outcome accuracy vs. evidence accuracy for single-agent                         rectly predicting absence of evidence for a given category.
+and multi-agent configurations across model sizes and training
+settings. The plot illustrates how GRPO training with hybrid
+reward shifts performance along both axes.
+                                                                                          for reasoning quality in SOP-governed tasks, where coarse
+                                                                                          outcome labels fail to capture the complexity of the task or
+                                                                                          promote adherence to the clinically defined criteria.
+ by gold-standard annotations mapping each document in
+ D to evidence subtypes (e.g., Functional Alteration Patient
+                                                                                          5.2. GRPO with Hybrid Reward
+ cells, Biochemical Function B). Note that false-positive
+ agent calls are not penalised at the evidence accuracy level                             GRPO with a hybrid reward combines outcome and process-
+ if those sub-agents correctly predict no evidence.                                       level signals to encourage strong outcome accuracy while
+                                                                                          maintaining procedural validity. We observe that this hybrid
+We additionally report macro F1 at both the agent and
+                                                                                          reward consistently improves process metrics while main-
+subtype levels, averaged across inputs, where F1 is com-
+                                                                                          taining high outcome accuracy (Figure 4). For example,
+puted over predicted versus gold agent calls and evidence
+                                                                                          in the multi-agent Qwen3-4B setting, Agent Call accuracy
+subtypes, respectively. For the single-agent setting, we
+                                                                                          increases from 0.105 (base) and 0.082 (outcome-only) to
+report only outcome accuracy and evidence accuracy/F1,
+                                                                                          0.455, while Evidence F1 improves from 0.417 to 0.520,
+since the model directly predicts the final validity class and
+                                                                                          with outcome accuracy remaining stable at 0.732. Similar
+document-level subtypes.
+                                                                                          trends are observed for Qwen3-8B, where Agent Call F1
+                                                                                          improves from 0.436 (base) to 0.611 and Evidence F1 from
+ 5. Results and Analysis                                                                  0.469 to 0.542. Reward trajectories also reflect that hybrid
+                                                                                          training improves both reward components (Figure 3).
+We evaluate two reward schemes (outcome-only and hy-
+brid) across single-agent and multi-agent architectures, with                             Notably, across two agent configurations and three model
+results summarised in Table 3.                                                            sizes, training with hybrid reward improves outcome accu-
+                                                                                          racy beyond outcome-only training in four of six settings.
+ 5.1. GRPO with Outcome-Only Reward                                                       In the multi-agent setting, as Figure 5 illustrates, subtype-
+                                                                                          level Evidence Accuracy and F1 improve substantially de-
+ In this setting, the model is trained using an outcome-based                             spite the process reward being applied only at the agent-call
+ reward derived solely from the final validity class. While                               level. This suggests that improved high-level routing places
+ outcome-only training substantially improves outcome accu-                               sub-agents in more relevant contexts, indirectly enabling
+ racy (from 0.314 to 0.786 for Qwen3-1.7B in the multi-agent                              stronger fine-grained evidence prediction without explicit
+ setting), agents trained with outcome-only rewards exhibit                               subtype-level reward.
+ poor process alignment. For example, for Qwen3-1.7B,
+ multi-agent Agent Call accuracy drops from 0.186 in the
+                                                                                          5.3. Sub-Agent Fine-Tuning (SFT)
+ base model to 0.114 under outcome-only GRPO, and Evi-
+ dence F1 decreases from 0.353 to 0.184. Consistently across                              We further analyse multi-agent performance by comparing
+ both single-agent and multi-agent configurations, outcome-                               prompt-based sub-agents with sub-agents trained via SFT.
+ only GRPO degrades process metrics (Agent Call Acc./F1,                                  Fine-tuned sub-agents improve evidence accuracy and F1
+ Evidence Acc./F1) relative to the untrained baseline. This                               for the 1.7B and 8B models, and increase evidence accuracy
+ suggests that outcome accuracy alone is an unreliable proxy                              for the 4B model despite a slight decrease in F1 (Table 4).
+
+                                                                                      7
+                     Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+Table 4. Effect of Sub-Agent SFT Comparison of supervisor                  categories can improve process alignment.
+GRPO for MAS with and without sub-agent fine-tuning. Proc+Out
+denotes the inference setting using a supervisor trained with hybrid       Across both cases, the final validity classification is the same
+process and outcome rewards, while Proc+Out+SFT further fine-              due to the strong presence of Model Systems evidence. How-
+tunes the sub-agent model via SFT under the same supervisor.
+                                                                           ever, the divergence in evidence completeness in the second
+    Model / Config        Outcome      Evidence      Evidence              selected case indicates that the multi-agent approach scales
+                           Acc.          Acc.           F1                 more naturally to scenarios involving multiple experimental
+    Qwen3-1.7B
+                                                                           evidence types.
+     Proc+Out               0.750        0.291         0.501
+     Proc+Out+SFT           0.750        0.309         0.523               6. Discussion
+    Qwen3-4B
+     Proc+Out               0.732        0.291         0.520               Interpretability Although our evaluation focuses on out-
+     Proc+Out+SFT           0.750        0.323         0.512               come and process-level prediction performance, a crucial
+    Qwen3-8B                                                               advantage of MAS lies in its ability to produce structured,
+     Proc+Out               0.718        0.327         0.542               evidence-specific intermediate outputs. These intermediate
+     Proc+Out+SFT           0.709        0.332         0.542               rationales are indispensable for real-world clinical deploy-
+                                                                           ment. While a single agent can be prompted to produce both
+                                                                           the final validity class and supporting evidence, its reason-
+These results suggest that jointly training a unified sub-                 ing is not easily decomposable by evidence type, limiting
+agent model yields synergistic gains when combined with                    interpretability at the level required for clinical curation.
+supervisor training. Notably, these gains are achieved using               By contrast, MAS yields structured outputs for each agent,
+a single shared sub-agent model with role-specific prompts,                including explanation field that mirrors how clinicians
+rather than training separate models for each agent role.                  record natural-language evidence summaries. Moreover,
+                                                                           MAS allows reasoning traces to be inspected at the level
+5.4. Case Studies                                                          of individual evidence categories. This is crucial in clinical
+                                                                           curation settings, where evidence assessments accumulate
+To examine how the single-agent and multi-agent formula-                   over time as new studies are published, and where interme-
+tions perform under different levels of problem complexity,                diate evidence annotations are essential both for arriving at
+we present two representative case studies. We select cases                a final validity class and for enabling clinicians to revisit
+where a single article is associated with the gene–disease                 past decisions and integrate emerging evidence (Andersen
+pair for simplicity. Full reasoning traces from both the                   et al., 2025).
+single-agent and multi-agent settings for selected cases are
+provided in the Appendix B.
+                                                                           7. Conclusion
+(1) POLR1D — Treacher Collins syndrome 2 (PMID:
+27448281).                                                                 In this work, we introduce a process-supervised multi-agent
+                                                                           RL framework for gene–disease validity curation. Our ap-
+In this example, both systems recovered the relevant Model                 proach trains a supervisor to coordinate specialised evidence
+Systems evidence and assigned the correct validity classi-                 agents using GRPO with a hybrid reward that combines
+fication (Definitive). The evidence is clear in the abstract,              outcome correctness and process-aligned agent invocation.
+well-aligned with the target disease, and does not require                 This hybrid approach substantially improves process fidelity
+weighing multiple categories. In such low-complexity set-                  while maintaining strong outcome accuracy. We show that
+tings, the single-agent approach can directly determine both               comparable gains can be achieved by training only the su-
+the outcome and the process alignment.                                     pervisor without updating sub-agent parameters, reducing
+(2) OCRL — Oculocerebrorenal syndrome (PMID:                               the computational overhead of multi-agent learning while
+22210625).                                                                 preserving the benefits of structured coordination. Although
+                                                                           a single-agent pipeline achieves higher quantitative perfor-
+In contrast, this case involves multiple relevant evidence                 mance, the MAS produces evidence-specific intermediate
+types (Model Systems and Rescue). While both systems still                 outputs that better reflect clinical curation practice. To-
+converged on the correct validity classification (Definitive),             gether, our study proposes a multi-agent solution to the
+the single-agent recovered only one of the two evidence                    gene–disease validity curation task and positions multi-
+categories. By delegating to specialised sub-agents, MAS                   agent RL as a promising direction for a broader class of
+identified an additional evidence type and produced a more                 SOP-governed clinical tasks (Hunter et al., 2016; Thaxton
+complete evidence profile. This suggests that when the                     et al., 2022) that have received limited attention in prior
+evidence signal is ambiguous or not directly stated in the                 LLM studies.
+abstract, assigning sub-agents to focus on specific evidence
+
+                                                                       8
+                   Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+Impact Statement                                                       3600. doi: https://doi.org/10.1016/j.gim.2024.101228.
+                                                                       URL       https://www.sciencedirect.com/
+This work aims to improve the reliability of LLM-based de-             science/article/pii/S109836002400162X.
+cision support in healthcare by aligning training objectives
+with the procedural requirements of a real-world clinical            Chen, P., Han, B., and Zhang, S. Comm: Collaborative
+task. We introduce a multi-agent reinforcement learning                multi-agent, multi-reasoning-path prompting for complex
+framework for gene–disease validity curation, a real-world             problem solving, 2024. URL https://arxiv.org/
+clinical task that underpins rare disease diagnosis and di-            abs/2404.17729.
+rectly impacts both clinicians and patients. This task exem-
+plifies a broader class of clinical reasoning problems that          DeepSeek-AI, Liu, A., Mei, A., Lin, B., Xue, B., Wang,
+require transparent evaluation of heterogeneous evidence               B., Xu, B., Wu, B., Zhang, B., Lin, C., Dong, C., Lu, C.,
+under strict clinical SOPs. By incorporating process-aligned           Zhao, C., Deng, C., Xu, C., Ruan, C., Dai, D., Guo, D.,
+rewards framed as agent invocation supervision, our ap-               Yang, D., Chen, D., Li, E., Zhou, F., Lin, F., Dai, F., Hao,
+proach improves process fidelity while producing structured,           G., Chen, G., Li, G., Zhang, H., Xu, H., Li, H., Liang,
+auditable intermediate outputs. These evidence-specific ra-            H., Wei, H., Zhang, H., Luo, H., Ji, H., Ding, H., Tang,
+tionales are a critical requirement for real-world deployment,         H., Cao, H., Gao, H., Qu, H., Zeng, H., Huang, J., Li,
+enabling clinicians to inspect, revise, and update decisions           J., Xu, J., Hu, J., Chen, J., Xiang, J., Yuan, J., Cheng, J.,
+as new literature emerges. The system is designed to assist            Zhu, J., Ran, J., Jiang, J., Qiu, J., Li, J., Song, J., Dong,
+rather than replace clinicians’ curation efforts, and was de-          K., Gao, K., Guan, K., Huang, K., Zhou, K., Huang, K.,
+veloped in close collaboration with a clinician with directly         Yu, K., Wang, L., Zhang, L., Wang, L., Zhao, L., Yin,
+relevant domain expertise. Beyond gene–disease curation,               L., Guo, L., Luo, L., Ma, L., Wang, L., Zhang, L., Di,
+we view this work as a first step toward tackling a broader            M. S., Xu, M. Y., Zhang, M., Zhang, M., Tang, M., Zhou,
+class of SOP-governed clinical tasks, encouraging more                 M., Huang, P., Cong, P., Wang, P., Wang, Q., Zhu, Q.,
+trustworthy and clinically grounded biomedical AI systems.             Li, Q., Chen, Q., Du, Q., Xu, R., Ge, R., Zhang, R., Pan,
+                                                                       R., Wang, R., Yin, R., Xu, R., Shen, R., Zhang, R., Liu,
+                                                                       S. H., Lu, S., Zhou, S., Chen, S., Cai, S., Chen, S., Hu,
+Acknowledgement                                                        S., Liu, S., Hu, S., Ma, S., Wang, S., Yu, S., Zhou, S.,
+This research was funded in whole or in part by the Well-              Pan, S., Zhou, S., Ni, T., Yun, T., Pei, T., Ye, T., Yue, T.,
+come Trust [226083/Z/22/Z] for PARADIGM (Primary                       Zeng, W., Liu, W., Liang, W., Pang, W., Luo, W., Gao,
+Annotated Resources to Advance Discovery In Genomic                   W., Zhang, W., Gao, X., Wang, X., Bi, X., Liu, X., Wang,
+Medicine). For the purpose of open access, the author has              X., Chen, X., Zhang, X., Nie, X., Cheng, X., Liu, X., Xie,
+applied a CC-BY public copyright licence to any author                 X., Liu, X., Yu, X., Li, X., Yang, X., Li, X., Chen, X.,
+accepted manuscript version arising from this submission.              Su, X., Pan, X., Lin, X., Fu, X., Wang, Y. Q., Zhang, Y.,
+C.L. was supported by the United Kingdom Research and In-              Xu, Y., Ma, Y., Li, Y., Li, Y., Zhao, Y., Sun, Y., Wang, Y.,
+novation (grant EP/S02431X/1), UKRI Centre for Doctoral                Qian, Y., Yu, Y., Zhang, Y., Ding, Y., Shi, Y., Xiong, Y.,
+Training in Biomedical AI at the University of Edinburgh,              He, Y., Zhou, Y., Zhong, Y., Piao, Y., Wang, Y., Chen, Y.,
+School of Informatics. For the purpose of open access, the             Tan, Y., Wei, Y., Ma, Y., Liu, Y., Yang, Y., Guo, Y., Wu,
+author has applied a creative commons attribution (CC BY)             Y., Wu, Y., Cheng, Y., Ou, Y., Xu, Y., Wang, Y., Gong,
+licence to any author accepted manuscript version arising.            Y., Wu, Y., Zou, Y., Li, Y., Xiong, Y., Luo, Y., You, Y.,
+                                                                       Liu, Y., Zhou, Y., Wu, Z. F., Ren, Z. Z., Zhao, Z., Ren,
+                                                                       Z., Sha, Z., Fu, Z., Xu, Z., Xie, Z., Zhang, Z., Hao, Z.,
+References                                                             Gou, Z., Ma, Z., Yan, Z., Shao, Z., Huang, Z., Wu, Z.,
+Andersen, E. F., Azzariti, D. R., Babb, L., Berg, J. S.,               Li, Z., Zhang, Z., Xu, Z., Wang, Z., Gu, Z., Zhu, Z., Li,
+  Biesecker, L. G., Bly, Z., Buchanan, A. H., DiSte-                   Z., Zhang, Z., Xie, Z., Gao, Z., Pan, Z., Yao, Z., Feng,
+  fano, M. T., Gong, L., Harrison, S. M., Hunter, J. E.,               B., Li, H., Cai, J. L., Ni, J., Xu, L., Li, M., Tian, N.,
+  Kattman, B., Klein, T. E., Landrum, M. J., Manickam,                 Chen, R. J., Jin, R. L., Li, S. S., Zhou, S., Sun, T., Li,
+  K., Marroquin, A. S., Martin, C. L., Milko, L. V.,                   X. Q., Jin, X., Shen, X., Chen, X., Song, X., Zhou, X.,
+  Milosavljevic, A., Morales, J., Nelson, T. H., Plon,                 Zhu, Y. X., Huang, Y., Li, Y., Zheng, Y., Zhu, Y., Ma, Y.,
+  S. E., Powell, B. C., Ramos, E. M., Rehm, H. L.,                     Huang, Z., Xu, Z., Zhang, Z., Ji, D., Liang, J., Guo, J.,
+  Riggs, E. R., Ritter, D., Shah, N., Thaxton, C. L.,                  Chen, J., Xia, L., Wang, M., Li, M., Zhang, P., Chen, R.,
+ Thorland, E. C., Weaver, M. A., Weller, P. L., and                    Sun, S., Wu, S., Ye, S., Wang, T., Xiao, W. L., An, W.,
+ Wright, M. W. The clinical genome resource (clingen):                Wang, X., Sun, X., Wang, X., Tang, Y., Zha, Y., Zhang,
+ Advancing genomic knowledge through global curation.                  Z., Ju, Z., Zhang, Z., and Qu, Z. Deepseek-v3.2: Pushing
+ Genetics in Medicine, 27(1):101228, 2025. ISSN 1098-                  the frontier of open large language models, 2025. URL
+                                                                       https://arxiv.org/abs/2512.02556.
+
+                                                                 9
+                   Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+DiStefano, M. T., Goehringer, S., Babb, L., Alkuraya, F. S.,              reason and leverage search engines with reinforcement
+  Amberger, J., Amin, M., Austin-Tse, C., Balzotti, M.,                   learning, 2025. URL https://arxiv.org/abs/
+  Berg, J. S., Birney, E., Bocchini, C., Bruford, E. A., Cof-             2503.09516.
+  fey, A. J., Collins, H., Cunningham, F., Daugherty, L. C.,
+  Einhorn, Y., Firth, H. V., Fitzpatrick, D. R., Foulger, R. E.,        Jin, Q., Wang, Z., Yang, Y., Zhu, Q., Wright, D., Huang,
+  Goldstein, J., Hamosh, A., Hurles, M. R., Leigh, S. E.,                  T., Wilbur, W. J., He, Z., Taylor, A., Chen, Q., and Lu, Z.
+  Leong, I. U., Maddirevula, S., Martin, C. L., McDon-                     Agentmd: Empowering language agents for risk predic-
+  agh, E. M., Olry, A., Puzriakova, A., Radtke, K., Ramos,                 tion with large-scale clinical tool learning, 2024. URL
+  E. M., Rath, A., Riggs, E. R., Roberts, A. M., Rodwell,                  https://arxiv.org/abs/2402.13225.
+  C., Snow, C., Stark, Z., Tahiliani, J., Tweedie, S., Ware,            Kim, Y., Park, C., Jeong, H., Chan, Y. S., Xu, X., McDuff,
+  J. S., Weller, P., Williams, E., Wright, C. F., Yates, T. M.,           D., Lee, H., Ghassemi, M., Breazeal, C., and Park, H. W.
+  and Rehm, H. L. The gene curation coalition: A global                   Mdagents: An adaptive collaboration of llms for medical
+  effort to harmonize gene–disease evidence resources.                    decision-making, 2024. URL https://arxiv.org/
+  Genetics in Medicine, 24(8):1732–1742, 2022. ISSN                       abs/2404.15155.
+  1098-3600. doi: https://doi.org/10.1016/j.gim.2022.04.
+  017. URL https://www.sciencedirect.com/                               Lai, Y., Zhong, J., Li, M., Zhao, S., Li, Y., Psounis, K., and
+  science/article/pii/S1098360022007468.                                  Yang, X. Med-r1: Reinforcement learning for generaliz-
+                                                                          able medical reasoning in vision-language models, 2025.
+Fan, Z., Tang, J., Chen, W., Wang, S., Wei, Z., Xi, J., Huang,
+                                                                          URL https://arxiv.org/abs/2503.13939.
+  F., and Zhou, J. Ai hospital: Benchmarking large lan-
+  guage models in a multi-agent medical interaction simula-             Li, B., Yan, T., Pan, Y., Luo, J., Ji, R., Ding, J., Xu, Z., Liu,
+  tor, 2024. URL https://arxiv.org/abs/2402.                              S., Dong, H., Lin, Z., and Wang, Y. Mmedagent: Learn-
+  09742.                                                                  ing to use medical tools with multi-modal agent, 2024.
+                                                                          URL https://arxiv.org/abs/2407.02483.
+Feng, Y., Wang, J., Zhou, L., Lei, Z., and Li, Y. Doctoragent-
+  rl: A multi-agent collaborative reinforcement learning                Li, J., Lai, Y., Li, W., Ren, J., Zhang, M., Kang, X., Wang,
+  system for multi-turn clinical dialogue, 2025. URL                      S., Li, P., Zhang, Y.-Q., Ma, W., and Liu, Y. Agent
+  https://arxiv.org/abs/2505.19630.                                       hospital: A simulacrum of hospital with evolvable medi-
+Gao, S., Zhu, R., Kong, Z., Noori, A., Su, X., Ginder, C.,                cal agents, 2025. URL https://arxiv.org/abs/
+  Tsiligkaridis, T., and Zitnik, M. Txagent: An ai agent                  2405.02957.
+  for therapeutic reasoning across a universe of tools, 2025.           Liu, P. R., Bansal, S., Dinh, J., Pawar, A., Satishkumar, R.,
+  URL https://arxiv.org/abs/2503.10970.                                   Desai, S., Gupta, N., Wang, X., and Hu, S. Medchat:
+Huang, K., Zhang, S., Wang, H., Qu, Y., Lu, Y.,                           A multi-agent framework for multimodal diagnosis with
+  Roohani, Y., Li, R., Qiu, L., Li, G., Zhang, J., Yin,                   large language models. In 2025 IEEE 8th International
+  D., Marwaha, S., Carter, J. N., Zhou, X., Wheeler,                      Conference on Multimedia Information Processing and
+  M., Bernstein, J. A., Wang, M., He, P., Zhou, J.,                       Retrieval (MIPR), pp. 456–462. IEEE, August 2025. doi:
+  Snyder, M., Cong, L., Regev, A., and Leskovec,                          10.1109/mipr67560.2025.00078. URL http://dx.
+ J. Biomni: A general-purpose biomedical ai agent.                        doi.org/10.1109/MIPR67560.2025.00078.
+  bioRxiv, 2025.    doi: 10.1101/2025.05.30.656746.
+                                                                        Qian, C., Acikgoz, E. C., He, Q., Wang, H., Chen, X.,
+  URL https://www.biorxiv.org/content/
+                                                                          Hakkani-Tür, D., Tur, G., and Ji, H. Toolrl: Reward is
+  early/2025/06/02/2025.05.30.656746.
+                                                                          all tool learning needs, 2025. URL https://arxiv.
+Hunter, J. E., Irving, S. A., Biesecker, L. G., Buchanan, A.,             org/abs/2504.13958.
+  Jensen, B., Lee, K., Martin, C. L., Milko, L., Muessig,
+                                                                        Rehm, H. L., Berg, J. S., Brooks, L. D., Bustamante, C. D.,
+  K., Niehaus, A. D., et al. A standardized, evidence-
+                                                                          Evans, J. P., Landrum, M. J., Ledbetter, D. H., Maglott,
+  based protocol to assess clinical actionability of genetic
+                                                                          D. R., Martin, C. L., Nussbaum, R. L., Plon, S. E.,
+  disorders associated with genomic variation. Genetics in
+                                                                          Ramos, E. M., Sherry, S. T., and Watson, M. S. Clin-
+ Medicine, 18(12):1258–1268, 2016.
+                                                                          gen — the clinical genome resource. New England
+International Rare Diseases Research Consortium (IRDiRC).                 Journal of Medicine, 372(23):2235–2242, 2015. doi:
+   Rare diseases: 300 million patients worldwide. IRDiRC                  10.1056/NEJMsr1406261. URL https://www.nejm.
+   report, 2017.                                                          org/doi/full/10.1056/NEJMsr1406261.
+
+Jin, B., Zeng, H., Yue, Z., Yoon, J., Arik, S., Wang, D.,               Rose, D., Hung, C.-C., Lepri, M., Alqassem, I., Gashteovski,
+   Zamani, H., and Han, J. Search-r1: Training llms to                    K., and Lawrence, C. Meddxagent: A unified modular
+
+                                                                   10
+                   Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+  agent framework for explainable automatic differential                R. W., Burger, D., and Wang, C. Autogen: Enabling next-
+  diagnosis, 2025. URL https://arxiv.org/abs/                           gen llm applications via multi-agent conversation, 2023.
+  2502.19175.                                                           URL https://arxiv.org/abs/2308.08155.
+
+Schick, T., Dwivedi-Yu, J., Dessı̀, R., Raileanu, R., Lomeli,         Yang, A., Li, A., Yang, B., Zhang, B., Hui, B., Zheng,
+  M., Zettlemoyer, L., Cancedda, N., and Scialom, T.                    B., Yu, B., Gao, C., Huang, C., Lv, C., Zheng, C., Liu,
+  Toolformer: Language models can teach themselves to                   D., Zhou, F., Huang, F., Hu, F., Ge, H., Wei, H., Lin,
+  use tools, 2023. URL https://arxiv.org/abs/                           H., Tang, J., Yang, J., Tu, J., Zhang, J., Yang, J., Yang,
+  2302.04761.                                                           J., Zhou, J., Zhou, J., Lin, J., Dang, K., Bao, K., Yang,
+                                                                        K., Yu, L., Deng, L., Li, M., Xue, M., Li, M., Zhang,
+Schmidgall, S., Ziaei, R., Harris, C., Reis, E., Jopling,               P., Wang, P., Zhu, Q., Men, R., Gao, R., Liu, S., Luo,
+  J., and Moor, M. Agentclinic: a multimodal agent                      S., Li, T., Tang, T., Yin, W., Ren, X., Wang, X., Zhang,
+  benchmark to evaluate ai in simulated clinical envi-                  X., Ren, X., Fan, Y., Su, Y., Zhang, Y., Zhang, Y., Wan,
+  ronments, 2025. URL https://arxiv.org/abs/                            Y., Liu, Y., Wang, Z., Cui, Z., Zhang, Z., Zhou, Z., and
+  2405.07960.                                                           Qiu, Z. Qwen3 technical report, 2025a. URL https:
+                                                                        //arxiv.org/abs/2505.09388.
+Shao, Z., Wang, P., Zhu, Q., Xu, R., Song, J., Bi, X.,
+  Zhang, H., Zhang, M., Li, Y. K., Wu, Y., and Guo,                   Yang, D., Wei, J., Li, M., Liu, J., Liu, L., Hu, M., He,
+  D. Deepseekmath: Pushing the limits of mathemat-                      J., Ju, Y., Zhou, W., Liu, Y., and Zhang, L. Medaide:
+  ical reasoning in open language models, 2024. URL                     Information fusion and anatomy of medical intents via
+  https://arxiv.org/abs/2402.03300.                                     llm-based agent collaboration, 2025b. URL https:
+                                                                        //arxiv.org/abs/2410.12532.
+Sheng, G., Zhang, C., Ye, Z., Wu, X., Zhang, W., Zhang, R.,
+  Peng, Y., Lin, H., and Wu, C. Hybridflow: A flexible and            Yang, Y., Chai, H., Shao, S., Song, Y., Qi, S., Rui, R.,
+  efficient rlhf framework. In Proceedings of the Twentieth             and Zhang, W. Agentnet: Decentralized evolutionary
+  European Conference on Computer Systems, EuroSys                      coordination for llm-based multi-agent systems, 2025c.
+  ’25, pp. 1279–1297. ACM, March 2025. doi: 10.1145/                    URL https://arxiv.org/abs/2504.00587.
+  3689031.3696075. URL http://dx.doi.org/10.                          Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan,
+  1145/3689031.3696075.                                                 K., and Cao, Y. React: Synergizing reasoning and act-
+                                                                        ing in language models, 2023. URL https://arxiv.
+Shinn, N., Cassano, F., Berman, E., Gopinath, A.,
+                                                                        org/abs/2210.03629.
+  Narasimhan, K., and Yao, S. Reflexion: Language
+  agents with verbal reinforcement learning, 2023. URL                Yun, J., Sohn, J., Park, J., Kim, H., Tang, X., Shao, D.,
+  https://arxiv.org/abs/2303.11366.                                     Koo, Y. H., Minhyeok, K., Chen, Q., Gerstein, M., Moor,
+                                                                        M., and Kang, J. Med-PRM: Medical reasoning mod-
+Thaxton, C., Good, M. E., DiStefano, M. T., Luo, X., An-
+                                                                        els with stepwise, guideline-verified process rewards.
+  dersen, E. F., Thorland, E., Berg, J., Martin, C. L., Rehm,
+                                                                        In Christodoulopoulos, C., Chakraborty, T., Rose, C.,
+  H. L., Riggs, E. R., et al. Utilizing clingen gene-disease
+                                                                        and Peng, V. (eds.), Proceedings of the 2025 Confer-
+  validity and dosage sensitivity curations to inform variant
+                                                                        ence on Empirical Methods in Natural Language Pro-
+  classification. Human mutation, 43(8):1031–1040, 2022.
+                                                                        cessing, pp. 16554–16571, Suzhou, China, November
+Wang, Z., Wu, J., Cai, L., Low, C. H., Yang, X., Li, Q., and            2025. Association for Computational Linguistics. ISBN
+ Jin, Y. Medagent-pro: Towards evidence-based multi-                    979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main.
+ modal medical diagnosis via reasoning agentic work-                    837. URL https://aclanthology.org/2025.
+ flow, 2025. URL https://arxiv.org/abs/2503.                            emnlp-main.837/.
+ 18968.                                                               Zhao, W., Yuksekgonul, M., Wu, S., and Zou, J. Sirius: Self-
+                                                                        improving multi-agent systems via bootstrapped reason-
+Wright, M. W., Thaxton, C. L., Nelson, T., DiStefano, M. T.,
+                                                                        ing, 2025. URL https://arxiv.org/abs/2502.
+ Savatt, J. M., Brush, M. H., Cheung, G., Mandell, M. E.,
+                                                                        04780.
+ Wulf, B., Ward, T., et al. Generating clinical-grade gene–
+ disease validity classifications through the clingen data
+ platforms. Annual Review of Biomedical Data Science, 7,
+ 2024.
+
+Wu, Q., Bansal, G., Zhang, J., Wu, Y., Li, B., Zhu, E., Jiang,
+ L., Zhang, X., Zhang, S., Liu, J., Awadallah, A. H., White,
+
+                                                                 11
+                  Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+A. Agent Prompts
+We provide role-specific prompts for each agent in both multi-agent and single-agent settings. The full input context
+(retrieved article abstract or full-text) and Pydantic format instruction strings for structured JSON output have been omitted
+for brevity.
+
+A.1. Supervisor Prompt
+
+  PROMPT: Supervisor
+
+  You are a supervisor agent in a gene{disease validity curation system. Your role is
+  to evaluate the strength of monogenic gene{disease relationships using experimental
+  evidence from the scientific literature, following clinical curation standards.
+
+  The experimental evidences to be considered include:
+     • Biochemical Function
+     • Protein Interaction
+     • Gene Expression
+     • Functional Alteration
+     • Model Systems
+     • Rescue Experiments
+  As a supervisor, you can invoke subagents as tools to assist with evaluation. Each
+  subagent is responsible for one of these six evidence categories and evaluates the
+  corresponding evidence based on the full text of a single article.
+
+  You will be given:
+     • a gene{disease pair, and
+     • a batch of one or more scientific abstracts, each prefixed with "PMID: <pmid>,
+  PMCID: <pmcid>".
+
+  Your task for each abstract:
+  1. Briefly assess which experimental evidence types are likely present.
+  2. Call only the relevant subagents for that abstract.
+
+  Important constraints:
+     • Call all relevant subagents immediately after assessment of all provided
+  abstracts. There will be only one turn to call agents|you cannot make additional tool
+  calls after this turn.
+     • Not every abstract contains every evidence type; select only what is relevant.
+     • Every tool call must include the correct PMID and PMCID for the abstract being
+  evaluated.
+     • Subagents perform detailed evaluation of the article’s full text. Your role is
+  efficient and correct routing.
+
+  Final Classification:
+  In your second turn, after observing responses from all called subagents, provide a
+  single final classification of the gene{disease relationship strength based on the
+  combined experimental evidence found in full-text articles reported by the subagents.
+
+  Choose one of:
+     • Definitive
+     • Strong
+     • Moderate
+     • Limited
+     • No Known Disease Relationship
+
+  End your response with the classification exactly in the following format:
+  CLASSIFICATION: <one of: Definitive, Strong, Moderate, Limited, No Known Disease
+  Relationship>
+
+
+
+
+                                                             12
+                Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+A.2. Sub-agent Prompt
+
+   Agent: Biochemical Function
+
+   You are an expert for evaluating the strength of evidence supporting a
+   monogenic gene--disease relationship in literature based on biochemical
+   function.
+   Look for any evidence showing that the gene product of {gene name} performs
+   a biochemical function.
+   Determine whether the biochemical function is
+       - (A) shared with other known genes in the disease of interest
+   ({disease name}),
+       - (B) consistent with the phenotype.
+       - or both.
+   The biochemical function of both gene products must have been proven
+   experimentally, and not just predicted.
+   Ensure that the other known gene(s) also have compelling evidence supporting
+   their gene--disease relationship.
+
+
+
+   Agent: Protein Interaction
+
+   You are an expert for evaluating the strength of evidence supporting
+   a monogenic gene--disease relationship in literature based on protein
+   interaction.
+   Look for any evidence showing that the gene product of {gene name} interacts
+   with proteins previously implicated in {disease name}.
+   Proteins previously implicated in the disease of interest should have
+   compelling evidence to support the gene-disease relationship.
+   Typical examples of this data include, but are not limited to: physical
+   interaction via Yeast-2-Hybrid (Y2H), co-immunoprecipitation (coIP), etc.
+   NOTE: Some studies provide evidence that a variant in the gene of interest
+   disrupts the interaction of the gene product with another protein. In these
+   cases, the positive control, showing interaction between the two wild type
+   proteins, can be counted as evidence of protein interaction.
+   If ProteinInteraction evidence is found, determine which interaction type(s)
+   are reported in the article:
+      - positive genetic interaction - An effect in which two genetic
+   perturbations, when combined, result in a phenotype that is less
+   severe/penetrant than would be expected from the original phenotypes, in
+   effect making the organism more "wild type" in character with regards to the
+   phenotype in question.
+      - negative genetic interaction - An effect in which two genetic
+   perturbations, when combined, result in a phenotype that is more
+   severe/penetrant than expected given the phenotypes of the individual
+   perturbations.
+      - genetic interaction (sensu unexpected) - An effect in which two
+   genetic perturbations, when combined, result in an unexpected phenotype that
+   does not appear to be merely explained by the superimposition or addition of
+   effects of the original perturbations.
+      - physical association - Interaction between molecules within the same
+   physical complex. Can be identified under conditions which suggest that the
+   molecules are in close proximity but not necessarily in direct contact with
+
+
+                                                         13
+            Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+
+each other.
+
+
+
+Agent: Gene Expression
+
+You are an expert for evaluating the strength of evidence supporting a
+monogenic gene--disease relationship in literature based on gene expression.
+Look for any evidence showing that the gene {gene name} is expressed in
+tissues relevant to the {disease name} and/or is altered in expression in
+patients who have the disease.
+Typical examples of this data type are methods to detect RNA transcripts
+(RNAseq, microarrays, qPCR, qRT-PCR, Real-Time PCR), or protein expression
+(western blot, immunohistochemistry).
+Determine whether
+   - (A) the gene is expressed in tissues relevant to the disease of
+interest,
+   - (B) the gene is altered in expression in patients who have the
+disease,
+   - or both.
+
+
+
+Agent: Functional Alteration
+
+You are an expert for evaluating the strength of evidence supporting a
+monogenic gene--disease relationship in literature based on functional
+alteration.
+Look for any evidence showing that cultured cells, in which the function of
+the gene {gene name} has been disrupted, have a phenotype that is consistent
+with the human disease process of {disease name}. Examples include
+experiments involving expression of a genetic variant, gene knock-down,
+overexpression, etc.
+Determine whether the functional alteration experiment was conducted in
+   - patient cells,
+   - non-patient cells,
+   - or both.
+
+
+
+Agent: Model System
+
+You are an expert for evaluating the strength of evidence supporting a
+monogenic gene--disease relationship in literature based on non-human model
+organism or cell culture model.
+Look for any evidence showing that a non-human model organism or cell
+culture model with a disrupted copy of the gene {gene name} shows a
+phenotype consistent with the human disease state of {disease name}.
+NOTE: Cell culture models should recapitulate the features of the diseased
+tissue e.g. engineered heart tissue, or cultured brain slices.
+Determine whether the gene was disrupted in
+   - a non-human model organism,
+   - a cell culture model,
+   - or both.
+
+
+
+
+                                                     14
+                Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+   Agent: Rescue
+
+   You are an expert for evaluating the strength of evidence supporting a
+   monogenic gene--disease relationship in literature based on whether the
+   relevant phenotype can be rescued.
+   Look for any evidence showing that the phenotype associated with
+   {disease name} in humans (i.e. patients with the condition), non-human
+   model organisms, cell culture models, or patient cells can be rescued by
+   exogenous wild-type gene {gene name} or its gene product.
+   If the phenotype is caused by loss of function, consider evidence showing
+   that the phenotype can be rescued by exogenous wild-type gene, gene product,
+   or targeted gene editing. If the phenotype is caused by a gain of function
+   variant, consider the evidence showing that a treatment which specifically
+   blocks the action of the variant (e.g. siRNA, antibody, targeted gene
+   editing) rescues the phenotype.
+   If Rescue evidence is found, determine which type(s) are reported in the
+   article:
+      - rescue in human
+      - rescue in cell culture
+      - rescue in non-human model organism
+      - rescue in patient cells
+
+
+
+A.3. Single-agent Baseline Prompt
+
+  PROMPT: Single-Agent
+
+  You are an expert in a gene{disease validity curation system. Your role is to
+  evaluate the strength of monogenic gene{disease relationship between the gene
+  {gene name} and the disease {disease name} using experimental evidence from scientific
+  literature, following clinical curation standards. Experimental evidence to be
+  considered are:
+
+  1.    Biochemical Function:
+       Evidence showing that the gene product of {gene name} performs a biochemical
+       function.
+       Determine whether the biochemical function is
+           - (A) shared with other known genes in the disease of interest ({disease name}),
+           - (B) consistent with the phenotype.
+           - or both.
+       The biochemical function of both gene products must have been proven
+       experimentally, and not just predicted.
+       Ensure that the other known gene(s) also have compelling evidence supporting their
+       gene--disease relationship.
+
+  2.    Protein Interaction:
+       Evidence showing that the gene product of {gene name} interacts with proteins
+       previously implicated in {disease name}.
+       Proteins previously implicated in the disease of interest should have compelling
+       evidence to support the gene--disease relationship.
+       Typical examples of this data include, but are not limited to: physical
+       interaction via Yeast-2-Hybrid (Y2H), co-immunoprecipitation (coIP), etc.
+       NOTE: Some studies provide evidence that a variant in the gene of interest disrupts
+       the interaction of the gene product with another protein. In these cases, the
+       positive control, showing interaction between the two wild type proteins, can be
+       counted as evidence of protein interaction.
+       If ProteinInteraction evidence is found, determine which interaction type(s) are
+       reported:
+
+
+
+                                                         15
+             Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+
+        - Protein interactions positive genetic interaction - An effect in which
+     two genetic perturbations, when combined, result in a phenotype that is less
+     severe/penetrant than would be expected from the original phenotypes, in effect
+     making the organism more "wild type" in character with regards to the phenotype in
+     question.
+        - Protein interactions negative genetic interaction - An effect in which
+     two genetic perturbations, when combined, result in a phenotype that is
+     more severe/penetrant than expected given the phenotypes of the individual
+     perturbations.
+        - Protein interactions genetic interaction (sensu unexpected) - An effect in
+     which two genetic perturbations, when combined, result in an unexpected phenotype
+     that does not appear to be merely explained by the superimposition or addition of
+     effects of the original perturbations.
+        - Protein interactions physical association - Interaction between molecules
+     within the same physical complex. Can be identified under conditions which suggest
+     that the molecules are in close proximity but not necessarily in direct contact
+     with each other.
+
+3.    Expression:
+     Evidence showing that the gene {gene name} is expressed in tissues relevant to the
+     {disease name} and/or is altered in expression in patients who have the disease.
+     Typical examples of this data type are methods to detect RNA transcripts (RNAseq,
+     microarrays, qPCR, qRT-PCR, Real-Time PCR), or protein expression (western blot,
+     immunohistochemistry).
+     Determine whether
+         - (A) the gene is expressed in tissues relevant to the disease of interest,
+         - (B) the gene is altered in expression in patients who have the disease,
+         - or both.
+
+4.    Functional Alteration:
+     Evidence showing that cultured cells, in which the function of the gene {gene name}
+     has been disrupted, have a phenotype that is consistent with the human disease
+     process of {disease name}. Examples include experiments involving expression of a
+     genetic variant, gene knock-down, overexpression, etc.
+     Determine whether the functional alteration experiment was conducted in
+         - patient cells,
+         - non-patient cells,
+         - or both.
+
+5.    Model System:
+     Evidence showing that a non-human model organism or cell culture model with a
+     disrupted copy of the gene {gene name} shows a phenotype consistent with the human
+     disease state of {disease name}.
+     NOTE: Cell culture models should recapitulate the features of the diseased tissue
+     e.g. engineered heart tissue, or cultured brain slices.
+     Determine whether the gene was disrupted in
+         - a non-human model organism,
+         - a cell culture model,
+         - or both.
+
+6.    Rescue:
+     Evidence showing that the phenotype associated with {disease name} in humans
+     (i.e. patients with the condition), non-human model organisms, cell culture
+     models, or patient cells can be rescued by exogenous wild-type gene {gene name}
+     or its gene product.
+     If the phenotype is caused by loss of function, consider evidence showing that
+     the phenotype can be rescued by exogenous wild-type gene, gene product, or targeted
+     gene editing. If the phenotype is caused by a gain of function variant, consider
+     the evidence showing that a treatment which specifically blocks the action of
+     the variant (e.g. siRNA, antibody, targeted gene editing) rescues the phenotype.
+     If Rescue evidence is found, determine which type(s) are reported in the article:
+         - Rescue Human
+         - Rescue Patient cells
+
+
+
+                                                      16
+           Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+
+      - Rescue Cell culture model
+      - Rescue Non-human model organism
+
+You will be given:
+    • a gene{disease pair, and
+    • a batch of one or more abstracts for scientific articles, each prefixed with
+"PMID: <pmid>, PMCID: <pmcid>".
+
+Your task for each article is to assess which experimental evidence categories and
+subtypes are present. You can invoke given tool ‘get full text‘ if additional detail
+is required for the article.
+
+Important constraints:
+   • After assessing all provided abstracts, call ‘get full text‘ for every article
+that requires full-text review. There will be only one turn to call tools|you cannot
+make additional tool calls after this turn.
+   • Every tool call must include the correct PMCID for the article.
+
+Final Classification:
+In your second turn, based on the assessed evidence, provide a single final
+classification of the gene{disease relationship strength.
+
+Choose one of:
+   • Definitive
+   • Strong
+   • Moderate
+   • Limited
+   • No Known Disease Relationship
+
+End your response by summarising the identified evidence types and the final
+classification formatted as a JSON instance like the following:
+{
+   "classification": "<one of: Definitive, Strong, Moderate, Limited, No Known
+Disease Relationship>",
+   "evidence": [
+       {
+          "type": "<evidence type 1>",
+          "pmid": "<source pmid>"
+       },
+       {
+          "type": "<evidence type 2>",
+          "pmid": "<source pmid>"
+       }
+   ]
+}
+
+The "evidence" list may contain any number of entries. Each entry must be an object
+containing:
+   1. "type": A string that exactly matches one of the allowed evidence types below.
+   2. "pmid": The PMID of the specific article where this evidence was found.
+
+Allowed evidence types:
+["Biochemical Function A", "Biochemical Function B", "Protein interactions genetic
+interaction (sensu unexpected)", "Protein interactions negative genetic interaction",
+"Protein interactions physical association", "Protein interactions positive genetic
+interaction", "Expression A", "Expression B", "Functional Alteration Non-patient
+cells", "Functional Alteration Patient cells", "Model Systems Cell culture model",
+"Model Systems Non-human model organism", "Rescue Patient cells", "Rescue Cell culture
+model", "Rescue Human", "Rescue Non-human model organism"]
+
+
+
+
+                                                    17
+                  Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+B. Trace Examples from Selected Case Studies
+We present full traces from selected case studies (Section 5.4) to illustrate the behaviour of single-agent and multi-agent
+systems. All examples are generated with Qwen3-4B, GRPO-trained with hybrid reward.
+
+                          Table 5. Single-Agent Trace Example for OCRL–oculocerebrorenal syndrome
+
+                                                    Trace Example
+   I NPUT C ONTEXT
+   Gene: OCRL                                                                                          PMID: 22210625
+   Disease: oculocerebrorenal syndrome
+   M ODEL R EASONING (zreason )
+   <think>
+   Okay, let’s start by analyzing the given abstract. The paper discusses a zebrafish model for Lowe syndrome, which is
+   caused by mutations in the OCRL gene. The study shows that when OCRL1 is suppressed in zebrafish embryos, they
+   exhibit neurological defects similar to those in Lowe syndrome patients. They also mention that OCRL1 deficiency
+   leads to reduced Akt signaling, increased apoptosis, and decreased proliferation in neural tissues. The results suggest
+   that OCRL1’s catalytic activity and clathrin binding are essential for its function in these processes.
+   Now, looking at the allowed evidence types, the key here is identifying which category this falls into. The study
+   describes a model organism (zebrafish) where OCRL1 is disrupted, leading to a disease-like phenotype. This aligns
+   with the ”Model Systems” category, specifically ”Model Systems Non-human model organism” since zebrafish is a
+   non-human model. The paper also mentions rescue experiments, but the main finding is the phenotypic consequence
+   of OCRL1 disruption in a non-human model. Therefore, this would fall under ”Model Systems Non-human model
+   organism” evidence.
+   The abstract does not mention rescue experiments, but rather the phenotypic outcome in a model organism. Therefore,
+   the evidence type is ”Model Systems Non-human model organism”. The PMID is 22210625, and the PMCID is
+   PMC3313792. So, this abstract provides evidence under the ”Model Systems” category, specifically ”Non-human
+   model organism”.
+   </think>
+   M ODEL O UTPUT (e)
+   {
+       "classification": "Definitive",
+       "evidence": [
+         {
+           "type": "Model Systems Non-human model organism",
+           "pmid": "22210625"
+         }
+       ]
+   }
+   E VALUATION
+   Validity Class: Definitive (pred) vs Definitive (GT) ✓
+   Evidence Comparison (PMID 22210625)
+   Ground-truth evidence: [Model Systems – non-human model organism; Rescue – non-human model organism]
+   Predicted evidence: [Model Systems – non-human model organism]
+   Missed evidence: [Rescue – non-human model organism]
+
+
+                          Table 6. Multi-Agent Trace Example for OCRL–oculocerebrorenal syndrome.
+
+                                                    Trace Example
+   I NPUT C ONTEXT
+   Gene: OCRL                                                                                          PMID: 22210625
+   Disease: oculocerebrorenal syndrome
+
+
+                                                             18
+               Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+S UPERVISOR P LANNING (zplan )
+<think>
+Okay, let’s tackle this. The user provided a gene-disease pair, OCRL and oculocerebrorenal syndrome. The task is to
+determine which subagents to call based on the given abstracts.
+First, I need to look at the abstract provided. The abstract is from a 2012 paper in Hum Mol Genet. The title mentions
+a zebrafish model for Lowe syndrome. The abstract discusses how OCRL1 deficiency in zebrafish embryos leads to
+neurological defects similar to Lowe syndrome patients. It also mentions Akt signaling, apoptosis, and proliferation
+issues in neural tissue. Rescue experiments are mentioned, showing that catalytic activity and clathrin binding are
+essential.
+Now, looking at the available subagents. The ModelSystem agent is for non-human models with disrupted genes
+showing phenotypes consistent with the disease. The Rescue agent is for experiments where phenotypes are rescued.
+The abstract talks about a zebrafish model (ModelSystem) and rescue experiments. So I need to call both ModelSystem
+and Rescue agents for this abstract.
+Wait, but the user said to call only relevant subagents. The ModelSystem agent is for model systems with disrupted
+genes. The Rescue agent is for rescue experiments. The abstract mentions both. So that’s two tool calls here. Let
+me check the parameters: each tool call needs the correct PMID and PMCID. The abstract’s PMID is 22210625 and
+PMCID is PMC3313792. So both ModelSystem and Rescue agents would be called with these values.
+I should make sure there are no other subagents relevant. The abstract doesn’t mention biochemical functions, protein
+interactions, gene expression, or functional alterations. So only ModelSystem and Rescue are appropriate here.
+Therefore, two tool calls for this abstract.
+</think>
+AGENT C ALLS (C)
+
+{                                                             {
+    ”name”: ”ExperimentalEvidence ModelSystem                     ”name”: ”ExperimentalEvidence Rescue agent”,
+     agent”,                                                      ”args”: {
+    ”args”: {                                                     ”pmid”: ”22210625”,
+    ”pmid”: ”22210625”,                                           ”pmcid”: ”PMC3313792”,
+    ”pmcid”: ”PMC3313792”,                                        ”gene”: ”OCRL”,
+    ”gene”: ”OCRL”,                                               ”disease”: ”oculocerebrorenal syndrome”
+    ”disease”: ”oculocerebrorenal syndrome”                       },
+    },                                                            ”type”: ”tool call”
+    ”type”: ”tool call”                                           }
+    }
+S UBAGENT O BSERVATIONS (O)
+
+
+
+
+                                                         19
+               Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+{
+    ”evidence type”: ”ModelSystem”,
+    ”has evidence”: true,
+    ”pmid”: ”22210625”,
+    ”evidence subtype”: ”non-human model organism”,
+    ”explanation”: ”The article describes a zebrafish model for Lowe syndrome (oculocerebrorenal syndrome) by
+    disrupting the OCRL1 gene. The model recapitulates key disease phenotypes, including increased susceptibility to
+    heat-induced seizures, cystic brain lesions, reduced brain and eye size during embryogenesis, impaired neural
+    development (reduced neural tissue cross-sectional area, increased apoptosis, reduced proliferation), and defects
+    in Akt signaling. Rescue experiments show that catalytic activity and clathrin binding are required for OCRL1
+    function in these processes. No cell culture model was used in this study.”
+    }
+{
+    ”evidence type”: ”Rescue”,
+    ”has evidence”: true,
+    ”pmid”: ”22210625”,
+    ”evidence subtype”: [”rescue in non-human model organism”],
+    ”explanation”: ”The article reports rescue experiments in a zebrafish model of Lowe syndrome (oculocerebrorenal
+    syndrome). Specifically, re-expression of wild-type GFP-tagged zebrafish OCRL1 rescues the morphological
+    defects (reduction in brain size, eyes, and neural tissue) observed in OCRL1-deficient zebrafish embryos. The
+    rescue is at least partially effective, demonstrating that exogenous wild-type OCRL can compensate for loss-of-
+    function phenotypes in a non-human model organism.”
+    }
+S YNTHESIS (zsynth )
+<think>Okay, let’s see. The user provided a gene-disease pair, OCRL and oculocerebrorenal syndrome. They
+also gave an abstract from a study. My job is to evaluate the strength of the gene-disease relationship based on the
+experimental evidence mentioned.
+Looking at the abstract, the study uses a zebrafish model to mimic Lowe syndrome. The ModelSystem subagent
+would assess this, checking if the model accurately recapitulates the disease phenotypes. The Rescue subagent would
+look into whether reintroducing the gene rescues the phenotypes.
+The responses from the subagents confirm that the zebrafish model shows key defects like seizures, brain lesions, and
+neural issues. The rescue experiments show that wild-type OCRL can fix these defects. This strong evidence from
+both model systems and rescue experiments suggests a strong link between OCRL and the disease.
+Since both ModelSystem and Rescue evidence are present and robust, the classification should be ”Definitive.” There’s
+no mention of other evidence types like biochemical functions or protein interactions, but the available evidence is
+sufficient and comprehensive. So the final classification is Definitive. </think>
+VALIDITY C LASS (y)
+CLASSIFICATION: Definitive
+E VALUATION
+Validity Class: Definitive (pred) vs Definitive (GT) ✓
+Evidence Comparison (PMID 22210625)
+Ground-truth evidence: [Model Systems – non-human model organism; Rescue – non-human model organism]
+Predicted evidence: [Model Systems – non-human model organism; Rescue – non-human model organism]
+
+
+                     Table 7. Single-Agent Trace Example for POLR1D–Treacher Collins syndrome 2
+
+                                                Trace Example
+I NPUT C ONTEXT
+Gene: POLR1D                                                                                      PMID: 27448281
+Disease: Treacher Collins syndrome 2
+
+
+                                                         20
+                Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+M ODEL R EASONING (zreason )
+<think>
+Okay, let me start by analyzing the abstract provided. The study discusses the roles of Polr1c and Polr1d in craniofacial
+development and zebrafish models of Treacher Collins syndrome. The key findings include that homozygous mutants
+of polr1c and polr1d in zebrafish exhibit craniofacial anomalies, which are characteristic of the human disease. The
+authors also mention that the loss of function leads to defects in ribosome biogenesis and neural crest cell migration.
+The abstract mentions that the zebrafish models are used to study the disease. This suggests that the study provides
+evidence from a model system, which would fall under the ”Model Systems” category. Specifically, the article is
+showing that a non-human model (zebrafish) with a disrupted copy of the gene (polr1d) exhibits a phenotype consistent
+with the human disease. That aligns with the ”Model Systems Non-human model organism” evidence type.
+The article also describes that the loss of function in the zebrafish model leads to craniofacial defects, which are similar
+to those in humans. This would support the ”Model Systems” category, as the study is using a non-human model to
+show the disease phenotype. Therefore, the evidence type here is ”Model Systems Non-human model organism”.
+I need to check if the abstract mentions any other types of evidence, like rescue or functional alteration. The abstract
+describes the mutants and their phenotypes, which is more about the model system’s outcome rather than rescue.
+However, the study is establishing the zebrafish as a model, which is a key part of the ”Model Systems” category.
+So, the primary evidence type here is ”Model Systems Non-human model organism”. The article provides a model
+system where the gene is disrupted in a non-human organism (zebrafish), and the resulting phenotype is consistent
+with the human disease. This fits under the ”Model Systems” category, specifically the ”Non-human model organism”
+type.
+I should make sure there’s no mention of rescue or other types. The abstract doesn’t mention rescue, but rather the
+establishment of a model system. Therefore, the evidence type is ”Model Systems Non-human model organism”.
+The PMID is 27448281, and the PMCID is PMC4957770. So, the evidence from this article is ”Model Systems
+Non-human model organism”.
+</think>
+M ODEL O UTPUT (e)
+{
+    "classification": "Definitive",
+    "evidence": [
+      {
+        "type": "Model Systems Non-human model organism",
+        "pmid": "27448281"
+      }
+    ]
+}
+E VALUATION
+Validity Class: Definitive (pred) vs Definitive (GT) ✓
+Evidence Comparison (PMID 27448281)
+Ground-truth evidence: [Model Systems – non-human model organism]
+Predicted evidence: [Model Systems – non-human model organism]
+
+
+                      Table 8. Multi-Agent Trace Example for POLR1D–Treacher Collins syndrome 2
+
+                                                   Trace Example
+I NPUT C ONTEXT
+Gene: POLR1D                                                                                            PMID: 27448281
+Disease: Treacher Collins syndrome 2
+S UPERVISOR P LANNING (zplan )
+
+
+
+
+                                                            21
+               Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+<think>
+Okay, let’s see. The user provided a gene-disease pair, POLR1D and Treacher Collins syndrome 2. They also gave an
+abstract with a PMID and PMCID. My task is to determine which subagent to call for this abstract.
+First, I need to look at the abstract’s title and content. The title mentions ”The Roles of RNA Polymerase I and III
+Subunits Polr1c and Polr1d in Craniofacial Development and in Zebrafish Models of Treacher Collins Syndrome.”
+The abstract talks about zebrafish mutants with polr1c and polr1d loss-of-function leading to craniofacial defects. The
+study also mentions that these mutants have cartilage hypoplasia and cranioskeletal anomalies similar to humans with
+Treacher Collins syndrome.
+Looking at the available subagents, the ModelSystem agent is for non-human models with disrupted genes showing
+phenotypes consistent with the disease. The abstract discusses zebrafish models, so that’s a strong candidate. The
+study’s findings about the mutant zebrafish phenotypes matching the disease in humans fit the ModelSystem category.
+I should check if there’s any other possible subagent. The Rescue agent would be if the phenotype is rescued, but the
+abstract doesn’t mention that. The FunctionalAlteration agent is for cultured cells with gene function disrupted, but
+here it’s zebrafish. So ModelSystem is the right choice.
+I need to make sure I’m not missing any other possible agents. The abstract also mentions ribosome biogenesis and
+Tp53-dependent cell death, but those are more about the mechanism. The key point is the zebrafish model’s phenotype
+matching the disease. So the ModelSystem agent is definitely the right one here.
+So the tool call should be to ExperimentalEvidence ModelSystem agent with the given PMID and PMCID. </think>
+AGENT C ALLS (C)
+
+{
+    ”name”: ”ExperimentalEvidence ModelSystem agent”,
+    ”args”: {
+    ”pmid”: ”27448281”,
+    ”pmcid”: ”PMC4957770”,
+    ”gene”: ”POLR1D”,
+    ”disease”: ”Treacher Collins syndrome 2”
+    },
+    ”type”: ”tool call”
+    }
+S UBAGENT O BSERVATIONS (O)
+{
+   ”evidence type”: ”ModelSystem”,
+   ”has evidence”: true,
+   ”pmid”: ”27448281”,
+   ”evidence subtype”: ”non-human model organism”,
+   ”explanation”: ”The study describes the generation and characterization of polr1d homozygous mutant zebrafish
+   (polr1dhi2393Tg). These mutants exhibit craniofacial anomalies (smaller eyes, hypoplastic jaws, microphthalmia)
+   and hypoplastic craniofacial cartilages, which are consistent with the craniofacial defects observed in Treacher
+   Collins syndrome 2. The authors also show that polr1d loss-of-function leads to increased Tp53-dependent
+   neuroepithelial cell death and deficiency of migrating neural crest cells, underpinning the cranioskeletal defects.
+   These phenotypes are recapitulated in zebrafish and are consistent with the known pathogenesis of TCS2.”
+   }
+S YNTHESIS (zsynth )
+
+
+
+
+                                                          22
+               Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+<think>Okay, let’s see. The user provided a gene-disease pair: POLR1D and Treacher Collins syndrome 2. They
+also gave an abstract from a study that’s relevant. The task is to evaluate the strength of the gene-disease relationship
+based on experimental evidence.
+First, I need to check the evidence types mentioned in the abstract. The study uses zebrafish models with polr1d
+mutants, which show craniofacial defects similar to TCS2. That’s a model system. The subagent for Model Systems
+was called and confirmed the evidence.
+Are there other evidence types? The abstract mentions biochemical functions like ribosome biogenesis and interactions
+with Tp53. But the user’s subagents are for specific categories. Since the main evidence here is the model system, and
+the other categories aren’t addressed in the provided abstract, I should focus on that.
+The classification needs to be based on the combined evidence. Since the study provides a non-human model with clear
+phenotypes matching the disease, the evidence is strong. There’s no conflicting data here. So the classification should
+be ”Definitive” because the model system directly links POLR1D to TCS2 with clear phenotypes and mechanisms.
+</think>
+VALIDITY C LASS (y)
+CLASSIFICATION: Definitive
+E VALUATION
+Validity Class: Definitive (pred) vs Definitive (GT) ✓
+Evidence Comparison (PMID 27448281)
+Ground-truth evidence: [Model Systems – non-human model organism]
+Predicted evidence: [Model Systems – non-human model organism]
+
+
+
+
+                                                           23
+                                                                                       Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+C. Reward Trajectories
+We additionally provide reward trajectories for the single-agent setting, extended supervisor training trajectories for Qwen3-
+4B to illustrate convergence behaviour, and process-only reward trajectories highlighting the effect of cubic scaling relative
+to the original F1 score.
+                                                                                                                                   2                                                                                                               0.5
+         3                                                                                                                                                                                                                                                                                                                                                                1.5
+
+                                                                                                                                                                                                                                                   0.0
+                                                                                                                                   1
+         2                                                                                                                                                                                                                                                                                                                                                                1.0
+
+                                                                                                                                                                                                                                                   0.5
+
+Reward                                                                                                                    Reward                                                                                                          Reward                                                                                                                 Reward
+                                                                                                                                   0
+         1                                                                                                                                                                                                                                                                                                                                                                0.5
+
+                                                                                                                                                                                                                                                   1.0
+                                                                                                                                   1
+                                                                                                                                                                                                                                                                                                                                                                          0.0
+         0                                                                                              Model Size                                                                                             Model Size                                                                                                                    Model Size                                                                            Model Size
+                                                                                                             1.7B                                                                                                   1.7B                           1.5                                                                                            1.7B                                                                                  1.7B
+                                                                                                             4B                    2                                                                                4B                                                                                                                            4B                                                                                    4B
+         1                                                                                                   8B                                                                                                     8B                                                                                                                            8B                      0.5
+                                                                                                                                                                                                                                                                                                                                                                                                                                        8B
+                                                                                                                                                                                                                                                   2.0
+                   0                                                  100                         200                                  0                          100                      200                                                                 0                                                100                    200                                      0                 100                        200
+                                                                                Step                                                                                    Step                                                                                                                                            Step                                                                            Step
+
+                                                 (a) Outcome-Only                                                                                  (b) Hybrid (Total)                                                                                                          (c) Hybrid (Process)                                                                                 (d) Hybrid (Outcome)
+Figure 6. Single-agent reward trajectories. Reward progression over training steps for (a) outcome-only reward, (b) hybrid reward, (c)
+process component of the hybrid reward, and (d) outcome component of the hybrid reward.
+
+
+                                                               3.5                                                                                                                                                                                       2.0
+
+
+                                                               3.0                                                                                                                                                                                       1.5
+
+
+                                                               2.5                                                                                                                                                                                       1.0
+
+                                                      Reward                                                                                                                                                                                   Reward    0.5
+                                                               2.0
+
+                                                                                                                                                                                                                                                         0.0
+                                                               1.5
+                                                                                                                                                                                                                                                         0.5
+                                                                                                                                                                                               Model Size                                                                                                                                                                                               Model Size
+                                                               1.0                                                                                                                                   4B                                                                                                                                                                                                       4B
+                                                                                                                                                                                                                                                         1.0
+                                                                        0                  100                   200                       300              400                    500                                             600                                                   0                      100              200                 300                        400         500                 600
+                                                                                                                                       Step                                                                                                                                                                                                        Step
+
+
+                                                                                                            (a) Outcome-Only                                                                                                                                                                                                   (b) Hybrid (Total)
+                                                                                                                                                                                                                                                        1.8
+
+
+                                                                0.5                                                                                                                                                                                     1.6
+
+
+                                                                                                                                                                                                                                                        1.4
+                                                                0.0
+                                                                                                                                                                                                                                                        1.2
+
+                                                      Reward                                                                                                                                                                                   Reward   1.0
+                                                                0.5
+
+                                                                                                                                                                                                                                                        0.8
+
+                                                                1.0
+                                                                                                                                                                                                                                                        0.6
+                                                                                                                                                                                               Model Size                                                                                                                                                                                               Model Size
+                                                                                                                                                                                                     4B                                                 0.4
+                                                                                                                                                                                                                                                                                                                                                                                                              4B
+                                                                            0               100                   200                        300            400                    500                                             600                                             0                           100               200                 300                        400         500                 600
+                                                                                                                                       Step                                                                                                                                                                                                       Step
+
+
+                                                                                                          (c) Hybrid (Process)                                                                                                                                                                                            (d) Hybrid (Outcome)
+Figure 7. Qwen3-4B supervisor reward trajectories. Rewards over 10 training epochs under outcome-only and hybrid supervision,
+illustrating convergence pattern.
+
+
+                                                                                Single Agent: Process-Only Training Trajectories                                                                                                                                                                                 Multi-Agent Supervisor: Process-Only Training Trajectories
+                                             4        1.7B Model                                                                                                                                                                                                                                   4       1.7B Model
+                                                      4B Model                                                                                                                                                                                                                                             4B Model
+                                                      8B Model                                                                                                                                                                                                                                             8B Model
+                                             3                                                                                                                                                                                                                                                     3
+
+                                             2                                                                                                                                                                                                                                                     2
+
+
+
+
+             Cubic Reward Value (-4 to +4)                                                                                                                                                     Equivalent F1 Score (Pre-Scaling)                                   Cubic Reward Value (-4 to +4)                                                                                                                                    Equivalent F1 Score (Pre-Scaling)
+                                                                                                                                                                                 0.9                                                                                                                                                                                                                                  0.9
+
+                                             1                                                                                                                                                                                                                                                     1
+
+                                             0                                                                                                                                   0.79 (Zero)                                                                                                       0                                                                                                                  0.79 (Zero)
+
+                                             1                                                                                                                                                                                                                                                     1
+                                                                                                                                                                                 0.7                                                                                                                                                                                                                                  0.7
+                                             2                                                                                                                                                                                                                                                     2
+                                                                                                                                                                                 0.6                                                                                                                                                                                                                                  0.6
+                                             3                                                                                                                                   0.5                                                                                                               3                                                                                                                  0.5
+
+                                             4                                                                                                                                                                                                                                                     4
+                                                  0                             50         100                  150                    200            250                  300                                                                                                                         0                  50           100                 150                        200   250                300
+                                                                                                          Training Step                                                                                                                                                                                                                            Training Step
+
+
+                                                                                                 (a) Single Agent                                                                                                                                                                                                              (b) Multi-Agent Supervisor
+Figure 8. Process-only training trajectories across model sizes. The right axis shows the equivalent F1 score before cubic scaling. The
+horizontal line at 0.79 indicates the point where cubic-scaled process reward is at zero. For simplicity, the effect of the format penalty is
+not considered.
+
+
+
+                                                                                                                                                                                                                                         24
+                  Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+D. Training Setup
+We implement our SFT and GRPO experiments using the veRL framework. Tables 9 and 10 summarise the training
+configurations for GRPO and sub-agent SFT, respectively. Both the single-agent GRPO and the multi-agent supervisor
+GRPO settings employ the same training configuration. All GRPO experiments employ multi-turn rollouts with a global
+batch size of 16, sampling 8 responses per query, and are trained for 5 epochs. For sub-agent SFT, we use a micro-batch size
+of 1, a global batch size of 4, and a maximum sequence length of 32,600 tokens over 4 epochs. The reduced batch size is
+necessary due to the substantially longer input sequences, as the sub-agents are prompted with the full text of the scientific
+article specified by the supervisor agent in the tool arguments.
+
+                                           Table 9. Configuration for GRPO training
+
+                                  Category                           Value
+                                  Data Configuration
+                                  Train Batch Size                   16
+                                  Validation Rollouts per Prompt     4
+                                  Max Prompt Length                  8192
+                                  Max Response Length                4096
+                                  Overlong Prompt Filter             True
+                                  Truncation Policy                  error
+                                  Optimisation (GRPO)
+                                  Advantage Estimator                GRPO
+                                  Learning Rate                      1 × 10−6
+                                  PPO Mini Batch Size                8
+                                  Clip Ratio (low / high)            0.2 / 0.35
+                                  KL in Reward                       False
+                                  KL Loss Used                       False
+                                  Epochs                             5
+                                  Rollout Configuration
+                                  Rollout Engine                     vLLM
+                                  Number of Rollouts per Prompt      8
+                                  Sampling Temperature               0.8
+                                  Top-p / Top-k                      0.95 / 20
+                                  GPU Memory Utilization             0.4
+                                  Use Inference Chat Template        False
+                                  Multi-turn & Tool Use
+                                  Multi-turn Enabled                 True
+                                  Max Assistant Turns / User Turns   2/2
+                                  Max Tool Response Length           1024 (truncate: middle)
+                                  Training & Logging
+                                  Save Frequency (Steps)             50
+                                  Test Frequency (Steps)             50
+                                  Validation Before Training         True
+
+
+
+
+                                                               25
+Process-Supervised Multi-Agent Reinforcement Learning for Reliable Clinical Reasoning
+
+
+
+
+                       Table 10. Training setup for sub-agent SFT
+
+                            Category                 Value
+                            Data Configuration
+                            Train Batch Size         4
+                            Micro Batch Size         1
+                            Max Sequence Length      32,600
+                            Multi-turn               False
+                            Optimization
+                            Total Epochs             4
+                            Hardware
+                            GPUs                     4
+
+
+
+
+                                           26
+

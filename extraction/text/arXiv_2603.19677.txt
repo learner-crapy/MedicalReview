@@ -1,0 +1,1130 @@
+                                                  GoAgent: Group-of-Agents Communication Topology Generation for
+                                                                 LLM-based Multi-Agent Systems
+                                                   Hongjiang Chen1 , Xin Zheng2 , Yixin Liu3 , Pengfei Jiao1 , Shiyuan Li3 , Huan Liu1 ,
+                                                                 Zhidong Zhao1 , Ziqi Xu2 , Ibrahim Khalil2 , Shirui Pan3 ,
+                                                           1
+                                                             School of Cyberspace, Hangzhou Dianzi University, Hangzhou, China,
+                                                       2
+                                                         School of Computing Technologies, RMIT University, Melbourne, Australia,
+                                             3
+                                               School of Information and Communication Technology, Griffith University, Goldcoast, Australia
+                                         {hchen, pjiao, huanliu, zhaozd}@hdu.edu.cn, {xin.zheng2, ziqi.xu, ibrahim.khalil}@rmit.edu.au,
+                                                                      {yixin.liu, shiyuan.li, s.pan}@griffith.edu.au
+
+                                                                    Abstract                              multi-step decision-making (Guo et al., 2026). The
+                                                                                                          core of any MAS is its communication topology,
+
+
+
+
+arXiv:2603.19677v1 [cs.LG] 20 Mar 2026
+                                                  Large language model (LLM)-based multi-                 a directed graph that governs how agents interact,
+                                                  agent systems (MAS) have demonstrated ex-
+                                                                                                          share information, and coordinate their efforts (Wu
+                                                  ceptional capabilities in solving complex tasks,
+                                                  yet their effectiveness depends heavily on the          et al., 2024; Liang et al., 2024; Wang et al., 2025a).
+                                                  underlying communication topology that coor-            Recent studies show that the underlying organiza-
+                                                  dinates agent interactions. Within these sys-           tional structure impacts the overall performance
+                                                  tems, successful problem-solving often neces-           of MAS more than the capabilities of individual
+                                                  sitates task-specific group structures to divide        agents (Qian et al., 2025; Rizvi-Martel et al., 2026;
+                                                  and conquer subtasks. However, most existing            Zhou et al., 2026a). Consequently, designing com-
+                                                  approaches generate communication topologies            munication topologies that ensure both effective
+                                                  in a node-centric manner, leaving group struc-
+                                                  tures to emerge implicitly from local connectiv-
+                                                                                                          problem-solving and efficient token usage has be-
+                                                  ity decisions rather than modeling them explic-         come a central challenge.
+                                                  itly, often leading to suboptimal coordination             Early approaches to topology design relied on
+                                                  and unnecessary communication overhead. To              static, manually crafted structures, such as chains
+                                                  address this limitation, we propose GoAgent             for sequential reasoning (Zhang et al., 2024b),
+                                                  (Group-of-Agents), a communication topology             trees for hierarchical deliberation (Zhou et al.,
+                                                  generation method that explicitly treats collab-        2024), and fully connected graphs for exhaustive
+                                                  orative groups as the atomic units of MAS
+                                                                                                          debate (Hu et al., 2024). While effective in narrow
+                                                  construction. Specifically, GoAgent first enu-
+                                                  merates task-relevant candidate groups through          domains, these fixed topologies lack the flexibility
+                                                  an LLM and then autoregressively selects and            to adapt to diverse task requirements (Liu et al.,
+                                                  connects these groups as atomic units to con-           2025). To overcome this rigidity, subsequent re-
+                                                  struct the final communication graph, jointly           search introduced deep learning techniques to au-
+                                                  capturing intra-group cohesion and inter-group          tomatically learn topologies based on predefined
+                                                  coordination. To mitigate communication re-             templates. Methods like AgentPrune (Zhang et al.,
+                                                  dundancy and noise propagation inherent in              2025a), AgentDropout (Wang et al., 2025b), G-
+                                                  expanding topologies, we further introduce a
+                                                  conditional information bottleneck (CIB) ob-
+                                                                                                          Designer (Zhang et al., 2025b), and GTD (Jiang
+                                                  jective that compresses inter-group communica-          et al., 2025) take a dense template graph and opti-
+                                                  tion, preserving task-relevant signals while fil-       mize it by pruning or reweighting edges for specific
+                                                  tering out redundant historical noise. Extensive        tasks. However, these template-based methods re-
+                                                  experiments on six benchmarks demonstrate               main bounded by the initial agent sets and connec-
+                                                  the state-of-the-art performance of GoAgent             tivity patterns. Most recently, ARG-Designer (Li
+                                                  with 93.84% average accuracy while reducing             et al., 2025) moved beyond these template con-
+                                                  token consumption by about 17%.
+                                                                                                          straints by proposing an autoregressive approach
+                                                                                                          that dynamically generates the collaboration graph
+                                              1   Introduction
+                                                                                                          from scratch, sequentially adding agents, assigning
+                                              Large language model (LLM)-based multi-agent                roles, and establishing connections.
+                                              systems (MAS) have become a promising approach                 Despite these advancements, existing topology
+                                              for solving complex tasks (Tran et al., 2025), rang-        generation methods share a fundamental flaw:
+                                              ing from code generation (Zhang et al., 2024a)              they operate under a node-centric construction
+                                              to mathematical reasoning (Yao et al., 2023) and            paradigm. As illustrated in Figure 1(a), each agent
+
+                                                                                                      1
+  Agent Pool                 t1                    t2                   t3                     the paradigm by explicitly treating collaborative
+               Construct
+                                                                                   t
+               /Prune
+                                                                                               groups as the atomic units for construction (Fig-
+                                  Redundant Edges / Noise Propagation
+                                                                                               ure 1(b)). Given a specific task query, GoAgent
+                                                                                               first prompts an LLM to enumerate a set of task-
+          (a) Node-centric Paradigm (Exist Methods)
+                                                                                               relevant candidate groups, where each group encap-
+     Group Pool                   t1                    t2               t3
+      Code group           Code group                                                  t       sulates a coherent cluster of expert roles tailored for
+                                                  Restrict                                     a specific subtask. A learned autoregressive graph
+                                                  information flow
+     Reason group                            Reason group
+                                                                     Restrict
+                                                                                               generation model then systematically selects and
+                                                                     information flow
+                                                                                               connects these predefined groups to construct the
+      Eval group                                                      Eval group
+                       Autoregressive Generation                                               final communication topology. This group-level
+                           Efficient Edge/ Restrict Propagation                                generation inherently preserves strong intra-group
+                   (b) Group-centric Paradigm (Ours)                                           cohesion while explicitly directing inter-group co-
+                                                                                               ordination. To address the issue of communication
+Figure 1: The comparison of two paradigms: (a) node-
+                                                                                               inefficiency and noise propagation inherent in ex-
+centric and (b) group-centric graph generation.
+                                                                                               panding topologies, GoAgent incorporates a Con-
+                                                                                               ditional Information Bottleneck (CIB) mechanism
+is treated as an individual node and the topology                                              into the graph generation process. Taking the spe-
+is built by predicting agents and their connections                                            cific task as the condition, the CIB layer actively
+step-by-step, resulting in isolated local decisions                                            compresses inter-group communication features,
+without a macroscopic view of the overall collabo-                                             thereby retaining only the strictly necessary task-
+rative workflow. This localized generation process                                             relevant signals and filtering out redundant histori-
+introduces two critical limitations (Barkoczi and                                              cal noise. Our main contributions are summarized
+Galesic, 2016). First, it hinders effective inter-                                             as follows:
+agent coordination. Complex reasoning tasks nat-
+urally require a divide and conquer strategy exe-                                                  • New Paradigm. We identify the inability
+cuted by tightly coupled groups (Betti et al., 2025),                                                of node-centric methods to explicitly model
+such as a cohesive sub-team for problem solving                                                      collaborative structures, proposing a group-
+consisting of a decomposer, a solver, and a veri-                                                    centric paradigm that treats agent groups as
+fier. Under the node-centric paradigm, these es-                                                     atomic units of construction.
+sential higher-order structures are not explicitly
+                                                                                                   • Novel Method. We develop GoAgent, an
+modeled; instead, they are expected to emerge im-
+                                                                                                     autoregressive model bridging LLM-derived
+plicitly from ad-hoc edge predictions, frequently
+                                                                                                     agent groups with graph generation, and intro-
+resulting in disjointed workflows and suboptimal
+                                                                                                     duce CIB to adaptively compress redundant
+problem-solving (Pescetelli et al., 2021). Second, it
+                                                                                                     communications.
+exacerbates communication inefficiency and noise
+propagation (Shen et al., 2025; Zhou et al., 2026b).                                               • Experimental Validation. Experiments on
+Without explicit group boundaries to structure in-                                                   six benchmarks show that GoAgent achieves
+formation exchange, the generated graphs tend to                                                     state-of-the-art accuracy while reducing token
+form dense, unconstrained connections. This un-                                                      consumption, establishing a new standard for
+controlled connectivity not only incurs substantial                                                  efficient multi-agent system design.
+token overhead due to redundant message passing,
+but also allows task-irrelevant historical noise to                                            2     Preliminaries
+accumulate and distract agents from critical signals.
+                                                                                               2.1    Problem Formulation
+These limitations raise a critical question:
+                                                                                               We study the problem of automatically constructing
+ Can we move beyond the node-centric paradigm                                                  communication topologies for LLM-based MAS.
+ and design communication topologies using                                                     Given a task query Q, the objective is to generate a
+ higher-level abstractions that explicitly capture                                             communication structure that coordinates a set of
+ and utilize collaborative group structures?                                                   agents to collaboratively solve the task.
+  We answer this question by proposing GoA-                                                    Agents. Let V = {v1 , . . . , vN } denote a set of N
+gent (Group-of-Agents), a communication topol-                                                 candidate agents. We instantiate each agent vi ∈ V
+ogy generation method that fundamentally shifts                                                by assigning a role-specific system prompt (e.g.,
+
+                                                                                           2
+“Math Solver” or “Code Reviewer”) to a shared                                   of signals X that preserves the maximum informa-
+large language model to define its expertise. Given                             tion relevant to a target variable Y . The standard
+an input prompt Pi , agent vi generates a natural                               IB objective is formulated as minimizing:
+language response Ri = vi (Pi ). Agents commu-
+                                                                                         LIB = −I(X̃; Y ) + βI(X̃; X),           (3)
+nicate via prompt composition: if the topology
+contains a directed edge from vi to vj , the response                           where β serves as a Lagrange multiplier that bal-
+Ri is appended to the input prompt of vj as context,                            ances the trade-off between accurately predicting
+facilitating information flow across the system.                                Y and effectively compressing X.
+                                                                                  While standard IB compresses information
+Collaborative Groups. To capture structured co-
+                                                                                unconditionally, it can be extended to the
+operation among agents, we introduce collaborative
+                                                                                CIB (Gondek and Hofmann, 2003) by introduc-
+groups as higher-order coordination units. Each
+                                                                                ing a condition variable Z. CIB seeks to extract
+group represents a structured collaboration pat-
+                                                                                X̃ that is maximally informative about Y while
+tern among a subset of agents and is defined as
+                                                                                compressing X, all conditioned on Z:
+Mi = (Si , E(Si )), where Si ⊆ V denotes the
+subset of agents participating in group Mi , and                                    min LCIB = −I(X̃; Y |Z) + βI(X̃; X|Z). (4)
+E(Si ) denotes the predefined communication rela-                               By conditioning on Z, CIB ensures that the com-
+tions (e.g., fully connected or chain) among agents                             pression selectively filters out noise while preserv-
+within the group.Let M = {M1 , . . . , MK } denote                              ing the specific structural or semantic patterns dic-
+the set of collaborative groups.                                                tated by the condition Z.
+Group-Level Communication Graph. Based
+                                                                                3     Methodology
+on these collaborative groups, we construct a group-
+level communication graph                                                       The primary goal of GoAgent is to generate a task-
+                                                                                specific, group-level communication topology for
+                       G = (M, E),                                    (1)       MAS. Unlike existing node-centric approaches that
+                                                                                predict individual agents step-by-step, we intro-
+where E represents communication dependencies                                   duce a group-centric paradigm where high-level
+between groups. Each edge eij ∈ E indicates                                     collaborative groups serve as the generative atomic
+that information produced by group Mi can be                                    units. This macroscopic approach significantly
+transmitted to group Mj . The final communica-                                  reduces the search space and aligns better with
+tion topology among agents is induced jointly by                                human-like organizational structures.
+the intra-group relations E(Si ) and the inter-group                               As formulated in Eq. (2), GoAgent factorizes
+dependencies E.                                                                 the generation of topology G into an autoregressive
+Topology Generation. Given a task query Q, the                                  sequence of group selections and edge predictions.
+goal is to generate the group-level communication                               The pipeline consists of four phases: (1) encoding
+graph G. Groups are generated sequentially, and                                 the task query and discovering candidate groups;
+each newly generated group may establish connec-                                (2) autoregressively generating groups and their
+tions with previously constructed groups. Formally,                             communication edges; (3) applying a CIB layer to
+the generation distribution is defined as                                       compress historical communication signals; and (4)
+                                                                                supervised training on curated ground-truth trajec-
+              Q|M|
+  P (G|Q) =    i=1 P (Mi |G<i , Q)
+                                     Q
+                                         j<i P (eji |Mi , G<i , Q),   (2)       tories. The pseudo-code is provided in Appendix B.
+
+where G<i denotes the partial graph consisting of                               3.1    Task Encoding and Group Discovery
+the first i − 1 generated groups. The first term mod-                           We first map unstructured text, including both the
+els collaborative group selection, while the second                             task requirements and the agent descriptions, into
+term predicts communication edges between the                                   a continuous vector space.
+newly generated group and previously constructed
+                                                                                Task Encoding. Given a task query Q, we en-
+groups.
+                                                                                code it into a global task representation zQ ∈ Rd
+2.2   Information Bottleneck                                                    using a pre-trained sentence encoder followed by a
+                                                                                feed-forward network (FFN):
+The information bottleneck (IB) principle (Tishby
+et al., 2000) seeks a compressed representation X̃                                      zQ = FFN(SentenceEncoder(Q)).            (5)
+
+                                                                            3
+                      📝 Materials                                                      🔨 Design                                                      Optimize                                   🚀 Execution
+                  🧐 Task Query 𝓠                                                                                                             Zoomed-in of CIB ⏳
+                                                                                                                                                                                   Generated Topology 𝒢 = (𝓜, 𝓔)
+        Solve this math problem:                                        𝒛𝓠         Generator🔬                      History
+        An electric motor has a label ...
+                                                                                                                                                    D"# → 𝓛"#                       𝑀' : Code Group
+                                         proposed by GPT-4
+                                                                                                                                                                                                             𝑀) : Reason Group
+      Collaborative Group Pool 𝓜                                                           CIB ⏳
+
+                                                                                                                                      𝑞在此处键入公式。
+           𝑴𝟏 : Code Group              𝑴𝟐 : Reason Group                     Raw                    Compressed                                                                                                  𝑀! : Eval Group
+         Roles:{Analyst, Coder}      Roles:{Expert, Solver, Critic}
+                                                                             Feature                   Feature                         ( (𝑐|𝑥)
+                                                                                                                                               𝑝) (𝑐|𝑧𝒬 )
+           Topology:{Chain}               Topology:{Chain}
+                                                                             (noisy)                      (clean)                  Encoder distribution Task-conditioned prior
+
+                                                                                       𝒛𝓠 task-relevant
+                                                                                                                                    Standard IB compresses blindly;
+        𝑴𝟑 : Debugging Group              𝑴𝟒 : Eval Group                                                                           CIB compress conditioned on the task
+                                                                                                                                                                                            在此处键入公式。
+      Roles:{Coder, Checker, Plan}   Roles:{Analyst, Math, Critic}
+                                                                                                                                    only removes what’s irrelevant to 𝒬
+                                                                                                                    T=i
+            Topology:{Star}          Topology:{Full Connected}
+                                                                      𝑀!
+                                                                      𝑀"
+                                                                      𝑀#
+                                                                                               𝑀! ❓                                                                                      inter-group edge          intra-group edge
+
+                                                                      𝑀$     在此处键入公式。𝑀"
+                                                                      Group Prediction          Edge Prediction                        Group Prediction 𝓛!"#$%                                                                 🌟
+                                                                        𝑃(𝑀) |𝒢"# , 𝒛𝒬 )        𝑃(e%"#,# |𝑀) , 𝒢"# , 𝒛𝒬 )                                                        Encode Select group Predict       Execute      Final
+
+                                                 ⚙⚙
+                                                                                                                                                                                  query autoregressively edges    with LLMs    Answer
+             Sentence Encoder
+                                                                                                                                        Edge Prediction         𝓛&'!&
+                                                                       𝑀!
+                                                                                               𝑀!                 T=i+1                                                                    ✅ Output Solution
+                                                                                                                                                                                  Based on the reasoning and eval,
+                                                                       𝑀"
+                                                                                                                    𝑀"                                                                 在此处键入公式。
+                                                                       𝑀#
+                                                                       𝑀$    在此处键入公式。
+                                                                                 ❓𝑀
+                                                                                   # ❓                                                  在此处键入公式。
+                                                                                                                                   𝓛 = 𝓛!"#$% + 𝓛&'!& + 𝛽! 𝓛()
+                                                                                                                                               + 𝛽& 𝓛()
+                                                                                                                                                                !"#$%     &'!&    the solution to the math problem
+                                                                      Group Prediction          Edge Prediction
+                                                                                                                                                                                  is [Answer Details]
+      task vector             group representation                                                                                      Predictive Term    Compression Term
+                                                                        𝑃(𝑀! |𝒢"# , 𝒛𝒬 )     𝑃(e%"#&',#&' |𝑀! , 𝒢"#&' , 𝒛𝒬 )
+        𝒛 𝓠 ∈ ℝ𝒅                    𝐗 ∈ ℝKxd                                                                                                        𝛽 warm-up during training     Efficient: fewer tokens than baselines.
+
+
+
+                                                                             Figure 2: Overview of the proposed GoAgent.
+
+
+This representation zQ serves as the global condi-                                                                                  from the previously generated groups G<t to Mt .
+tion guiding all subsequent generation steps.
+                                                                                                                                   Historical Aggregation. The model must aggre-
+Collaborative Group Discovery. Instead of se-                                                                                      gate the structural and semantic information of the
+lecting individual agent instances, GoAgent sam-                                                                                   current graph state. We use a gated recurrent unit
+ples from a predefined pool of K task-relevant                                                                                     (GRU) to compress the sequence of previously gen-
+collaborative groups. To construct this candidate                                                                                                                                   (t)
+                                                                                                                                   erated group embeddings into a historical state hhis :
+space, we prompt a large language model (e.g.,
+GPT-4) with domain-specific instructions to pro-                                                                                                          (t)
+                                                                                                                                                      hhis = GRU([xM1 , . . . , xMt−1 ]).                                               (6)
+pose K expert groups (e.g., K = 16). Each group
+Mi is defined by a structured schema: (Name,
+Expertise, Roles, Intra-Topology). For ex-                                                                                         To ensure the generation remains aligned with the
+ample, a group might be defined as Name: “Code                                                                                     task, we employ a dynamic gate g (t) to fuse the
+Debugging Group”, Expertise: “Identifies and                                                                                       historical context with the task representation zQ :
+fixes logical errors in code”, Roles: “[Code Re-                                                                                                                                      !
+                                                                                                                                                                         (t)
+viewer, Syntax Checker, Logic Validator]”, and                                                                                                     (t)                  hhis · zQ
+                                                                                                                                               g          =σ              √                 ,                                           (7)
+Intra-Topology: “Sequential Pipeline”. The                                                                                                                                   d
+intra-group edges E(Si ) are LLM-inducted during                                                                                              (t)                                  (t)                                  (t)
+                                                                                                                                           hcomb = (1 − g (t) )hhis + g (t) zQ + epos ,                                                 (8)
+this discovery phase and serve as fixed templates
+(e.g., fully connected for brainstorming, or sequen-
+                                                                                                                                                    (t)
+tial for refinement). These templates are rigidly en-                                                                              where epos is a learnable step embedding providing
+forced whenever the group is instantiated, allowing                                                                                positional information.
+the autoregressive generator to focus entirely on the
+                                                                                                                                                                                                                     (t)
+higher-level inter-group dependencies E. We en-                                                                                     Group Prediction. The fused state hcomb passes
+code the textual descriptions of these K groups us-                                                                                 through a dedicated GRU to produce the raw group
+                                                                                                                                             (t)
+ing the same sentence encoder to form a candidate                                                                                   feature xgroup . Rather than using this raw feature di-
+embedding matrix X = [x1 , . . . , xK ] ∈ RK×d . To                                                                                 rectly, we pass it through the CIB layer (detailed in
+facilitate autoregressive generation, we augment                                                                                    Section 3.3) to obtain a compressed, noise-filtered
+                                                                                                                                                      (t)
+X with END tokens, resulting in a (K + 1) × d                                                                                       representation cgroup . The probability distribution
+embedding matrix.                                                                                                                   over the candidate groups is then computed via
+                                                                                                                                    scaled dot-product attention with the candidate ma-
+3.2        Autoregressive Group-Centric Generation                                                                                  trix X:
+At each time step t, the model determines the next
+                                                                                                                                                                                                       (t)
+group Mt to add and establishes directed edges                                                                                             P (Mt |G<t , zQ ) = Softmax(cgroup X⊤ ).                                                     (9)
+
+                                                                                                                               4
+Edge Prediction. Once Mt is selected, the model                           Minimizing Compression Term. The second
+predicts incoming edges from all existing groups                          term restricts the flow of noisy historical informa-
+Mi ∈ G<t . For each candidate edge (Mi , Mt ), we                         tion. Unlike standard Variational IB (Alemi et al.,
+concatenate the historical state of the source group,                     2017) that uses a fixed standard normal prior, we
+the new group’s embedding, and the task repre-                            introduce a task-conditioned prior pθ (c|zQ ). This
+                                              (i,t)
+sentation to form the raw edge feature xedge =                            conditional prior holds under the premise that dif-
+  (i)                                                                     ferent task types (e.g., math reasoning vs. code
+[hcomb ∥xMt ∥zQ ]. This feature is similarly com-
+                                 (i,t)                                    generation) inherently require different baseline
+pressed by the CIB layer into cedge . A binary clas-                      topological structures, meaning the latent space
+sifier then predicts the edge existence probability:                      of valid communication graphs is fundamentally
+   P (ei,t = 1|Mi , G<t , zQ ) = σ(MLP(cedge )).
+                                                       (i,t)              task-dependent. We parameterize both the encoder
+                                               (10)                       qϕ (c|x) and the conditional prior pθ (c|zQ ) as mul-
+                                                                          tivariate Gaussians with diagonal covariances via
+3.3     Conditional Information Bottleneck                                MLPs. The mutual information is upper-bounded
+As the communication graph grows, the raw his-                            by their Kullback-Leibler (KL) divergence:
+                           (t)       (i,t)
+torical features x (i.e., xgroup or xedge ) inevitably
+                                                                           I(x; c|zQ ) ≤ Ex,zQ [DKL (qϕ (c|x) ∥ pθ (c|zQ ))] ≜ LKL .   (13)
+accumulate task-irrelevant signals, such as spuri-
+ous group co-occurrences. To prevent this noise
+                                                                          During training, we sample c using the reparame-
+from propagating to the target prediction y (the next
+                                                                          terization trick:
+group Mt or edge ei,t ), we introduce a CIB layer.
+Following Eq. (4), we instantiate the condition vari-
+                                                                            c = µϕ (x) + σϕ (x) ⊙ ϵ,             ϵ ∼ N (0, I).         (14)
+able as the global task representation zQ . While
+primarily motivated by inter-group noise filtering,
+                                                                          Tractable Objective. By combining these
+we apply CIB to both group and edge predictions
+                                                                          bounds, we obtain an end-to-end optimizable loss
+for architectural uniformity. The CIB extracts a
+                                                                          function:
+compressed latent representation c from x by opti-
+mizing the following objective:
+                                                                                          LCIB ≤ Ltask + βLKL .                        (15)
+      min LCIB = −I(c; y|zQ ) +β I(x; c|zQ )
+                 |   {z    }     | {z }                                   This formulation directly bridges to our final train-
+                      Predictive Term       Compression Term
+                                              (11)                        ing objective (Section 3.4), where Ltask corre-
+Because directly computing mutual information is                          sponds to the supervised cross-entropy losses, and
+intractable, we derive variational upper bounds to                        LKL acts as a task-guided regularizer to filter struc-
+operationalize both terms.                                                tural noise.
+
+Minimizing Predictive Term. The first term en-                            3.4   Training and Inference Strategy
+sures c retains sufficient information to predict y.                      Data Construction. The autoregressive genera-
+We minimize its variational upper bound using a                           tor requires ground-truth sequences of groups and
+decoder pψ :                                                              edges for supervised training. Since manually au-
+  −I(c; y|zQ ) ≤ Ec∼qϕ (c|x) [− log pψ (y|c, zQ )] ≜ Ltask .   (12)       thoring optimal task-graph pairs is infeasible, we
+                                                                          curate a training dataset D = {(Q, G ∗ )} via an au-
+In practice, because our architecture explicitly                          tomated heuristic exploration process. For a given
+fuses the task query zQ into the historical state                         set of training queries, we sample diverse candidate
+x prior to compression, we assume the variables                           topologies G by varying group combinations and
+form a Markov chain zQ → x → c → y. Under                                 edge densities. We then execute these graphs on
+this assumption, c acts as a sufficient statistic for                     the target tasks using the underlying LLMs. Graphs
+predicting y, rendering y conditionally independent                       that successfully produce the correct final answer
+of zQ given c. Consequently, we efficiently param-                        are collected. To encourage efficiency, we filter
+eterize the decoder as pψ (y|c), which serves as a                        these successful graphs to retain the minimal vi-
+valid approximation of pψ (y|c, zQ ) provided that                        able topologies (i.e., those with fewer groups and
+the predictive term successfully forces c to retain                       edges), which serve as our positive ground-truth
+the task-relevant signals.                                                trajectories G ∗ .
+
+                                                                      5
+Training Objective. We train the model end-to-                   Baselines. We compare GoAgent against three
+end using Teacher Forcing on the curated trajecto-               types of methods. The single-agent baselines in-
+ries in D, avoiding the high variance typical of on-             clude Vanilla (direct reasoning), Chain-of-Thought
+line reinforcement learning. The total loss L is the             (CoT) (Wei et al., 2022) and Self-Consistency
+empirical realization of the CIB objective across                (SC) (Wang et al., 2023). For MAS with fixed
+all generation steps. Specifically, the task loss Ltask          topologies, we evaluate Chain, Tree, Complete
+is instantiated as the negative log-likelihood for               graph, Random graph (Qian et al., 2025), and LLM-
+group prediction (Lgroup ) and binary cross-entropy              Debate (Du et al., 2024). For MAS with learnable
+for edge prediction (Ledge ):                                    topologies, we include AgentPrune (Zhang et al.,
+                     "                              #            2025a), AgentDropout (Wang et al., 2025b), G-
+                       X                                         Designer (Zhang et al., 2025b), EIB-LEARNER
+  Lgroup = −ED              log P (Mt∗ |G<t∗
+                                              , zQ ) , (16) (Shen et al., 2025), and ARG-Designer (Li et al.,
+                         t
+                     "                                        # 2025). Further baseline details are in Appendix D.
+                       XX
+   Ledge = −ED                  log P (e∗i,t |Mi∗ , G<t
+                                                      ∗
+                                                        , zQ ) . Implementation Details. We access GPT mod-
+                         t i<t
+                                                                 els via the OpenAI API, primarily using
+                                                         (17)
+                                                                 gpt-4o-2024-08-06. A summarizer agent aggre-
+The KL divergence regularizer LKL is applied at                  gates the dialogue history to produce the final so-
+both the group and edge levels. The final joint                  lution, with the maximum interaction round set to
+objective is:                                                    T = 3 across all baselines and experiments. The
+                                                                 group encoder uses all-MiniLM-L6-v2 (Wang
+                                   group         edge
+  L = Lgroup + Ledge + βg LKL + βe LKL , (18) et al., 2020b) with an embedding dimension of
+        |       {z         } |           {z          }           d = 384. Following standard LLM-MAS con-
+          Predictive Task     Information Compression
+                                                                 figurations (Zhang et al., 2025b; Li et al., 2025),
+where βg and βe control the bottleneck strength.                 we  provide explicit agent profiles for multi-agent
+To prevent overly strong compression before the                  methods and use GPT-4 to generate this profile
+generator learns meaningful structural patterns, we              pool. For the CIB hyperparameters βg and βe (ana-
+employ a KL warm-up strategy, gradually increas- lyzed in Appendix E), we apply a linear warm-up
+ing the β weights during early training epochs.                  strategy over the first Ewarm = 10 training epochs.
+                                                                 For all datasets, we train the model using only
+Inference Procedure. During inference, given                     B ∈ {40, 60} queries. Additional implementation
+a new task query Q, the trained GoAgent model                    details are in Appendix F.
+generates a group-level graph autoregressively. The
+process, detailed in Algorithm 2, starts with the                4.1 Performance Comparison
+encoded task embedding and enters a generation                   Table 1 shows that GoAgent achieves consistent
+loop. At each step, it selects a new group using the             state-of-the-art accuracy across all six benchmarks.
+deterministic mean to bypass stochastic sampling. Compared to node-centric autoregressive methods
+If the selected group is not the special END token, like ARG-Designer and template-based pruning
+the model then samples the existence of incoming                 methods like EIB-LEARNER, GoAgent shows
+edges from all previously generated groups via a                 larger gains on complex reasoning tasks, such
+Bernoulli distribution. This loop continues until                as MMLU (1.96% ↑) and HumanEval (2.47% ↑).
+the END token is produced.                                       These improvements on harder tasks support our
+                                                              core motivation: constructing topologies at the
+4   Experiments
+                                                              group level leverages cohesive expert clusters, such
+Benchmarks. Following (Zhang et al., 2025b),                  as a solver paired with a verifier. This avoids the
+we evaluate our approach on general reasoning us-             disjointed workflows and missing inter-role con-
+ing MMLU (Hendrycks et al., 2021), mathemati-                 nections common in node-centric generation.
+cal reasoning using GSM8K (Cobbe et al., 2021),
+MultiArith (Roy and Roth, 2015), SVAMP (Patel                 4.2   Ablation Study
+et al., 2021), and AQuA (Ling et al., 2017), as well          We conduct ablation studies to isolate the contribu-
+as code generation using HumanEval (Chen et al.,              tions of key components in GoAgent, with results
+2021). Details are provided in Appendix C.                    detailed in Table 2. We evaluate three variants:
+
+                                                          6
+   Table 1: Overall performance comparison on six benchmarks (%). The best results are highlighted in bold.
+
+ Method                 MMLU           GSM8K            AQuA                           MultiArith                                              SVAMP                                   HumanEval                                                     Avg.
+ Vanilla                 80.39           82.30           71.06                                             93.09                                   86.55                                                    71.39                                   80.80
+ CoT                  81.69 ↑ 1.30    86.50 ↑ 4.20    73.58 ↑ 2.52                         93.25 ↑ 0.16                                   87.36 ↑ 0.81                                           74.67 ↑ 3.28                                 82.84 ↑ 2.05
+ SC                   83.66 ↑ 3.27    81.60 ↓ 0.70    75.63 ↑ 4.57                         94.12 ↑ 1.03                                   88.59 ↑ 2.04                                           79.83 ↑ 8.44                                 83.91 ↑ 3.11
+ Chain                83.01 ↑ 2.62    88.30 ↑ 6.00    74.05 ↑ 2.99                         93.27 ↑ 0.18                                   87.17 ↑ 0.62                                      81.37 ↑ 9.98                                      84.53 ↑ 3.73
+ Tree                 81.04 ↑ 0.65    85.20 ↑ 2.90    71.23 ↑ 0.17                         93.68 ↑ 0.59                                   88.91 ↑ 2.36                                      80.53 ↑ 9.14                                      83.43 ↑ 2.64
+ Complete             82.35 ↑ 1.96    80.10 ↓ 2.20    72.95 ↑ 1.89                         94.53 ↑ 1.44                                   84.01 ↓ 2.54                                      79.03 ↑ 7.64                                      82.16 ↑ 1.37
+ Random               84.31 ↑ 3.92    86.90 ↑ 4.60    76.48 ↑ 5.42                         94.08 ↑ 0.99                                   87.54 ↑ 0.99                                      82.66 ↑ 11.27                                     85.33 ↑ 4.53
+ LLM-Debate           84.96 ↑ 4.57    91.40 ↑ 9.10    77.65 ↑ 6.59                         96.36 ↑ 3.27                                   90.11 ↑ 3.56                                      84.70 ↑ 13.31                                     87.53 ↑ 6.73
+ AgentPrune           85.07 ↑ 4.68    91.10 ↑ 8.80    80.51 ↑ 9.45                         94.65 ↑ 1.56                                   90.58 ↑ 4.03                                      86.75 ↑ 15.36                                   88.11 ↑ 7.31
+ AgentDropout         85.62 ↑ 5.23    91.70 ↑ 9.40    80.94 ↑ 9.88                         95.60 ↑ 2.51                                   91.04 ↑ 4.49                                      85.98 ↑ 14.59                                   88.48 ↑ 7.68
+ G-Designer           86.92 ↑ 6.53    93.80 ↑ 11.50   81.60 ↑ 10.54                        96.50 ↑ 3.41                                   93.10 ↑ 6.55                                      88.33 ↑ 16.94                                   90.04 ↑ 9.25
+ EIB-LEARNER          88.90 ↑ 8.51    95.20 ↑ 12.90   83.46 ↑ 12.40                        96.83 ↑ 3.74                                   94.70 ↑ 8.15                                      89.15 ↑ 17.76                                   91.37 ↑ 10.58
+ ARG-Designer         89.54 ↑ 9.15    94.37 ↑ 12.07   85.51 ↑ 14.45                        98.93 ↑ 5.84                                   95.63 ↑ 9.08                                      91.74 ↑ 20.35                                   92.62 ↑ 11.82
+ GoAgent (Ours)       91.50 ↑ 11.11   95.30 ↑ 13.00   86.45 ↑ 15.39                        99.11 ↑ 6.02                                   96.46 ↑ 9.91                                      94.21 ↑ 22.82                                   93.84 ↑ 13.04
+
+
+                                                                                                     1.0 MMLU
+  Table 2: Ablation study of GoAgent components.                                                                                LLM-Debate
+                                                                                                                                 (1.6e+06)
+                                                                                                                                                                                                      1.4 GSM8K                               LLM-Debate
+                                                                                                                                                                                                                                               (2.8e+07)
+
+
+
+
+                                                                           Token Consumption (106)                                                                          Token Consumption (107)
+                                                                                                     0.8                                                                                              1.2 Complete Graph
+                                                                                                                                                                                                            (1.2e+07)
+                                                                                                                                                                                                                              Random Graph
+                                                                                                                Complete Graph                                                                                                   (1.0e+07)
+                                                                                                                  (6.7e+05)                                                                           1.0
+ Model       MMLU         GSM8K       HumanEval        Avg.                                          0.6                                                                                                                      Tree
+                                                                                                                                                                                                                           (9.2e+06)
+                                                                                                                                                                                                                                                        EIB-LEARNER
+                                                                                                                                                                                                                                                           (8.8e+06)
+
+                                                                                                               Tree
+                                                                                                                                                                                                      0.8                               Chain
+                                                                                                                                                                                                                                      (7.7e+06)
+                                                                                                                                                                                                                                                     G-Designer
+                                                                                                                                                                                                                                                      (8.2e+06)
+                                                                                                            (4.6e+05)
+ Vanilla      80.39        82.30          71.39        78.03                                         0.4                   Random Graph
+                                                                                                                             (3.8e+05)                                                                0.6
+                                                                                                                                             EIB-LEARNER                                                                                             ARG-Designer
+                                                                                                                                               (2.3e+05)
+ GoAgent      91.50        95.30          94.21        93.67                                         0.2                  Chain       G-Designer
+                                                                                                                                                   ARG-Designer
+                                                                                                                                                      (2.1e+05) Ours
+                                                                                                                                                                                                      0.4                                              (4.1e+06)
+                                                                                                                                                                                                                                                                   Ours
+                                                                                                                        (1.7e+05)      (2.2e+05)                (1.9e+05)                                                                                        (3.4e+06)
+
+ w/o Group    88.89        93.75          91.74        91.46                                               80                  84                  88                92                                       80             85               90             95
+                                                                                                                                    Accuracy (%)                                                                                Accuracy (%)
+ w/o CIB      88.23        93.96          92.56        91.58
+                                                                                            (a) Token cost on MMLU. (b) Token cost on GSM8K.
+ w/o ALL      86.92        91.16          90.56        89.55
+                                                                                                                           Before Attack                                After Attack                                                                       91.5
+                                                                                            90                                                                                                                86.9
+                                                                                                                                                                                                                             88.9
+                                                                                                                                                                                                                                    87.7
+                                                                                                                                                                                                                                             89.5
+                                                                                                                                                                                                                                                    87.3
+                                                                                                                                                                                                                                                                  89.5
+
+
+
+
+                                                                      Accuracy (%)
+                                                                                                                                84.3                         85.0              85.1
+                                                                                                                82.3                                                                                                 83.1
+(1) the w/o CIB variant removes the Conditional                                                                                                81.0                                                    80.3
+                                                                                            80                                          78.2                        77.5
+Information Bottleneck layer, forcing the model                                                                                                       74.6
+                                                                                                                        70.6
+to rely on uncompressed historical features; (2)                                            70
+the w/o Group variant replaces group-level can-
+                                                                                                                Full andom TreeDebate PruneesigneAr RNEResigner Ours
+didates with individual agent roles, reverting to a                                                               R                    G-DEIB-LE ARG-D
+node-centric generation paradigm; and (3) the w/o
+                                                                                                                                        (c) Robustness under attack.
+ALL variant removes both mechanisms. Remov-
+ing either component leads to clear performance                         Figure 3: Experiments on token consumption and ro-
+drops. For instance, the w/o Group variant suffers                      bustness against prompt injection attacks.
+a 2.61% accuracy decrease on MMLU, confirm-
+ing that implicit coordination through node-level
+generation struggles with complex tasks. Simi-                          Dense topologies like Complete graphs and LLM-
+larly, the w/o CIB variant experiences a 3.27%                          Debate consume excessive tokens due to unre-
+drop on MMLU. Without noise compression, the                            stricted information exchange. Although ARG-
+system becomes vulnerable to irrelevant historical                      Designer learns sparse structures, its node-centric
+signals, which misguide the edge prediction mod-                        approach still yields unnecessary point-to-point
+ule into forming spurious connections. Together,                        connections. In contrast, GoAgent reduces token
+these findings show that group-level generation and                     consumption by 17% compared to the SOTA base-
+structural noise filtering are highly complementary.                    line, while maintaining high accuracy. By treating
+                                                                        cohesive groups as atomic blocks and using the
+4.3    Token Efficiency                                                 CIB layer to filter irrelevant inter-group edges, the
+A key motivation for moving beyond node-centric                         model avoids redundant agent-level connections.
+generation is to reduce inference-time communica-                       This allows GoAgent to maintain a token footprint
+tion overhead. Figures 3a and 3b report the total                       comparable to simple trees while achieving the per-
+LLM inference tokens on MMLU and GSM8K.                                 formance of highly expressive topologies.
+
+                                                                 7
+4.4    Robustness Analysis                                     et al., 2024a; Yao et al., 2023; Tran et al., 2025),
+Following (Zhuge et al., 2024), we simulate a sys-             and their performance depends heavily on the un-
+tem prompt attack by injecting adversarial prompts             derlying communication topology. Early archi-
+into a single agent. As illustrated in Figure 3c,              tectures relied on static structures such as chains
+node-centric methods such as G-Designer and                    (Zhang et al., 2024b; Zhou et al., 2024). To enable
+ARG-Designer suffer sharp performance drops un-                adaptive communication, template-based methods
+der these attacks, because local errors rapidly prop-          like G-Designer, AgentPrune, and AgentDropout
+agate through their networks. In contrast, GoAgent             (Zhang et al., 2025b,a; Wang et al., 2025b; Shen
+shows significantly better robustness, maintaining             et al., 2025; Jiang et al., 2025; Wu et al., 2026)
+an accuracy of 89.54%. This resilience stems from              optimize topologies by pruning predefined graphs.
+the CIB layer, which acts as a filter by compressing           More recently, ARG-Designer (Li et al., 2025) by-
+incoming features conditioned on the task represen-            passed template constraints entirely by autoregres-
+tation. Through this mechanism, the model learns               sively constructing topologies from scratch. How-
+to identify and discard signals that deviate from the          ever, all these methods operate at the node level,
+task goal, thereby restricting the spread of localized         treating individual agents as atomic units. This
+hallucinations across group boundaries.                        node-centric paradigm has difficulty capturing co-
+                                                               hesive collaborative structures and frequently gen-
+         Question: An immigrant learning English in the        erates redundant edges.
+         United States is an example of
+         Option A: structural assimilation.
+         Option B: amalgamation theory.
+         Option C: acculturation. GoAgent ✅
+                                                               Group-Aware Graph Generation. Node-
+         Option D: adaptation. ARG-Designer ❌                  centric graph generation often faces scalability
+          ARG-Designer Solution         GoAgent Solution       and structural coherence challenges. To overcome
+                                          Analyst group
+                                                               these limitations, research in graph representation
+        Math Solver         Doctor                             learning has explored higher-order paradigms.
+                                                               Hierarchical networks (Jin et al., 2020; Karami,
+        Knowlegable       Knowlegable
+                                                               2023) explicitly model macroscopic subgraphs
+          Expert            Expert
+                                           Solver group
+                                                               before establishing microscopic connections.
+          Historian       Knowlegable                          Diffusion-based methods (Liu et al., 2024; Xu
+                            Expert
+                                                               and Ma, 2025) incorporate global and local
+    Figure 4: Cases of ARG-Designer and GoAgent.
+                                                               constraints to ensure structural validity, and
+                                                               scalable frameworks (Liu and Sariyüce, 2023;
+                                                               Sarpe et al., 2024) demonstrate that generating
+4.5    Case Study
+                                                               graphs through higher-order units improves both
+To further illustrate the advantages of GoAgent                efficiency and fidelity. Drawing on these principles,
+over learning-based baselines like ARG-Designer,               GoAgent introduces a group-centric paradigm to
+we conduct a comparative case study on represen-               MAS. By using LLM-derived collaborative groups
+tative MMLU examples, shown in Figure 4. The                   as atomic building blocks, it preserves intra-group
+main difference lies in the redundancy of composi-             cohesion and simplifies inter-group coordination.
+tion and link generation. Without explicit higher-
+order constraints, ARG-Designer tends to connect               6   Conclusion
+redundant agents, and the density of its gener-
+ated graphs increases sharply with task complexity.            In this paper, we present GoAgent, a communica-
+GoAgent instead selects groups and inter-group                 tion topology generation method for LLM-based
+links from an explicitly constructed pool, reducing            multi-agent systems, driven by a group-centric de-
+unnecessary communication. Consequently, GoA-                  sign paradigm. By treating collaborative groups as
+gent constructs more efficient collaboration graphs            atomic generative units and using a CIB to com-
+with fewer agents and messages, lowering token                 press historical signals, GoAgent adaptively forms
+usage without sacrificing accuracy.                            task-specific topologies while suppressing task-
+                                                               irrelevant noise. Experiments across six bench-
+5     Related Work
+                                                               marks show that GoAgent consistently achieves
+LLM-based Multi-Agent Systems. MAS coor-                       state-of-the-art accuracy, improves structural ro-
+dinate diverse roles to solve complex tasks (Zhang             bustness, and reduces communication overhead.
+
+                                                           8
+Limitations                                                     to solve math word problems.         arXiv preprint
+                                                                arXiv:2110.14168.
+Although our method demonstrates strong perfor-
+mance and efficiency across reasoning and coding              Yilun Du, Shuang Li, Antonio Torralba, Joshua B Tenen-
+                                                                 baum, and Igor Mordatch. 2024. Improving factual-
+benchmarks, several limitations remain. First, our               ity and reasoning in language models through multia-
+approach relies on a predefined pool of collabora-               gent debate. In Forty-first international conference
+tive groups generated offline by an LLM. While                   on machine learning.
+this significantly reduces the search space and en-
+                                                              David Gondek and Thomas Hofmann. 2003. Condi-
+sures intra-group cohesion, it inherently constrains            tional information bottleneck clustering. In 3rd ieee
+the model’s flexibility; specifically, GoAgent can-             international conference on data mining, workshop
+not dynamically synthesize entirely novel group                 on clustering large data sets, pages 36–42.
+structures or roles during inference if a task re-
+                                                              Xudong Guo, Kaixuan Huang, Jiale Liu, Wenhui
+quires expertise outside the predefined pool. Sec-              Fan, Natalia Vélez, Qingyun Wu, Huazheng Wang,
+ond, our current evaluation primarily focuses on                Thomas L Griffiths, and Mengdi Wang. 2026. Em-
+static reasoning tasks (e.g., MMLU, GSM8K). The                 bodied llm agents learn to cooperate in organized
+effectiveness of group-centric topology generation              teams. IEEE Transactions on Computational Social
+                                                                Systems.
+in highly dynamic, interactive environments, in-
+cluding embodied AI or multi-agent reinforcement              Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou,
+learning, remains to be thoroughly investigated in              Mantas Mazeika, Dawn Song, and Jacob Steinhardt.
+future research.                                                2021. Measuring massive multitask language under-
+                                                                standing. In International Conference on Learning
+                                                                Representations.
+Ethics Statement
+                                                              Shengchao Hu, Li Shen, Ya Zhang, and Dacheng Tao.
+Our research focuses on scientific questions and                2024. Learning multi-agent communication from
+does not involve human subjects, animals, or en-                graph modeling perspective. In The Twelfth Interna-
+vironmentally sensitive materials. We foresee no                tional Conference on Learning Representations.
+ethical risks or conflicts of interest. We are com-
+                                                              Eric Hanchen Jiang, Guancheng Wan, Sophia Yin,
+mitted to maintaining scientific integrity and ethics           Mengting Li, Yuchen Wu, Xiao Liang, Xinfeng Li,
+to ensure the validity and reliability of our findings.         Yizhou Sun, Wei Wang, Kai-Wei Chang, and 1 others.
+                                                                2025. Dynamic generation of multi-llm agents com-
+                                                                munication topologies with graph diffusion models.
+References                                                      arXiv preprint arXiv:2510.07799.
+
+Alexander A Alemi, Ian Fischer, Joshua V Dillon, and          Wengong Jin, Regina Barzilay, and Tommi Jaakkola.
+  Kevin Murphy. 2017. Deep variational information             2020. Hierarchical generation of molecular graphs
+  bottleneck. In International Conference on Learning          using structural motifs. In International conference
+  Representations.                                             on machine learning, pages 4839–4848. PMLR.
+
+Daniel Barkoczi and Mirta Galesic. 2016. Social learn-        Mahdi Karami. 2023. Higen: Hierarchical graph gener-
+  ing strategies modify the effect of network struc-           ative networks. In The Twelfth International Confer-
+  ture on group performance. Nature communications,            ence on Learning Representations.
+  7(1):13109.
+                                                              Shiyuan Li, Yixin Liu, Qingsong Wen, Chengqi Zhang,
+Lorenzo Betti, Luca Gallo, Johannes Wachs, and Fed-             and Shirui Pan. 2025. Assemble your crew: Auto-
+  erico Battiston. 2025. The dynamics of leadership             matic multi-agent communication topology design
+  and success in software development teams. Nature             via autoregressive graph generation. arXiv preprint
+  Communications, 16(1):3956.                                   arXiv:2507.18224.
+
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan,             Tian Liang, Zhiwei He, Wenxiang Jiao, Xing Wang,
+ Henrique Ponde De Oliveira Pinto, Jared Kaplan,                Yan Wang, Rui Wang, Yujiu Yang, Shuming Shi, and
+ Harri Edwards, Yuri Burda, Nicholas Joseph, Greg               Zhaopeng Tu. 2024. Encouraging divergent thinking
+ Brockman, and 1 others. 2021. Evaluating large                 in large language models through multi-agent debate.
+ language models trained on code. arXiv preprint                In Proceedings of the 2024 conference on empiri-
+ arXiv:2107.03374.                                              cal methods in natural language processing, pages
+                                                                17889–17904.
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian,
+  Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias              Wang Ling, Dani Yogatama, Chris Dyer, and Phil Blun-
+  Plappert, Jerry Tworek, Jacob Hilton, Reiichiro               som. 2017. Program induction by rationale genera-
+  Nakano, and 1 others. 2021. Training verifiers                tion: Learning to solve and explain algebraic word
+
+
+                                                          9
+  problems. In Proceedings of the 55th annual meet-            Naftali Tishby and Noga Zaslavsky. 2015. Deep learn-
+  ing of the association for computational linguistics           ing and the information bottleneck principle. In 2015
+  (volume 1: Long papers), pages 158–167.                        ieee information theory workshop (itw), pages 1–5.
+                                                                 Ieee.
+Gang Liu, Jiaxin Xu, Tengfei Luo, and Meng Jiang.
+  2024. Graph diffusion transformers for multi-                Khanh-Tung Tran, Dung Dao, Minh-Duong Nguyen,
+  conditional molecular generation. Advances in Neu-             Quoc-Viet Pham, Barry O’Sullivan, and Hoang D
+  ral Information Processing Systems, 37:8065–8092.              Nguyen. 2025. Multi-agent collaboration mech-
+                                                                 anisms: A survey of llms.       arXiv preprint
+Penghang Liu and Ahmet Erdem Sariyüce. 2023. Using               arXiv:2501.06322.
+  motif transitions for temporal graph generation. In
+  Proceedings of the 29th ACM SIGKDD conference on             Haochun Wang, Sendong Zhao, Jingbo Wang, Zewen
+  knowledge discovery and data mining, pages 1501–               Qiang, Bing Qin, and Ting Liu. 2025a. Beyond
+  1511.                                                          frameworks: Unpacking collaboration strategies in
+Yixin Liu, Guibin Zhang, Kun Wang, Shiyuan Li, and               multi-agent systems. In Proceedings of the 63rd An-
+  Shirui Pan. 2025. Graph-augmented large language               nual Meeting of the Association for Computational
+  model agents: Current progress and future prospects.           Linguistics (Volume 1: Long Papers), pages 21361–
+  arXiv preprint arXiv:2507.21407.                               21375.
+
+Arkil Patel, Satwik Bhattamishra, and Navin Goyal.             Rundong Wang, Xu He, Runsheng Yu, Wei Qiu, Bo An,
+  2021. Are nlp models really able to solve simple               and Zinovi Rabinovich. 2020a. Learning efficient
+  math word problems? In Proceedings of the 2021                 multi-agent communication: An information bottle-
+  conference of the North American chapter of the as-            neck approach. In International conference on ma-
+  sociation for computational linguistics: human lan-            chine learning, pages 9908–9918. PMLR.
+  guage technologies, pages 2080–2094.
+                                                               Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan
+Niccolò Pescetelli, Alex Rutherford, and Iyad Rahwan.           Yang, and Ming Zhou. 2020b. Minilm: Deep self-
+  2021. Modularity and composite diversity affect the           attention distillation for task-agnostic compression
+  collective gathering of information online. Nature            of pre-trained transformers. Advances in neural in-
+  Communications, 12(1):3195.                                   formation processing systems, 33:5776–5788.
+Chen Qian, Zihao Xie, YiFei Wang, Wei Liu, Kunlun              Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V Le,
+  Zhu, Hanchen Xia, Yufan Dang, Zhuoyun Du, Weize                Ed H Chi, Sharan Narang, Aakanksha Chowdhery,
+  Chen, Cheng Yang, and 1 others. 2025. Scaling large            and Denny Zhou. 2023. Self-consistency improves
+  language model-based multi-agent collaboration. In             chain of thought reasoning in language models. In
+  The Thirteenth International Conference on Learning            The Eleventh International Conference on Learning
+  Representations.                                               Representations.
+Michael Rizvi-Martel, Satwik Bhattamishra, Neil Rathi,         Zhexuan Wang, Yutong Wang, Xuebo Liu, Liang
+  Guillaume Rabusseau, and Michael Hahn. 2026.                   Ding, Miao Zhang, Jie Liu, and Min Zhang. 2025b.
+  Benefits and limitations of communication in multi-            Agentdropout: Dynamic agent elimination for token-
+  agent reasoning. In The Fourteenth International               efficient and high-performance llm-based multi-agent
+  Conference on Learning Representations.                        collaboration. In Proceedings of the 63rd Annual
+                                                                 Meeting of the Association for Computational Lin-
+Subhro Roy and Dan Roth. 2015. Solving general arith-
+                                                                 guistics, pages 24013–24035.
+  metic word problems. In Proceedings of the 2015
+  conference on empirical methods in natural language          Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+  processing, pages 1743–1752.                                    Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,
+Ilie Sarpe, Fabio Vandin, and Aristides Gionis. 2024.             and 1 others. 2022. Chain-of-thought prompting elic-
+   Scalable temporal motif densest subnetwork discov-             its reasoning in large language models. Advances
+   ery. In Proceedings of the 30th ACM SIGKDD Con-                in neural information processing systems, 35:24824–
+   ference on Knowledge Discovery and Data Mining,                24837.
+   pages 2536–2547.
+                                                               Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu,
+Xu Shen, Yixin Liu, Yiwei Dai, Yili Wang, Rui Miao,              Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang,
+  Yue Tan, Shirui Pan, and Xin Wang. 2025. Under-                Shaokun Zhang, Jiale Liu, and 1 others. 2024. Au-
+  standing the information propagation effects of com-           togen: Enabling next-gen llm applications via multi-
+  munication topologies in llm-based multi-agent sys-            agent conversations. In First conference on language
+  tems. In Proceedings of the 2025 Conference on                 modeling.
+  Empirical Methods in Natural Language Processing,
+  pages 12358–12372.                                           Xingjian Wu, Xvyuan Liu, Junkai Lu, Siyuan Wang,
+                                                                 Yang Shu, Jilin Hu, Chenjuan Guo, and Bin Yang.
+Naftali Tishby, Fernando C Pereira, and William Bialek.          2026. St-evo: Towards generative spatio-temporal
+  2000. The information bottleneck method. arXiv                 evolution of multi-agent communication topologies.
+  preprint physics/0004057.                                      arXiv preprint arXiv:2602.14681.
+
+
+                                                          10
+Yuwei Xu and Chenhao Ma. 2025. Modiff-graph gen-                Schmidhuber. 2024. Gptswarm: Language agents
+  eration with motif-aware diffusion model. In Pro-             as optimizable graphs. In Forty-first International
+  ceedings of the 31st ACM SIGKDD Conference on                 Conference on Machine Learning.
+  Knowledge Discovery and Data Mining V. 2, pages
+  3437–3448.
+Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak
+  Shafran, Karthik R Narasimhan, and Yuan Cao. 2023.
+  React: Synergizing reasoning and acting in language
+  models. In The eleventh international conference on
+  learning representations.
+Haonan Yuan, Qingyun Sun, Xingcheng Fu, Cheng Ji,
+  and Jianxin Li. 2024. Dynamic graph information
+  bottleneck. In Proceedings of the ACM Web Confer-
+  ence 2024, pages 469–480.
+Guibin Zhang, Yanwei Yue, Zhixun Li, Sukwon Yun,
+  Guancheng Wan, Kun Wang, Dawei Cheng, Jef-
+  frey Xu Yu, and Tianlong Chen. 2025a. Cut the
+  crap: An economical communication pipeline for
+  llm-based multi-agent systems. In The Thirteenth In-
+  ternational Conference on Learning Representations.
+Guibin Zhang, Yanwei Yue, Xiangguo Sun, Guancheng
+  Wan, Miao Yu, Junfeng Fang, Kun Wang, Tianlong
+  Chen, and Dawei Cheng. 2025b. G-designer: Ar-
+  chitecting multi-agent communication topologies via
+  graph neural networks. In International Conference
+  on Machine Learning, pages 76678–76692.
+Kechi Zhang, Jia Li, Ge Li, Xianjie Shi, and Zhi Jin.
+  2024a. Codeagent: Enhancing code generation with
+  tool-integrated agent systems for real-world repo-
+  level coding challenges. In Proceedings of the 62nd
+  Annual Meeting of the Association for Computational
+  Linguistics, pages 13643–13658.
+Yusen Zhang, Ruoxi Sun, Yanfei Chen, Tomas Pfister,
+  Rui Zhang, and Sercan Arik. 2024b. Chain of agents:
+  Large language models collaborating on long-context
+  tasks. Advances in Neural Information Processing
+  Systems, 37:132208–132237.
+Andy Zhou, Kai Yan, Michal Shlapentokh-Rothman,
+  Haohan Wang, and Yu-Xiong Wang. 2024. Lan-
+  guage agent tree search unifies reasoning, acting, and
+  planning in language models. In Proceedings of the
+  41st International Conference on Machine Learning,
+  pages 62138–62160.
+Han Zhou, Xingchen Wan, Ruoxi Sun, Hamid Palangi,
+  Shariq Iqbal, Ivan Vulić, Anna Korhonen, and Ser-
+  can O Arik. 2026a. Multi-agent design: Optimiz-
+  ing agents with better prompts and topologies. In
+  The Fourteenth International Conference on Learn-
+  ing Representations.
+Jialong Zhou, Lichao Wang, and Xiao Yang. 2026b.
+   Guardian: Safeguarding llm multi-agent collabora-
+   tions with temporal graph modeling. In The Thirty-
+   ninth Annual Conference on Neural Information Pro-
+   cessing Systems.
+Mingchen Zhuge, Wenyi Wang, Louis Kirsch,
+  Francesco Faccio, Dmitrii Khizbullin, and Jürgen
+
+
+                                                           11
+A    More Related Work                                        parameter-efficient and easy to integrate alongside
+                                                              large language models.
+Information Bottleneck in Graph Learning.
+The IB principle (Tishby and Zaslavsky, 2015;                 C   Dataset Details
+Alemi et al., 2017) extracts minimal sufficient
+statistics for a task, balancing compression and              We present the dataset statistics in Table 3,
+prediction. In graph learning, IB optimizes com-              following the same experimental setup as G-
+munication efficiency by minimizing message en-               Designer (Zhang et al., 2025b). We evaluate GoA-
+tropy (Wang et al., 2020a) or dynamically pruning             gent on six diverse benchmarks spanning multiple
+redundant messages (Yuan et al., 2024). Recently,             reasoning domains.
+IB has been applied to LLM-based MAS; for exam-
+                                                              D   Baseline Details
+ple, GUARDIAN (Zhou et al., 2026b) compresses
+temporal interaction graphs to mitigate hallucina-            Single-Agent Methods. We compare against
+tion and error propagation. Building on this, GoA-            three single-agent baselines: (1) Vanilla: Di-
+gent extends IB to the generative process of MAS              rect prompting without reasoning enhancement.
+topologies. We introduce a Conditional IB that dy-            (2) Chain-of-Thought (CoT) (Wei et al., 2022):
+namically conditions compression on the task repre-           Prompts the LLM to generate intermediate reason-
+sentation, actively filtering out redundant historical        ing steps with “Let’s think step by step”. (3) Self-
+communication noise as the topology expands.                  Consistency (SC) (Wang et al., 2023): Samples
+                                                              five reasoning paths using CoT and selects the most
+B   Algorithm and Complexity Analysis                         consistent answer through majority voting.
+
+The complete training procedure of GoAgent is                 Fixed Multi-Agent Topologies. We evaluate five
+summarized in Algorithm 1, and the inference pro-             hand-crafted topologies: (1) Chain: Sequential lin-
+cedure is detailed in Algorithm 2. During inference,          ear chain A1 → A2 → · · · → An . (2) Tree: Hier-
+we bypass the stochastic sampling of the CIB layer            archical structure with multiple layers culminating
+and directly use the deterministic mean c = µϕ (x)            in a root agent. (3) Complete: Fully connected
+for both group and edge predictions.                          graph enabling maximum information sharing. (4)
+                                                              Random: Randomly generated topology with ran-
+Time Complexity. Let T be the total number                    dom role assignments. (5) LLM-Debate: Debate-
+of generated groups, K be the candidate pool                  based topology where agents critique each other’s
+size, and d be the hidden dimension. At each                  reasoning over multiple rounds.
+step t, the group prediction involves GRU state
+updates and attention over K candidates, taking               Learning-Based Topology Design. We compare
+O(d2 + Kd) operations. The edge prediction eval-              against five state-of-the-art learning-based meth-
+uates connections from all t − 1 previous groups,             ods, each trained separately per dataset: (1) Agent-
+taking O(t · d2 ) operations. Summing over T steps,           Prune (Zhang et al., 2025a): Identifies and ad-
+the total time complexity for graph generation is             dresses communication redundancy by perform-
+O(T d2 + T Kd + T 2 d2 ) = O(T 2 d2 + T Kd). Be-              ing one-shot pruning on spatial-temporal message-
+cause the generation is performed at the macro-               passing graphs, yielding token-economic topolo-
+scopic group level rather than the microscopic                gies while defending against adversarial attacks.
+agent level, both T (typically < 3) and K (e.g.,              (2) Agent-Dropout (Wang et al., 2025b): Inspired
+16) are extremely small. Consequently, the com-               by dynamic role adjustment in management the-
+putational overhead of the generator is negligible            ory, identifies redundant agents and communica-
+compared to the inference cost of the underlying              tions across different rounds by optimizing ad-
+LLMs executing the task.                                      jacency matrices, eliminating them to enhance
+                                                              token efficiency and task performance. (3) G-
+Space Complexity. The learnable parameters of                 Designer (Zhang et al., 2025b): Employs a varia-
+the generator consist solely of lightweight GRUs,             tional graph auto-encoder to encode agents and
+MLPs, and CIB projection layers, all bounded by               task-specific virtual nodes, dynamically design-
+O(d2 ). The candidate group embeddings require                ing task-adaptive communication topologies cus-
+O(Kd) memory. Thus, the total space complex-                  tomized for each task’s difficulty and requirements.
+ity is O(d2 + Kd), making the generator highly                (4) EIB-LEARNER (Shen et al., 2025): Uses a
+
+                                                         12
+Algorithm 1 Training Procedure of GoAgent
+Require: Training dataset D = {(Q, G ∗ )} curated via heuristic exploration, Total epochs E, Warm-up
+    epochs Ewarm
+Ensure: Optimized model parameters
+ 1: for epoch e = 1 to E do
+ 2:   /* Update CIB Bottleneck Strength */
+ 3:   Compute βg , βe based on warm-up schedule (e.g., linear increase if e < Ewarm )
+ 4:   for each batch (Q, G ∗ ) ∈ D do
+ 5:      Encode task query: zQ ← TaskEncoder(Q)
+                                                           group       edge
+ 6:      Initialize batch losses: Lgroup ← 0, Ledge ← 0, LKL ← 0, LKL ← 0
+ 7:      for step t = 1 to |M∗ | do
+ 8:         /* Teacher Forcing with Ground-Truth History */
+                                  (t)
+ 9:         Aggregate history hhis using ground-truth sequence M∗<t
+                                            (t)
+10:         Fuse with task zQ to obtain hcomb via Eq. (7) and Eq. (8)
+11:         /* Group CIB & Prediction Loss */
+                                         (t)
+12:         Extract raw group feature xgroup
+                      (t)
+13:         Sample cgroup using the reparameterization trick via Eq. (14)
+14:         Accumulate Lgroup via Eq. (16)
+                            group
+15:         Accumulate LKL based on expected KL divergence
+16:         /* Edge CIB & Prediction Loss */
+17:         for each existing group Mi∗ ∈ M∗<t do
+                                               (i,t) (i)
+18:            Construct raw edge feature xedge = [hcomb ∥xMt∗ ∥zQ ]
+                       (i,t)
+19:           Sample cedge using the reparameterization trick via Eq. (14)
+20:           Compute pi,t via Eq. (10)
+21:           Accumulate Ledge via Eq. (17)
+                            edge
+22:           Accumulate LKL based on expected KL divergence
+23:        end for
+24:      end for
+25:      /* Optimization */
+26:      Compute total loss L via Eq. (18)
+27:      Update parameters using gradient descent on L
+28:   end for
+29: end for
+30: return Optimized parameters
+
+
+                                Table 3: Dataset descriptions and statistics.
+
+          Category             Dataset         Answer Type        Metric        #Test   License
+          General reasoning    MMLU            Multi-choice       Acc.          153     MIT License
+                               GSM8K           Number             Acc.          1,319   MIT License
+                               MultiArith      Number             Acc.           600    Unspecified
+          Math reasoning
+                               SVAMP           Number             Acc.          1,000   MIT License
+                               AQuA            Multi-choice       Acc.           254    Apache-2.0
+          Code generation      HumanEval       Code               Pass@1        164     MIT License
+
+
+causal framework to analyze error propagation pat-         ing error suppression with beneficial information
+terns and designs topologies by fusing connectivity        diffusion. (5) ARG-Designer (Li et al., 2025):
+patterns from both dense and sparse graphs, balanc-        Autoregressively constructs communication topolo-
+
+
+                                                      13
+Algorithm 2 Inference Procedure of GoAgent
+Require: Task query Q, Candidate group embeddings X ∈ R(K+1)×d
+Ensure: Group-level communication graph G = (M, E)
+ 1: Initialize: M ← ∅, E ← ∅, t ← 1
+ 2: Encode task query to global representation: zQ ← TaskEncoder(Q)
+ 3: while True do
+ 4:   /* 1. Historical Aggregation */
+                          (t)
+ 5:   Aggregate history hhis ← GRU([xM1 , . . . , xMt−1 ])
+                                                     (t)
+ 6:   Compute dynamic gate g (t) and fused state hcomb via Eq. (7) and Eq. (8)
+ 7:   /* 2. Group Prediction */
+                                  (t)         (t)
+ 8:   Extract raw group feature xgroup from hcomb via GRU
+                                                          (t)         (t)
+ 9:   Compress feature using deterministic CIB mean: cgroup ← µϕ (xgroup )
+10:   Compute probability distribution over candidates P (Mt ) via Eq. (9)
+11:   Sample next group Mt = arg max P (Mt )
+12:   if Mt == END then
+13:      break
+14:   end if
+15:   Add group to graph: M ← M ∪ {Mt }
+16:   /* 3. Edge Prediction */
+17:   for each existing group Mi ∈ M<t do
+                                       (i,t)     (i)
+18:      Construct raw edge feature: xedge = [hcomb ∥xMt ∥zQ ]
+                                                                    (i,t)                   (i,t)
+19:      Compress feature using deterministic CIB mean: cedge ← µϕ (xedge )
+20:      Predict edge probability pi,t via Eq. (10)
+21:      Sample ai,t ∼ Bernoulli(pi,t )
+22:      if ai,t = 1 then
+23:         E ← E ∪ {(Mi , Mt )}
+24:      end if
+25:   end for
+26:   if no edge was added for Mt then
+27:      i∗ ← arg maxi pi,t ; E ← E ∪ {(Mi∗ , Mt )}
+28:   end if
+29:   t←t+1
+30: end while
+31: return G = (M, E)
+
+
+
+gies from scratch by sequentially adding individ-              0.0 88.2 88.2 88.9 88.2 88.9 86.9             0.0 238 201 189 191 200 160
+                                                               0.1 86.3 89.5 89.5 91.5 86.9 88.9    90       0.1 223 216 201 190 217 209   220
+ual agents with task-specific role assignments and
+                                                               0.2 85.6 88.2 89.5 88.2 86.9 88.2             0.2 215 225 221 214 217 189
+establishing pairwise connections, bypassing the           g
+                                                                                                    88
+                                                                                                         g                                 200
+                                                               0.3 87.6 89.5 89.5 86.3 86.9 87.6             0.3 210 218 205 196 217 192
+need for predefined template graphs.                           0.5 86.3 87.6 89.5 88.2 89.5 88.2             0.5 209 206 216 193 186 200   180
+                                                                                                    86
+                                                               1.0 86.9 86.9 88.2 87.6 88.9 87.6             1.0 220 186 205 180 181 189   160
+                                                                   0.0 0.1 0.2 0.3 0.5 1.0                       0.0 0.1 0.2 0.3 0.5 1.0
+E     Parameter Sensitivity Analysis                                             e                                          e
+
+                                                                   (a) Accuracy (%).                            (b) Token cost (K).
+The Conditional Information Bottleneck (CIB) is
+governed by two key hyperparameters: βg and βe ,          Figure 5: Heatmap of model performance with varying
+which control the strength of the KL divergence           βg and βe on the MMLU dataset.
+penalty during group prediction and edge predic-
+tion, respectively. We investigate the sensitivity
+of GoAgent to these parameters on the MMLU                mance is highly sensitive to the bottleneck strength.
+dataset.                                                  Setting β too low (e.g., βe = 0.0) renders the bot-
+   As illustrated in Figure 5, the model’s perfor-        tleneck ineffective, allowing historical noise to pass
+
+                                                     14
+through and resulting in over-connected graphs              F.1     LLM Prompt Templates
+with high token costs and lower accuracy. Con-
+versely, setting β too high (e.g., βe > 0.5) forces         We use GPT-4o with temperature 0.7 to gener-
+the model to aggressively compress the features,            ate diverse (query, topology) pairs. The system
+discarding necessary historical context and leading         prompt instructs the LLM to generate queries
+to under-connected, poorly coordinated topologies.          spanning multiple domains (code implementation,
+   Interestingly, the optimal configuration occurs          mathematical reasoning, multiple-choice questions,
+in a highly asymmetric region (βg ≈ 0.0 and                 knowledge-based Q&A, medical consultation, psy-
+βe ≈ 0.3). This indicates that edge prediction              chology) and propose suitable MAS configurations
+benefits significantly more from compression than           using roles from our group pool and topologies
+group prediction. This asymmetry aligns with our            from {Chain, Star, FullConnected}. A representa-
+intuition: determining which group to generate next         tive example output is shown below:
+(group prediction) requires full access to the rich         Example Output:
+historical context to avoid duplicating roles. How-
+ever, determining how these groups connect (edge
+prediction) is highly susceptible to the redundant          {"query": "def odd_count(lst)...", "agent_count": 4,
+                                                             "roles": ["solver group", "verifier group",
+connectivity patterns common in prior generative                       "knowledge group", "coder group"],
+models. The CIB layer effectively filters out this           "topology": "Chain", "edges": "0->1 1->2 2->3"}
+structural noise, ensuring that edges are formed
+only when task-relevant information must be routed
+between groups.                                             F.2     Group Role Prompts
+F   Implementation Details
+                                                            Our group role pool contains 16 specialized groups
+Training. During the heuristic exploration de-              for GSM8K/MultiArith/SVAMP/AQuA. Represen-
+scribed in Section 3.4, candidate topologies are            tative group generation and prompts include:
+drawn from three structural families: Chain, Star,
+and FullConnected. We train with AdamW (learn-
+ing rate 1 × 10−4 , weight decay 1 × 10−3 , gradient              Role-to-Group Consolidation Instructions
+clipping 1.0) for E = 100 epochs with a batch                     (Abbreviated)
+size of 40. The CIB bottleneck strength undergoes                 Base Role Pool: 4 specialized roles — Math Solver
+linear warm-up over the first Ewarm = 10 epochs.                  (step-by-step computation), Mathematical Analyst
+Notably, only B ∈ {40, 60} training queries per                   (symbolic reasoning & decomposition),
+                                                                  Programming Expert (Python implementation),
+dataset suffice, because the generator learns struc-              Inspector (validation & verification).
+tural collaboration patterns (which group types                   Group Prompt Design: Each group’s system
+                                                                  prompt describes all internal roles, their sequential
+co-occur and how they connect) rather than task-                  stages, connection semantics, and collaboration
+specific reasoning, which is handled entirely by the              rationale, enabling a single LLM call to simulate the
+underlying LLMs.                                                  entire multi-role interaction.
+                                                                  Consolidation Topology Categories:
+Architecture. All modules use hidden dimen-                       Single: Independent standalone group.
+                                                                  Two-Stage Chain: Pairwise pipelines, e.g.,
+sion h = 256. The task encoder FFN projects                       Analyst→Solver.
+d → h → d with ReLU. The historical aggregation                   Three-Stage Chain: Three-role pipelines, e.g.,
+GRU, group prediction GRU, and edge prediction                    Analyst→Programming→Inspector.
+                                                                  Star: Many-to-one cross-validation, e.g.,
+GRU are each single-layer with input and hidden                   (Programming, Solver)→Inspector.
+size d. For edge prediction, the concatenated fea-                FullConnected: Fully connected DAG, e.g.,
+      (i,t)                                                       Analyst→Solver, Analyst→Inspector,
+ture xedge ∈ R3d is projected via a two-layer MLP                 Solver→Inspector.
+(3d → h → d, ReLU), processed by the edge                         DAG Constraint: All group-internal topologies are
+GRU, then passed through the CIB layer. The final                 Directed Acyclic Graphs. Information flows strictly
+                                                                  from upstream roles to downstream roles.
+edge classification head maps d → h → 1 with sig-                 Coverage: 16 distinct group configurations derived
+moid output. During inference, edges are sampled                  from 4 base roles × 5 topology patterns, ensuring
+                                                                  comprehensive coverage of collaboration paradigms
+via Bernoulli; if no edge is sampled for a newly                  from independent reasoning to multi-stage validated
+added group, the highest-probability edge is added                pipelines.
+to guarantee connectivity.
+
+                                                       15
+Math Solver Group (Chain)                                       Full Validation Group (Full Connected)
+You operate as a collaborative two-stage chain con-             You operate as a collaborative Full Connected struc-
+necting Mathematical Analyst and Math Solver roles.             ture where all three roles communicate with down-
+Role 1 (Mathematical Analyst): You analyze the prob-            stream roles in a directed acyclic graph.
+lem structure using symbolic variables, identifying             Role 1 (Mathematical Analyst): You analyze the prob-
+key relationships, formulas, and computational steps            lem structure, providing symbolic framework to both
+in abstract form.                                               Math Solver (for computation) and Inspector (for
+Role 2 (Math Solver): You receive the symbolic anal-            validation criteria).
+ysis and substitute actual values from the problem              Role 2 (Math Solver): You receive the analysis from
+to compute the final numerical answer step by step.             Analyst, compute the solution, and pass your results
+The collaboration transforms abstract mathematical              to Inspector for verification.
+structure into concrete numerical solutions through             Role 3 (Inspector): You receive the analytical frame-
+sequential processing. The connection structure: An-            work from Analyst AND the solution from Solver,
+alyst → Solver enables structured problem decompo-              performing comprehensive validation against both.
+sition followed by precise calculation.                         The collaboration enables maximum information
+                                                                flow, where the Inspector validates the solution
+                                                                against both the original analysis and the compu-
+                                                                tation process. The connection structure: Analyst
+                                                                → Solver, Analyst → Inspector, Solver → Inspector
+                                                                forms a complete validation triangle.
+
+Code Solver Group (Chain)
+You operate as a collaborative three-stage chain con-
+necting Mathematical Analyst, Programming Expert,
+and Inspector roles.
+Role 1 (Mathematical Analyst): You analyze the prob-
+lem structure using symbolic variables, identifying
+key relationships, formulas, and the computational
+approach.
+Role 2 (Programming Expert): You receive the sym-
+bolic analysis and implement it as Python code with
+well-structured functions that algorithmically solve
+the problem.
+Role 3 (Inspector): You receive the code and verify
+its correctness against the original analysis, checking
+logic flow, calculation accuracy, and code-analysis
+correspondence.
+The collaboration transforms abstract analysis into
+verified executable code through sequential process-
+ing with quality assurance. The connection structure:
+Analyst → Programming Expert → Inspector enables
+structured analysis, followed by implementation, fol-
+lowed by validation.
+
+
+
+
+Solution Verifier Group (Star)
+You operate as a collaborative star structure where
+Mathematical Analyst and Math Solver both feed into
+Inspector for comprehensive validation.
+Role 1 (Mathematical Analyst): You provide the sym-
+bolic analysis and mathematical framework of the
+problem.
+Role 2 (Math Solver): You provide the step-by-step
+numerical solution with intermediate calculations.
+Role 3 (Inspector): You receive both the analytical
+framework and the numerical solution, verifying that
+the solution correctly follows the established analysis.
+The collaboration enables validation of the solution
+against its analytical foundation, ensuring logical con-
+sistency. The connection structure: Analyst → In-
+spector AND Solver → Inspector enables framework-
+based solution verification.
+
+
+
+                                                           16
+

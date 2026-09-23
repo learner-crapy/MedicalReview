@@ -1,0 +1,1403 @@
+                                          MDTeamGPT: A Self-Evolving LLM-based Multi-Agent Framework for
+                                                  Multi-Disciplinary Team Medical Consultation
+
+                                                Kai Chen1 , Xinfeng Li2 , Tianpei Yang1∗ , Hewei Wang3 , Wei Dong2 , Yang Gao1
+                                                   1
+                                                     State Key Laboratory for Novel Software Technology, Nanjing University
+                                                                        2
+                                                                          Nanyang Technological University
+                                                            3
+                                                              School of Computer Science, Carnegie Mellon University
+
+
+
+                                                               Abstract
+
+                                             Large Language Models (LLMs) have made
+                                             significant progress in various fields. How-
+
+
+
+
+arXiv:2503.13856v1 [cs.AI] 18 Mar 2025
+                                                                                                     Diagnosis and Treatment
+                                             ever, challenges remain in Multi-Disciplinary                Information
+
+                                                                                                                               Summary and Synthesis
+
+                                             Team (MDT) medical consultations. Current re-
+                                             search enhances reasoning through role assign-
+                                             ment, task decomposition, and accumulation of
+                                                                                                                                  Consistency          Conflict   Independence   Integration
+                                             medical experience. Multi-role collaboration
+                                             in MDT consultations often results in exces-         Figure 1: The lead physician consolidates and refines
+                                             sively long dialogue histories. This increases       the discussion outcomes from the current round of
+                                             the model’s cognitive burden and degrades both       agents by categorizing them into four detailed cate-
+                                             efficiency and accuracy. Some methods only           gories: consistency, conflict, independence, and integra-
+                                             store treatment histories. They do not extract ef-   tion, thereby enhancing the overall diagnostic clarity.
+                                             fective experience or reflect on errors. This lim-
+                                             its knowledge generalization and system evolu-       and holistic therapeutic strategies through system-
+                                             tion. We propose a multi-agent MDT medical           atic integration of expertise across medical disci-
+                                             consultation framework based on LLMs to ad-          plines (Makary, 2011). Nevertheless, the organi-
+                                             dress these issues. Our framework uses consen-       zation of interdisciplinary consultations demands
+                                             sus aggregation and a residual discussion struc-     substantial temporal and human resources, while re-
+                                             ture for multi-round consultations. It also em-
+                                                                                                  maining vulnerable to procedural oversights, cogni-
+                                             ploys a Correct Answer Knowledge Base (Cor-
+                                             rectKB) and a Chain-of-Thought Knowledge             tive biases, and communication inefficiencies (Bur-
+                                             Base (ChainKB) to accumulate consultation ex-        ton et al., 2022). Such systemic challenges may
+                                             perience. These mechanisms enable the frame-         ultimately compromise healthcare quality and ad-
+                                             work to evolve and continually improve diag-         versely affect patient outcomes.
+                                             nosis rationality and accuracy. Experimental
+                                             results on the MedQA and PubMedQA datasets              Large Language Models (LLMs), with their mas-
+                                             demonstrate that our framework achieves ac-          sive parameter sizes and extensive training on vast
+                                             curacies of 90.1% and 83.9%, respectively,           knowledge bases from diverse domains, demon-
+                                             and that the constructed knowledge bases gen-        strate strong reasoning abilities and zero-shot gen-
+                                             eralize effectively across test sets from both       eralization capabilities (Achiam et al., 2023; Tou-
+                                             datasets. Our code is publicly available at:         vron et al., 2023). These capabilities have led many
+                                             https://kaichennj.github.io/MDTeamGPT.
+                                                                                                  researchers to explore the potential application of
+                                                                                                  LLMs in medical MDT diagnostics (Kim et al.,
+                                         1   Introduction                                         2024; Chen et al., 2024b). Leveraging LLMs as
+                                         When diagnosing and treating complex diseases,           autonomous agents offers a promising way to im-
+                                         a single-specialty medical perspective frequently        prove medical consultations by human doctors.
+                                         proves insufficient to address patients’ comprehen-         However, the application of LLMs in MDT di-
+                                         sive and precise healthcare needs, thereby necessi-      agnostics faces two primary challenges. First, pri-
+                                         tating the implementation of a Multi-Disciplinary        vacy constraints and the lack of standardized data
+                                         Team (MDT) and diversified clinical perspec-             storage result in scarce medical consultation data,
+                                         tives (Macken et al., 2022; Zhou and Xu, 2023).          hindering the supervised fine-tuning (SFT) of large
+                                         MDT facilitates the development of more accurate         models. Secondly, although LLMs have been fine-
+tuned with medical knowledge, they remain prone         the consultation outcomes are further categorized
+to hallucination issues (Ye et al., 2023; Pal et al.,   based on their correctness and stored in distinct
+2023). In the medical field, such hallucinations can    knowledge bases, serving as references to enhance
+result in severe medical incidents even with minor      future consultations. Overall, the main contribu-
+errors (Nori et al., 2023).                             tions of our work are threefold:
+   Multi-agent based on LLMs enhances medical
+reasoning by stimulating latent medical knowledge           • We propose an MDT-based multi-agent medi-
+through multi-round interactions and significantly            cal consultation framework that incorporates
+reduces the occurrence of hallucinations (Liu et al.,         a lead physician mechanism and a residual
+2023; Du et al., 2023). Recent research in this               discussion structure to effectively integrate
+domain has primarily focused on role configura-               multi-round discussion outcomes. This de-
+tion (Tang et al., 2023; Long et al., 2024), subtask          sign reduces the cognitive load on agents,
+decomposition (Pandey et al., 2024), clinical envi-           thereby enhancing the accuracy of reasoning
+ronment simulation (Schmidgall et al., 2024), and             and decision-making.
+the accumulation of medical experience (Wei et al.,         • The framework employs an adaptive learning
+2024; Li et al., 2024b). However, several chal-               mechanism that leverages both correct and in-
+lenges remain. First, multi-role interactions often           correct diagnostic experiences, progressively
+result in excessively long dialogues. As contextual           accumulating and strengthening transferable
+information accumulates, the cognitive load on the            reasoning capabilities.
+model increases, negatively impacting response ef-
+ficiency and accuracy (Maharana et al., 2024). Sec-         • Experimental results demonstrate that the
+ond, some studies rely on simply storing diagnostic           framework, utilizing 600 rounds of consulta-
+histories without effectively integrating correct di-         tion experience, achieves accuracies of 90.1%
+agnostic experiences or reflecting on errors, which           on the MedQA dataset and 83.9% on the Pub-
+may lead to biases when handling detailed infor-              MedQA dataset. Cross-dataset tests further
+mation (Li et al., 2024a). Finally, enhancing the             confirm that the knowledge bases retain gen-
+generalization ability of systems in preserving med-          eralizable reasoning skills, not just isolated
+ical experiences (Qian et al., 2024a) is crucial for          consultation data.
+achieving self-evolution and leveraging collective
+intelligence.                                           2     Related Work
+   In this work, we propose a self-evolving LLM-
+                                                        2.1    LLM-based Multi-Agent Collaboration
+based multi-agent framework (MDTeamGPT) for
+multi-disciplinary team medical consultation. This      Well-structured multi-agent systems can signifi-
+framework incorporates various doctor roles and         cantly reduce errors and enhance interaction ef-
+supporting roles, where a "patient" role arrives with   ficiency (Qian et al., 2024c; Park et al., 2023; Du
+specific background information and medical ques-       et al., 2024; Qian et al., 2024d). ChatDev (Qian
+tions. The Primary Care Doctor assigns the pa-          et al., 2024c) splits tasks into subtasks managed by
+tient to the most suitable specialist agents based on   an instructor and an assistant, using multi-round in-
+the patient’s condition. Subsequently, the special-     quiries to mitigate hallucinations. MACNET (Qian
+ist agents engage in a multi-round of discussion,       et al., 2024d) adopts a directed acyclic graph with
+sharing relevant information. After each round, a       topological sorting for interactive reasoning, and
+lead physician summarizes and organizes the dis-        MetaGPT (Hong et al., 2024) encodes SOPs for
+cussion outcomes, categorizing them into Consis-        roles akin to a software company, effectively co-
+tency, Conflict, Independence, and Integration,         ordinating specialized expertise. However, these
+as illustrated in Figure 1. In the subsequent discus-   methods primarily focus on software development
+sion rounds, agents refer to the information stored     and face applicability challenges in medical con-
+in the Historical Shared Pool based on the residual     sultations. Medagents (Tang et al., 2023) assigns
+discussion structure. Once a consensus is reached       distinct doctor roles to each LLM-Agent and uses
+through multiple rounds of deliberation, the final      consensus voting, but lacks a robust strategy, risk-
+consultation outcome is reviewed and filtered by a      ing collective hallucinations (Chen et al., 2024a).
+Safety and Ethics Reviewer before presenting the        Additionally, these methods rely on static structures
+final results and recommendations. At this stage,       limited by zero-shot capabilities.
+2.2   Experience Utilization                            functions are elaborated in Sections 3.2 and 3.3.
+Inspired by human knowledge acquisition mech-           This role setup broadens the framework’s appli-
+anisms, equipping LLM-Agents with reflective            cability to diverse complex medical cases. The
+memory can enhance their problem-solving capa-          prompt templates for all roles are provided in Ap-
+bilities (Zhong et al., 2024). ExpeL (Zhao et al.,      pendix A. Figure 2 presents an overview of the
+2024) accumulates experiences from past successes       proposed framework, which is divided into three
+and applies this knowledge during reasoning. Co-        critical stages.
+Learning (Qian et al., 2024a) focuses on collect-       3.1    Aranging Specialist Doctors
+ing experience-driven heuristics from prior actions,
+thus enabling agents to handle novel tasks more         When the patient agent comes for a consultation
+flexibly. IER (Qian et al., 2024b) permits LLM-         carrying personal background C and medical prob-
+Agents to iteratively refine accumulated experi-        lem Q, the Primary Care Doctor Agent assigns
+ences throughout task execution. Selfevolve (Jiang      specialist doctor Agents based on the specific cir-
+et al., 2023) employs LLMs both as knowledge            cumstances of the patient. Before making the final
+providers and as self-reflective programmers, al-       decision, the Primary Care Doctor Agent provides
+lowing agents to evolve through reflective pro-         Reasons for the selection. To ensure the triage doc-
+cesses. Agent Hospital (Li et al., 2024c) utilizes      tor’s output is more accurate and structured, we
+medical record libraries and experience databases       configure the Primary Care Doctor Agent with a
+to accumulate diagnostic data, enhancing prompts        few-shot example as a reference. The workflow is
+for medical agents and supporting their evolution.      as follows: This description can be expressed by
+However, the lack of abstraction, summarization,        the following formula:
+and reflection on erroneous cases limits the ability       Reasons, Roles = LLM (Agents | C, Q) .                                (1)
+to fully leverage valuable insights from mistakes.
+                                                                                     Roles ⊆ S.                                  (2)
+2.3   Discussion and Aggregation
+An effective discussion process can significantly en-      This approach prevents information contamina-
+hance LLM-Multi-Agent performance. The Nom-             tion caused by an excess of irrelevant expert agents.
+inal Group Technique (NGT) (Ven and Delbecq,            During configuration, we provide the Primary Care
+1974) is a structured decision-making method that       Doctor Agent with a limited number of cases, en-
+moves teams from individual ideation to collective      couraging it to output responses in a prescribed
+consensus through four stages: personal idea gener-     format. An example is presented below:
+ation, round-robin sharing, focused discussion, and
+                                                           Primary Care Doctor Agent Output Example Template
+voting. Building on this principle, LLM Discus-
+sion (Lu et al., 2024) augments the creative poten-
+                                                           Input question: A 1-year-old boy presents to the emergency depart-
+tial of LLMs by dividing conversations into initia-        ment with weakness and a change in his behavior. His parents first
+                                                           noticed the change this morning, and it has been worsening. Initially,
+tion, discussion, and convergence phases, thereby          he was weak in his upper body and arms, but now he won’t move
+promoting iterative and divergent exchanges among          his legs with as much strength. Physical exam shows bilateral ptosis,
+                                                           sluggish pupillary response, weak sucking and gag reflex, shallow
+multiple agents.                                           respirations,. . . , drooling, and a dry diaper. He has not had a bowel
+                                                           movement in over 1 day. Which of the following is the pathophysiol-
+                                                           ogy of this patient’s condition?
+3     Method                                               Primary Care Doctor :
+                                                           • <Reasons>
+                                                           • <{General Internal Medicine Doctor}, {Obstetrician and
+In this section, we provide a detailed description         Gynecologist}, {Radiologist}, {Pathologist}, {Pharmacist}>
+of our medical consultation framework. Within
+this framework, we have established a set of spe-
+cialist doctor Agent roles, S (General Internal         3.2    Multi-Round Consultations
+Medicine Doctor, General Surgeon, Pediatrician,         Once the specialist doctors for the consultation
+Obstetrician and Gynecologist, Radiologist, Neu-        have been determined, the consultation process of-
+rologist, Pathologist, Pharmacist), and a set of aux-   ficially begins. In the initial round, each specialist
+iliary Agent roles, A (Primary Care Doctor, Lead        doctor presents their opinion based on the patient’s
+Physician, Chain-of-Thought Reviewer, Safety and        condition, denoted as S1,k (where S1,k represents
+Ethics Reviewer). The roles within A do not di-         the response of the k-th specialist doctor in the
+rectly participate in the consultation process; their   first round). Each specialist doctor also provides
+                                                             A 1-year-old boy presents to the emergency department with weakness and a change in
+                                                             his behavior. His parents first noticed the change this morning, and it has been worsening.
+                                                             Initially, he was weak in his upper body and arms, but now he won’t move his legs with as
+                                                             much strength. Physical exam shows bilateral ptosis, sluggish pupillary response, weak
+                                                             sucking and gag reflex, shallow respirations, …, drooling, and a dry diaper. He has not had
+                                                             a bowel movement in over 1 day. Which of the following is the pathophysiology of this
+                                                             patient’s condition?
+                                                                               A: Antibodies against postsynaptic nicotinic cholinergic ion channels
+                                                                            B: Autoantibodies against the presynaptic voltage-gated calcium channels
+                                                                                        C: Autoimmune demyelination of peripheral nerves
+                                    Arrange Doctors                      D: Blockade of presynaptic acetylcholine release at the neuromuscular junction
+                                                                                     E: Lower motor neuron destruction in the anterior horn
+
+
+
+
+                                                                                                         ✖
+                                                                                            Shared Vector Database
+
+                     A       B      C           D     X                                    Correct Answer
+                                                                                           Knowledge Base
+
+
+                                                                                If 👉
+                                                                           Correct Answer
+                     A       D      D           D     B                                                             Review
+                                                                                                                   Summarize
+       Historical                                                                                                    Output
+        Shared
+        Pooling
+                                    ...
+                                                                                  If 👉                     D
+                                                                           Incorrect Answer
+                                                              Reach a
+                                                             consensus
+
+
+                                                                                             Chain of Thought
+                                                                                             Knowledge Base
+                     D       D      D           D     D
+
+Figure 2: Overview of our MDTeamGPT medical consultations framework: (A) arranging strategically specialist
+doctors based on the patient’s specific condition; (B) orchestrating multi-round collaborative consultations with
+organized clinical information; (C) summarizing and outputting the final diagnostic and treatment recommendations.
+
+
+an option ID along with the corresponding content
+for the issue at hand. At this stage, each specialist      Algorithm 1 Multi-Round Medical Consultation
+doctor agent cannot observe the statements made             1: Initialize: Speech pool S1 = {s1,1 , s1,2 , . . . , s1,n }
+by other agents.                                            2: Round 1:
+   All specialists’ statements are sent to the lead         3: for each specialist k do
+                                                            4:     S1,k ← f (C, Q) ▷ Each specialist provides an initial
+physician(as detailed in Appendix B.1), who pro-               response
+cesses them into four distinct components: Consis-          5: end for
+tency, Conflict, Independence, and Integration.             6: S14 ← LeadPhysician(S1 ) ▷ Process into four viewpoints
+                                                            7: Store S14 in H
+
+   • Consistency: Aggregates the parts of indi-             8: Round 2:
+                                                            9: for each specialist k do
+     vidual statements that are consistent across          10:     S2,k ← f (S14 , C, Q)
+     multiple agent statements.                            11: end for
+                                                           12: S24 ← LeadPhysician(S2 )
+   • Conflict: Identifies and lists conflicting points     13: Store S24 in H
+     between different statements when the an-             14: Subsequent Rounds:
+     swers are not uniform; otherwise, this compo-         15: Set i = 2
+                                                           16: while not Consensus(Sn ) and i ≤ MaxRounds do
+     nent remains empty.                                   17:     for each specialist k do
+   • Independence: Extracts the unique view-               18:         Si+1,k ← g(Si4 , Si−14
+                                                                                                , C, Q) ▷ Use processed
+                                                               viewpoints from last two rounds
+     points of each agent, i.e., aspects mentioned         19:     end for
+                                                                     4
+     by a specific agent but not by others; Remains        20:     Si+1  ← LeadPhysician(Si+1 )
+                                                                           4
+     empty if no unique views exist.                       21:     Store Si+1 in H
+                                                           22:     Increment i
+   • Integration: Synthesizes all agent statements         23:     Consensus Check:
+                                                           24:     if ∀k, m ∈ {1, . . . , n} : Si,k = Si,m then
+     into a cohesive, well-structured summary in-          25:         Set Consensus(Si ) = True
+     corporating all perspectives.                         26:     end if
+                                                           27: end while
+   The processed statements are denoted as S14 and         28: if not Consensus(Si ) then
+are subsequently stored in the Historical Shared           29:     Decision by Majority Rule:
+                                                           30:     if tie in votes then
+Pool (H). Once statements are stored, the consulta-        31:          Randomly select one answer from agents’ choices
+tion moves to the next round.                              32:     end if
+   Starting from the second round, each specialist         33: end if
+doctor agent can access the structured statements
+from the previous round, stored in the H. They in-          If the consultation outcome is accurate, the
+tegrate these insights to enhance their prompts and      Chain-of-Thought Reviewer summarizes and or-
+formulate their responses, denoted as S2,k , while       ganizes the patient’s background information(B),
+selecting an option ID and corresponding answer          medical problem(Q), and the structured statements
+content for the given issue. As in the first round,                                            4 . This pro-
+                                                         from the final consultation round Sfinal
+all agents’ statements are sent to the lead physician,   cessed information is then archived into the Correct
+who processes them into S24 .                            Answer Knowledge Base (CorrectKB). The storage
+   From round i+1 (where i ≥ 2), specialist doctor       format is as follows:
+agents can review the structured statements from
+rounds i and i − 1, denoted as Si4 and Si−1
+                                          4 , respec-       CoT Reviewer Storage Format (Correct Answer)
+tively. By integrating insights from the previous
+                                                            Chain-of-Thought Reviewer({C, B, Q, Sfinal 4 }):
+two rounds, they refine their prompts, articulate
+                                                             {"Question": <...>,
+their viewpoints, and provide an option ID and cor-         "Answer": <...>,
+responding content for further discussion. The dis-         "Summary of Sfinal 4 ": <...>}
+cussion continues until all specialist doctor agents
+reach a consensus on the final answer. If a consen-
+                                                            Conversely, if the consultation outcome is incor-
+sus is not achieved and the number of discussion
+                                                         rect, the Chain-of-Thought Reviewer generates an
+rounds has not reached the predefined upper limit
+                                                         abstract summary of the session. This summary in-
+(set at 10 rounds), the discussion proceeds to the
+                                                         cludes B and Q and is structured according to the
+next round. If the maximum number of rounds is
+                                                         initial hypothesis, analysis process, final conclu-
+reached without achieving consensus, the final de-
+                                                         sion, and reflection on error causes. The summary
+cision is made based on the majority rule. If votes
+                                                         is then stored in the Chain-of-Thought Knowledge
+are evenly distributed, the final answer is randomly
+                                                         Base (ChainKB). The storage format is as follows:
+selected from the agents’ choices.
+                                                            CoT Reviewer Storage Format(Incorrect Answer)
+                        Historical Shared Pool
+                                 i-1                        Chain-of-Thought Reviewer({C, B, Q, Si 4 , ...,
+                                                            Sfinal 4 }):
+                        Historical Shared Pool               {"Question": <...>,
+                                  i                         "Correct Answer": <...>,
+                                                            "Initial Hypothesis": <...>,
+                        Historical Shared Pool              "Analysis Process": <...>,
+                                i+1                         "Final Conclusion": <...>,
+                                                            "Error Reflection": <...>}
+Figure 3: Diagram of the residual discussion structure
+in the MDT medical consultation process.                    When a new patient arrives, their B and Q are
+   This consensus aggregation, combined with the         used to retrieve the top − K most similar cases
+residual discussion structure (see Figure 3), re-        from both knowledge bases based on cosine simi-
+duces information pollution, enhances discussion         larity computation (K = 5 in our application). This
+efficiency, and minimizes the cognitive load on          retrieval process enhances the prompts (P ) for the
+the model. The structure limits specialist doctor        specialist doctor agents.
+agents’ access to deeper memory layers, helping to          To maintain the independent reasoning of each
+prevent excessive influence from other agents and        specialist doctor agent, these two knowledge bases
+thereby mitigating hallucinations to some extent.        are not referenced during the initial discussion
+The consultation process follows Algorithm 1.            round. Instead, they are utilized starting from the
+                                                         second round, particularly in cases where conflict-
+3.3   Summary and Output Stage                           ing opinions arise. However, if a consensus is
+At this stage, the final output (C) is reviewed by       reached in the first round, these knowledge bases
+the Safety and Ethics Reviewer agent. This agent         may be referenced as a reflective measure after the
+refines and verifies the consultation outcome, iden-     discussion concludes. The full process is detailed
+tifies any potential safety concerns, and ultimately     in Algorithm 2.
+determines the final conclusion (R). The conclu-            It is worth noting that the core model responsi-
+sion is later validated against the correct result.      ble for embedding textual content into the vector
+Algorithm 2 Summary and Evolution                             during which the experiences were stored in Cor-
+ 1: Input: C, B, Q, CorrectKB, ChainKB                        rectKB and ChainKB (MedQA and PubMedQA
+  2: Outcome Validation:                                      each utilized their respective training sets for these
+  3: if Valid(R) then                                         consultations). This benchmark was chosen after
+                                                4
+  4:     Record ← CoT_Reviewer({C, B, Q, Sfinal   })
+  5:     Store(Record, CorrectKB)                             considering both performance and cost. The over-
+  6: else                                                     all results are shown in Table 1, where gpt-4-turbo
+  7:     Record ← CoT_Reviewer({C, B, Q, Si4 , ..., Sfinal
+                                                     4
+                                                           }) serves as the base model across all configurations.
+  8:     Store(Record, ChainKB)
+  9: end if                                                      Single-Agent denotes the baseline performance
+10: Prompt Enhancement:                                       using  only gpt-4-turbo; Single-Agent (w/) CoT in-
+11: similarity ← CosineSim(B, CorrectKB, ChainKB)             corporates   a "Let’s think step by step" approach in
+12: T opK_similarity ← SelectTopK(similarity, K)              the answering process; Single-Agent (w/) ReAct
+13: P ← Retrieve(T opK_similarity, CorrectKB, ChainKB)
+14: enhancedP rompt ← Enhance(P )                             employs a ReAct-style prompt, simplified and mod-
+15: Application of Enhanced Prompt:                           ified in our experiments to consist of the "Thought",
+16: round ← 1                                                 "Action (Selection)", and "Observation (Reflec-
+17: while not Consensus(C) do                                 tion)" processes. Although our approach achieves
+18:       UsePrompt(enhancedP rompt, round)
+19:       round ← round + 1                                   slightly lower accuracy on the MedQA dataset than
+20:       if round = 2 and conflicts arise then               Medprompt (Nori et al., 2023)—likely because
+21:            ConsultKBs(P )                                 Medprompt is evaluated solely on four-option sce-
+22:       end if
+23: end while                                                 narios—it outperforms Medprompt on the Pub-
+24: if round = 1 and Consensus(C) then                        MedQA dataset and in overall averages. Overall,
+25:       ConsultKBs(P )                                      MDTeamGPT demonstrates strong average accu-
+26: end if                                                    racy, proving its effectiveness for advanced LLM-
+spaces of CorrectKB and ChainKB is OpenAI’s                   based medical applications.
+‘text-embedding-3-small’1 .
+                                                              4.3 Ablation Studies
+4       Experiments                                         To examine the contribution of each component
+                                                            within the MDTeamGPT framework, we conducted
+4.1      Datasets
+                                                            experiments combining different configuration set-
+We utilize the MedQA (Jin et al., 2021) and Pub-            tings. Throughout these experiments, gpt-4-turbo
+MedQA (Jin et al., 2019) datasets to validate               served as the backbone model for all agents.
+our framework. The MedQA dataset consists                      In Table 2, the first experimental setting per-
+of USMLE-style questions, each offering four or             mits all agents to engage in a joint discussion with-
+five possible answers, designed to assess medical           out any specific discussion strategy; the system
+knowledge and practical skills. PubMedQA, based             only terminates when either a consensus is reached
+on research paper abstracts, presents questions with        among all agents or the maximum number of dis-
+Yes/No/Maybe answers, aiming to evaluate the per-           cussion rounds is exhausted. The second experi-
+formance of natural language processing models in           ment introduces the residual discussion mode, re-
+academic question answering. The final results are          sulting in lower accuracy on MedQA but a 0.8%
+based on the test sets of each dataset, with the Cor-       improvement on PubMedQA, leading to a 0.4% de-
+rectKB and ChainKB containing only experiences              crease in average accuracy compared with the first
+from the training sets.                                     experiment. In the third experiment, we remove the
+                                                            residual discussion mode and only employ the lead
+4.2      Main Results
+                                                            physician to synthesize discussion results. Rela-
+In this experimental section, we primarily inves-           tive to the first experiment, this yields a 0.3% drop
+tigate the zero-shot accuracy and F1-score advan-           on MedQA but a 1.4% increase on PubMedQA,
+tages of our proposed MDTeamGPT framework                   translating into a 0.5% rise in average accuracy.
+in the context of medical consultations (additional            Notably, combining the residual discussion
+metrics were assessed through human evaluation,             mode and the lead physician in the fourth exper-
+as detailed in Appendix B.3). Under this frame-             iment raises the accuracy on MedQA and Pub-
+work, 600 consultation rounds were conducted,               MedQA by 5.8% and 3.6%, respectively, compared
+    1
+    https://platform.openai.com/docs/guides/                with the first experiment, demonstrating that jointly
+embeddings/embedding-models                                 applying residual discussion mode and lead physi-
+                                                         MedQA                       PubMedQA              Average
+  Method
+                                               Accuracy (%) F1-score (%)     Accuracy (%) F1-score (%)   Accuracy (%)
+  Single-Agent                                     77.4         76.2             75.3         73.7           76.4
+  Single-Agent (w/) CoT                            76.6         75.1             76.9         74.8           76.8
+  Single-Agent (w/) ReAct                          78.5         76.9             75.8         74.1           77.2
+  Medprompt (Nori et al., 2023)                    90.2         88.9             82.0         80.3           86.1
+  Multi-expert Prompting (Long et al., 2024)       86.6         84.9             82.7         81.6           84.2
+  LLM Discussion (Lu et al., 2024)                 80.4         78.3             78.2         76.4           79.3
+  MedAgents (Tang et al., 2023)                    83.7         82.1             76.8         75.1           80.3
+  MDTeamGPT (ours)                                 90.1         88.4             83.9         82.6           87.0
+
+Table 1: Main results on accuracy and F1-score across MedQA and PubMedQA datasets (all results were obtained
+using gpt-4-turbo). We highlight the optimal and suboptimal methods in bold and underline, respectively.
+
+       Residual           Lead        CorrectKB        ChainKB
+                                                                    MedQA (%)        PubMedQA (%)        Average (%)
+   discussion mode      Physician    (600 rounds)    (600 rounds)
+           ✗               ✗               ✗               ✗               78.5           74.0              76.3
+          ✓                ✗               ✗               ✗               76.9           74.8              75.9
+           ✗               ✓               ✗               ✗               78.2           75.4              76.8
+          ✓                ✓               ✗               ✗               84.3           77.6              81.0
+          ✓                ✓              ✓                ✗               87.3           83.5              85.4
+          ✓                ✓               ✗              ✓                85.2           78.1              81.6
+          ✓                ✓              ✓               ✓                90.1           83.9              87.0
+
+      Table 2: Ablation study evaluating the impact of different module compositions on accuracy metrics.
+
+
+cian offers substantial enhancements in consulta-             periences. Regardless of the LLMs used, accuracy
+tion efficiency and accuracy.                                 improves with more consultation samples and stabi-
+   We further investigate the role of the two knowl-          lizes after approximately 600 cases. Figure 4 shows
+edge bases (CorrectKB and ChainKB) in Experi-                 an interesting observation: LLMs with relatively
+ments 5, 6, and 7, where both knowledge bases                 weaker foundational abilities, such as LLaMA3-
+store experiences from 600 consultation rounds.               8B, improve faster (steeper slope) with accumu-
+Using only CorrectKB yields 2.1% and 5.4% higher              lated consultation experience compared to stronger
+accuracy on MedQA and PubMedQA, respectively,                 models like gpt-4-turbo and gpt-4o.
+compared to using only ChainKB, and leads to a
+3.8% increase in overall accuracy. This finding               4.5   Framework Efficacy
+aligns with intuition, as CorrectKB Retain veri-              To evaluate the effectiveness of our proposed
+fied correct consultation experiences that can bet-           MDTeamGPT across various LLMs, we conducted
+ter guide subsequent diagnoses. However, the                  rigorous experiments to assess its performance.
+combined use of both CorrectKB and ChainKB                    The knowledge bases used in this experiment stored
+achieves an accuracy superior to either CorrectKB             600 rounds of medical consultation experiences.
+or ChainKB alone, corroborating our hypothesis                Figure 5 (A) and (B) compare the accuracy im-
+that integrating correct experiences with reflective          provements of MDTeamGPT versus single-agent
+insights maximally boosts consultation accuracy.              baselines for each model. The results indicate
+                                                              that all models benefit from its use, demonstrating
+4.4   Self-Evolving                                           both the broad applicability and enhanced effec-
+In this section, we evaluate several LLMs —                   tiveness of the framework. Although the extent of
+gpt-4-turbo, gpt-3.5-turbo, gpt-4o, LLaMA3-                   improvement varies with the model’s static knowl-
+8B, LLaMA3-70B (Dubey et al., 2024), glm-4-                   edge and instruction-following capabilities, our
+plus (Zeng et al., 2024), and deepseek-v3 (Liu et al.,        MDTeamGPT framework significantly enhances
+2024)—as the core models for our MDTeamGPT                    medical consultation across different LLMs.
+framework, testing their self-evolving capability.
+Figure 4 (A) and (B) show how the test accuracy               4.6   Generalization of the Knowledge Base
+on MedQA and PubMedQA changes with the in-                    We conducted cross-dataset experiments to eval-
+crease in consultation samples and stored case ex-            uate the knowledge base’s generalization and the
+                                                       (A)                                               (B)
+
+Figure 4: Demonstration of the self-evolving capability of our proposed MDTeamGPT framework. As the number
+of consultation rounds increases, the framework progressively refines its diagnostic accuracy. (A) presents the
+performance of our MDTeamGPT tested on MedQA, and (B) illustrates corresponding results on PubMedQA.
+
+
+
+
+                                               (A)                                                 (B)
+
+Figure 5: Accuracy enhancements achieved by MDTeamGPT over single-agent baselines across multiple LLMs. (A)
+depicts the performance boost on MedQA, and (B) shows analogous gains on PubMedQA. These findings highlight
+the framework’s adaptability across language models and robust efficacy in medical consultation scenarios.
+
+
+framework’s overall effectiveness. Using Correc-                                   not only successfully transfers specific consulta-
+tKB and ChainKB (constructed from 600 consulta-                                    tion cases but, more importantly, effectively mi-
+tion rounds) with gpt-4-turbo as the backbone, we                                  grates the reflective reasoning and thought pro-
+stored outcomes from one dataset (e.g., MedQA)                                     cesses—abstract cognitive strategies derived from
+in the knowledge bases and then tested them on                                     inference and accumulated experience—to new
+another dataset (e.g., PubMedQA).                                                  cases. By preserving reasoning patterns, Correc-
+                                                                                   tKB and ChainKB not only store consultation ex-
+                                             MedQA               PubMedQA
+                   Vanilla
+                                    (CorrectKB, ChainKB) (CorrectKB, ChainKB)
+                                                                                   amples but also encapsulate transferable reasoning
+           Accuracy F1-score Accuracy            F1-score    Accuracy   F1-score   capabilities, allowing our framework to generalize
+             (%)             (%)      (%)            (%)       (%)        (%)
+                                                                                   across various scenarios.
+ MedQA       84.3            82.1     90.1           88.4      87.9       85.7
+PubMedQA     77.6            75.9     79.7           76.9      83.9       82.6
+                                                                                   5   Conclusion
+    Table 3: Cross-dataset generalization result.
+                                                                                   In this paper, we propose a novel MDT multi-agent
+   As shown in Table 3, when using the CorrectKB                                   medical consultation framework, MDTeamGPT,
+and ChainKB derived from PubMedQA for test-                                        which leverages a residual discussion mode and
+ing on MedQA, the accuracy increased by 3.6%                                       consensus aggregation to minimize information re-
+compared to the condition without any knowledge                                    dundancy and improve discussion efficiency. By
+base; conversely, when using the CorrectKB and                                     leveraging two knowledge bases, the framework
+ChainKB derived from MedQA for testing on Pub-                                     dynamically improves overall consultation accu-
+MedQA, the accuracy increased by 2.1% relative                                     racy and, to some extent, demonstrates excellent
+to the baseline without any knowledge base. These                                  generalization ability. Although the overall perfor-
+experimental results indicate that the framework                                   mance of the framework largely depends on the
+capabilities of the foundational model used to store    its ability to generalize beyond controlled experi-
+and utilize consultation experiences—which may          mental environments.
+constrain its performance—our approach still ex-
+cels in current medical consultation scenarios.
+                                                        References
+Ethical Considerations                                  Josh Achiam, Steven Adler, Sandhini Agarwal, Lama
+                                                          Ahmad, Ilge Akkaya, Florencia Leoni Aleman,
+This study utilizes publicly available academic           Diogo Almeida, Janko Altenschmidt, Sam Altman,
+datasets and accesses LLMs via official APIs, en-         Shyamal Anadkat, et al. 2023. Gpt-4 technical report.
+                                                          arXiv preprint arXiv:2303.08774.
+suring ethical and responsible research practices.
+Specifically, the ethical considerations that were      Élan Burton, Brenda Flores, Barbara Jerome, Michael
+taken into account are outlined as follows:               Baiocchi, Yan Min, Yvonne A Maldonado, and Ma-
+                                                          gali Fassiotto. 2022. Assessment of bias in patient
+   Public Datasets: The medical datasets used in
+                                                          safety reporting systems categorized by physician
+this research are publicly released and intended for      gender, race and ethnicity, and faculty rank: a quali-
+academic purposes. No personal patient data was           tative study. JAMA Network Open, 5(5):e2213234–
+involved or processed.                                    e2213234.
+   Licensed API Usage: Our use of LLMs adheres          Lingjiao Chen, Jared Quincy Davis, Boris Hanin, Peter
+to the API usage policies, maintaining compliance         Bailis, Ion Stoica, Matei Zaharia, and James Zou.
+with fair use standards and respecting intellectual       2024a. Are more llm calls all you need? towards
+property rights.                                          scaling laws of compound inference systems. arXiv
+                                                          preprint arXiv:2403.02419.
+   Transparency: We provide detailed descrip-
+tions of our experimental methods to ensure the         Xuanzhong Chen, Ye Jin, Xiaohao Mao, Lun Wang,
+reproducibility of our results, and we are commit-        Shuyang Zhang, and Ting Chen. 2024b. Rareagents:
+                                                          Autonomous multi-disciplinary team for rare dis-
+ted to promoting transparency in scientific prac-         ease diagnosis and treatment.    arXiv preprint
+tices.                                                    arXiv:2412.12475.
+
+Limitations                                             Yilun Du, Shuang Li, Antonio Torralba, Joshua B Tenen-
+                                                           baum, and Igor Mordatch. 2023. Improving factual-
+                                                           ity and reasoning in language models through multia-
+Our study provides a comprehensive set of exper-           gent debate. arXiv preprint arXiv:2305.14325.
+iments to assess the performance of the proposed
+MDTeamGPT. However, several areas could be              Zhuoyun Du, Chen Qian, Wei Liu, Zihao Xie, Yifei
+further improved and explored in future research.         Wang, Yufan Dang, Weize Chen, and Cheng
+                                                          Yang. 2024. Multi-agent software development
+   Increasing Agent Complexity: Currently, the            through cross-team collaboration. arXiv preprint
+agents in our framework are defined quite simply.         arXiv:2406.08979.
+We believe that by incorporating more advanced
+                                                        Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey,
+techniques, such as Tree-of-Thought (Yao et al.,          Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman,
+2024), or integrating external tools and knowledge        Akhil Mathur, Alan Schelten, Amy Yang, Angela
+bases, we could significantly enhance the reasoning       Fan, et al. 2024. The llama 3 herd of models. arXiv
+capabilities of the multi-agent medical consultation      preprint arXiv:2407.21783.
+system.                                                 Sirui Hong, Mingchen Zhuge, Jonathan Chen, Xiawu
+   Expanding the Dataset: In our experiments, we           Zheng, Yuheng Cheng, Jinlin Wang, Ceyao Zhang,
+have used only two datasets—MedQA and Pub-                 Zili Wang, Steven Ka Shing Yau, Zijuan Lin, Liyang
+                                                           Zhou, Chenyu Ran, Lingfeng Xiao, Chenglin Wu,
+MedQA. To strengthen the validity of our findings,
+                                                           and Jürgen Schmidhuber. 2024. MetaGPT: Meta pro-
+future work will involve testing on a broader range        gramming for a multi-agent collaborative framework.
+of datasets, which will help confirm the robustness        In The Twelfth International Conference on Learning
+of our method across different types of data.              Representations.
+   Testing in Real-World Scenarios: Our re-             Shuyang Jiang, Yuhao Wang, and Yu Wang. 2023. Self-
+search has mainly focused on experiments with             evolve: A code evolution framework via large lan-
+pre-existing datasets. In future work, we aim to          guage models. arXiv preprint arXiv:2306.02907.
+collect more real-world consultation data, which        Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng,
+will allow us to assess how well our framework            Hanyi Fang, and Peter Szolovits. 2021. What disease
+performs in practical, real-life settings and explore     does this patient have? a large-scale open domain
+  question answering dataset from medical exams. Ap-       Labrum, et al. 2022. Specialist multidisciplinary in-
+  plied Sciences, 11(14):6421.                             put maximises rare disease diagnoses from whole
+                                                           genome sequencing.       Nature communications,
+Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William           13(1):6324.
+  Cohen, and Xinghua Lu. 2019. Pubmedqa: A dataset
+  for biomedical research question answering. In Pro-    Adyasha Maharana, Dong-Ho Lee, Sergey Tulyakov,
+  ceedings of the 2019 Conference on Empirical Meth-       Mohit Bansal, Francesco Barbieri, and Yuwei Fang.
+  ods in Natural Language Processing and the 9th In-       2024. Evaluating very long-term conversational
+  ternational Joint Conference on Natural Language         memory of LLM agents. In Proceedings of the 62nd
+  Processing (EMNLP-IJCNLP), pages 2567–2577.              Annual Meeting of the Association for Computational
+                                                           Linguistics (Volume 1: Long Papers), pages 13851–
+Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik Siu             13870, Bangkok, Thailand. Association for Compu-
+  Chan, Xuhai Xu, Daniel McDuff, Hyeonhoon Lee,            tational Linguistics.
+  Marzyeh Ghassemi, Cynthia Breazeal, and Hae Won
+  Park. 2024. Mdagents: An adaptive collaboration        Martin A Makary. 2011. Multidisciplinary teams and
+  of llms for medical decision-making. In The Thirty-     clinics: better care or just more care. Annals of
+  eighth Annual Conference on Neural Information          surgical oncology, 18:2105–2106.
+  Processing Systems.
+                                                         Harsha Nori, Yin Tat Lee, Sheng Zhang, Dean Carig-
+Hao Li, Chenghao Yang, An Zhang, Yang Deng, Xiang          nan, Richard Edgar, Nicolo Fusi, Nicholas King,
+  Wang, and Tat-Seng Chua. 2024a. Hello again! llm-        Jonathan Larson, Yuanzhi Li, Weishung Liu, et al.
+  powered personalized agent for long-term dialogue.       2023. Can generalist foundation models outcom-
+  arXiv preprint arXiv:2406.05925.                         pete special-purpose tuning? case study in medicine.
+                                                           Medicine, 84(88.3):77–3.
+Junkai Li, Siyu Wang, Meng Zhang, Weitao Li, Yungh-
+  wei Lai, Xinhui Kang, Weizhi Ma, and Yang Liu.         Ankit Pal, Logesh Kumar Umapathi, and Malaikannan
+  2024b. Agent hospital: A simulacrum of hospi-            Sankarasubbu. 2023. Med-halt: Medical domain
+  tal with evolvable medical agents. arXiv preprint        hallucination test for large language models. arXiv
+  arXiv:2405.02957.                                        preprint arXiv:2307.15343.
+
+Junkai Li, Siyu Wang, Meng Zhang, Weitao Li, Yungh-      Himanshu Gautam Pandey, Akhil Amod, and Shiv-
+  wei Lai, Xinhui Kang, Weizhi Ma, and Yang Liu.           ang Kumar. 2024. Advancing healthcare automa-
+  2024c. Agent hospital: A simulacrum of hospi-            tion: Multi-agent system for medical necessity jus-
+  tal with evolvable medical agents. arXiv preprint        tification. In Proceedings of the 23rd Workshop on
+  arXiv:2405.02957.                                        Biomedical Natural Language Processing, pages 39–
+                                                           49, Bangkok, Thailand. Association for Computa-
+Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang,              tional Linguistics.
+  Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi
+  Deng, Chenyu Zhang, Chong Ruan, et al. 2024.           Joon Sung Park, Joseph O’Brien, Carrie Jun Cai, Mered-
+  Deepseek-v3 technical report.   arXiv preprint           ith Ringel Morris, Percy Liang, and Michael S Bern-
+  arXiv:2412.19437.                                        stein. 2023. Generative agents: Interactive simulacra
+                                                           of human behavior. In Proceedings of the 36th an-
+Ruibo Liu, Ruixin Yang, Chenyan Jia, Ge Zhang, Denny       nual acm symposium on user interface software and
+  Zhou, Andrew M Dai, Diyi Yang, and Soroush               technology, pages 1–22.
+  Vosoughi. 2023. Training socially aligned language
+  models on simulated social interactions. arXiv         Chen Qian, Yufan Dang, Jiahao Li, Wei Liu, Zihao
+  preprint arXiv:2305.16960.                               Xie, YiFei Wang, Weize Chen, Cheng Yang, Xin
+                                                           Cong, Xiaoyin Che, Zhiyuan Liu, and Maosong
+Do Xuan Long, Duong Ngoc Yen, Anh Tuan Luu, Kenji          Sun. 2024a. Experiential co-learning of software-
+  Kawaguchi, Min-Yen Kan, and Nancy F. Chen. 2024.         developing agents. In Proceedings of the 62nd An-
+  Multi-expert prompting improves reliability, safety      nual Meeting of the Association for Computational
+  and usefulness of large language models. In Proceed-     Linguistics (Volume 1: Long Papers), pages 5628–
+  ings of the 2024 Conference on Empirical Methods in      5640. Association for Computational Linguistics.
+  Natural Language Processing, pages 20370–20401,
+  Miami, Florida, USA. Association for Computational     Chen Qian, Jiahao Li, Yufan Dang, Wei Liu, YiFei
+  Linguistics.                                             Wang, Zihao Xie, Weize Chen, Cheng Yang, Yingli
+                                                           Zhang, Zhiyuan Liu, et al. 2024b. Iterative ex-
+Li-Chun Lu, Shou-Jen Chen, Tsung-Min Pai, Chan-            perience refinement of software-developing agents.
+   Hung Yu, Hung yi Lee, and Shao-Hua Sun. 2024.           arXiv preprint arXiv:2405.04219.
+   LLM discussion: Enhancing the creativity of large
+   language models via discussion framework and role-    Chen Qian, Wei Liu, Hongzhang Liu, Nuo Chen, Yufan
+   play. In First Conference on Language Modeling.         Dang, Jiahao Li, Cheng Yang, Weize Chen, Yusheng
+                                                           Su, Xin Cong, Juyuan Xu, Dahai Li, Zhiyuan Liu,
+William L Macken, Micol Falabella, Caroline McKit-         and Maosong Sun. 2024c. ChatDev: Communicative
+  trick, Chiara Pizzamiglio, Rebecca Ellmers, Kelly        agents for software development. In Proceedings
+  Eggleton, Cathy E Woodward, Yogen Patel, Robyn           of the 62nd Annual Meeting of the Association for
+  Computational Linguistics (Volume 1: Long Papers),       Junbin Zhou and Xiao Xu. 2023. The difficulty of med-
+  pages 15174–15186. Association for Computational           ical decision-making: should patients be involved?
+  Linguistics.                                               Hepatobiliary Surgery and Nutrition, 12(3):407.
+
+Chen Qian, Zihao Xie, Yifei Wang, Wei Liu, Yu-
+  fan Dang, Zhuoyun Du, Weize Chen, Cheng Yang,
+  Zhiyuan Liu, and Maosong Sun. 2024d. Scaling
+  large-language-model-based multi-agent collabora-
+  tion. arXiv preprint arXiv:2406.07155.
+
+Samuel Schmidgall, Rojin Ziaei, Carl Harris, Eduardo
+  Reis, Jeffrey Jopling, and Michael Moor. 2024.
+  Agentclinic: a multimodal agent benchmark to eval-
+  uate ai in simulated clinical environments. arXiv
+  preprint arXiv:2405.07960.
+
+Xiangru Tang, Anni Zou, Zhuosheng Zhang, Yilun
+  Zhao, Xingyao Zhang, Arman Cohan, and Mark Ger-
+  stein. 2023. Medagents: Large language models as
+  collaborators for zero-shot medical reasoning. arXiv
+  preprint arXiv:2311.10537.
+
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+  Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+  Baptiste Rozière, Naman Goyal, Eric Hambro,
+  Faisal Azhar, et al. 2023. Llama: Open and effi-
+  cient foundation language models. arXiv preprint
+  arXiv:2302.13971.
+
+Andrew H Van De Ven and Andre L Delbecq. 1974.
+  The effectiveness of nominal, delphi, and interact-
+  ing group decision making processes. Academy of
+  management Journal, 17(4):605–621.
+
+Hao Wei, Jianing Qiu, Haibao Yu, and Wu Yuan. 2024.
+  Medco: Medical education copilots based on a multi-
+  agent framework. arXiv preprint arXiv:2408.12496.
+
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran,
+  Tom Griffiths, Yuan Cao, and Karthik Narasimhan.
+  2024. Tree of thoughts: Deliberate problem solving
+  with large language models. Advances in Neural
+  Information Processing Systems, 36.
+
+Hongbin Ye, Tong Liu, Aijia Zhang, Wei Hua, and
+  Weiqiang Jia. 2023. Cognitive mirage: A review
+  of hallucinations in large language models. arXiv
+  preprint arXiv:2309.06794.
+
+Ji Zeng, Ben Zhang, Yingqi Ma, Kai Sun, Hao Zhou,
+   Yang Liu, et al. 2024. Chatglm: A family of large
+   language models from glm-130b to glm-4 all tools.
+   arXiv preprint arXiv:2406.12793.
+
+Andrew Zhao, Daniel Huang, Quentin Xu, Matthieu
+  Lin, Yong-Jin Liu, and Gao Huang. 2024. Expel:
+  Llm agents are experiential learners. In Proceedings
+  of the AAAI Conference on Artificial Intelligence,
+  volume 38, pages 19632–19642.
+
+Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and
+ Yanlin Wang. 2024. Memorybank: Enhancing large
+  language models with long-term memory. In Pro-
+  ceedings of the AAAI Conference on Artificial Intelli-
+  gence, volume 38, pages 19724–19731.
+A     Prompt Templates
+
+Here we provide simplified prompt templates for some of the role Agents to facilitate understanding and
+demonstration.
+
+A.1    Primary Care Doctor Agent
+    Primary Care Doctor Agent’s Prompt Template
+
+    Role Description: You are a Primary Care Doctor Agent (triage doctor) responsible for assigning the
+    appropriate doctors to diagnose and treat patients. Each case involves a specific combination of doctors.
+    Based on the symptoms and signs of the patient, choose the most suitable combination of doctors. The
+    selection should include the following roles: General Internal Medicine Doctor, General Surgeon, Pediatri-
+    cian, Obstetrician and Gynecologist, Radiologist, Neurologist, Pathologist, Pharmacist, with Radiologist,
+    Pathologist, and Pharmacist being mandatory agents, while other agent roles are assigned based on specific
+    patient conditions.
+    Output Format: Before selecting the roles, you are required to provide reasons for your choice:
+    Why are these doctors selected based on the patient’s symptoms, signs, and history? How will each selected
+    doctor contribute to the diagnosis and treatment of the patient? When making your selection, consider all
+    relevant information about the patient to ensure that all potential issues are covered. The output should be in
+    the following format: [{agent1}, {agent2}, {agent3}, {agent4}, {agent5}].
+    Examples:
+    Input question: A 23-year-old pregnant woman at 22 weeks gestation presents with burning upon urination.
+    She states it started 1 day ago and has been worsening despite drinking more water and taking cranberry
+    extract. She otherwise feels well and is followed by a doctor for her pregnancy. Her temperature is 97.7°F
+    (36.5°C), blood pressure is 122/77 mmHg, pulse is 80/min, respirations are 19/min, and oxygen saturation
+    is 98% on room air. Physical exam is notable for an absence of costovertebral angle tenderness and a gravid
+    uterus. Which of the following is the best treatment for this patient?
+    Reasoning: Given that the patient is pregnant, the burning sensation on urination may indicate a urinary
+    tract infection, and an obstetrician should be consulted to rule out pregnancy-specific complications. A
+    radiologist may need to check for other potential issues with the urinary system, while the pathologist and
+    pharmacist can provide laboratory support and medication suggestions.
+    Output roles:
+    [{Obstetrician and Gynecologist}, {Radiologist}, {Pathologist}, {Pharmacist}]
+    Input question: A 3-month-old baby died suddenly at night while asleep. His mother noticed that he had
+    died only after she awoke in the morning. No cause of death was determined based on the autopsy. Which
+    of the following precautions could have prevented the death of the baby?
+    Reasoning: In this case, the pediatrician should assess the baby’s history and any potential health risks. The
+    neurologist can help rule out any neurological abnormalities, while the radiologist and pathologist provide
+    necessary assistance, and the pharmacist can assist with preventive measures.
+    Output roles:
+    [{Pediatrician}, {Neurologist}, {Radiologist}, {Pathologist}, {Pharmacist}]
+    Input question: A mother brings her 3-week-old infant to the pediatrician’s office because she is concerned
+    about his feeding habits. He was born without complications and has not had any medical problems up until
+    this time. However, for the past 4 days, he has been fussy, is regurgitating all of his feeds, and his vomit is
+    yellow in color. On physical exam, the child’s abdomen is minimally distended but no other abnormalities
+    are appreciated. Which of the following embryologic errors could account for this presentation?
+    Reasoning: Due to the vomiting and mild abdominal distention, a digestive system issue may be involved.
+    The pediatrician should first evaluate the overall health of the baby. A general surgeon can assess whether
+    there are any gastrointestinal obstructions, while a radiologist should conduct imaging tests, and the
+    pathologist will help with further diagnosis of any pathological changes. The pharmacist can assist in
+    evaluating medication interventions.
+    Output roles:
+    [{Pediatrician}, {General Surgeon}, {Radiologist}, {Pathologist}, {Pharmacist}]
+    Tip: For each new patient case, carefully analyze the patient’s condition and select the most appropriate
+    combination of doctors. You need to balance various medical specialties to ensure all potential health issues
+    are addressed and provide adequate reasoning for your doctor selection to ensure all relevant concerns are
+    covered.
+A.2   Specialist Doctor Agents
+Here we only showcase the prompt template for the Obstetrician and Gynecologist. Other specialist doctor
+agents follow the same template, merely altering the medical background section while maintaining the
+same logical structure.
+   Obstetrician and Gynecologist Agent’s Prompt Template
+
+   Role Description:
+   You are an Obstetrician and Gynecologist, specializing in women’s reproductive health and pregnancy-
+   related medical issues. Your task is to provide a professional diagnosis and treatment recommendation based
+   on the patient’s symptoms and medical history, ensuring the chosen treatment is safe and effective for the
+   pregnant woman.
+   Task:
+   First, identify the current consultation round number {i}. Each round of discussion follows a consistent
+   Chain-of-Thought (CoT) process. During each round, you will both call and store data in the shared message
+   pool, referencing previous rounds of discussion.
+   CoT Process:
+    1. Patient Condition Analysis:
+       Carefully read the patient’s description of symptoms, combining their signs, clinical examination, and
+       pregnancy status for a comprehensive analysis.
+
+      2. Treatment Option Evaluation:
+         Based on your professional knowledge, analyze all available treatment options, paying particular
+         attention to drug safety for both the pregnant woman and the fetus.
+
+      3. Store in Historical Shared Pool:
+         - Round {i}: Store the current round number and diagnosis conclusion in the Historical Shared Pool.
+
+      4. Call Historical Shared Pool:
+         - Round {i + 1}: Call the Historical Shared Pool from rounds {i − 1} and {i − 2} to reference the
+         previous two rounds’ discussion content for further analysis.
+
+      5. Refine or Confirm Based on Feedback:
+         Integrate the feedback from the Historical Shared Pool, reassessing your treatment plan. Adjust the
+         selection if necessary; otherwise, confirm the previous choice and explain the rationale.
+
+      6. Select Optimal Treatment Plan:
+         Determine the most appropriate treatment for the patient and explain your decision.
+
+      7. Express Conclusion:
+         Use the following format to express your conclusion:
+         Choice: {Option ID}: {Option Content}
+         Example: Choice: {E}: {Nitrofurantoin}
+   MDT Consultation Flow:
+   Round {1} Discussion:
+
+      • Patient Condition Analysis
+
+      • Treatment Option Evaluation
+
+      • Store in Historical Shared Pool
+
+      • Select Optimal Treatment Plan
+
+      • Express Conclusion
+
+   Round {2} Discussion:
+
+      • Patient Condition Analysis
+   • Treatment Option Evaluation
+
+   • Call Historical Shared Pool from Round {i − 1}
+
+   • Store in Historical Shared Pool
+
+   • Refine or Confirm Based on Feedback
+
+   • Select Optimal Treatment Plan
+
+   • Express Conclusion
+Round {i + 1} ≥ 3 Discussion:
+   • Patient Condition Analysis
+
+   • Treatment Option Evaluation
+
+   • Call Historical Shared Pool from Rounds {i − 1} and {i − 2}
+
+   • Store in Historical Shared Pool
+
+   • Refine or Confirm Based on Feedback
+
+   • Select Optimal Treatment Plan
+
+   • Express Conclusion
+Example Prompt:
+Question: A 23-year-old pregnant woman at 22 weeks gestation presents with burning upon urination. She
+states it started 1 day ago and has been worsening despite drinking more water and taking cranberry extract.
+She otherwise feels well and is followed by a doctor for her pregnancy. Her temperature is 97.7°F (36.5°C),
+blood pressure is 122/77 mmHg, pulse is 80/min, respirations are 19/min, and oxygen saturation is 98% on
+room air. Physical exam is notable for an absence of costovertebral angle tenderness and a gravid uterus.
+Which of the following is the best treatment for this patient?
+Options: {"A": "Ampicillin", "B": "Ceftriaxone", "C": "Ciprofloxacin", "D": "Doxycycline", "E": "Nitro-
+furantoin"}
+Round {1} Discussion Example:
+  1. Patient Condition Analysis: The patient is 22 weeks pregnant, presenting symptoms consistent with a
+     urinary tract infection (UTI).
+
+  2. Treatment Option Evaluation: Considering pregnancy, medication choice should be cautious. Nitrofu-
+     rantoin is a relatively safe option for UTI in pregnancy.
+
+  3. Store in Historical Shared Pool: Store diagnosis and round information.
+
+  4. Select Optimal Treatment Plan: Nitrofurantoin offers a balance of safety and efficacy for the patient’s
+     condition.
+
+  5. Express Conclusion: Choice: {E}: {Nitrofurantoi}
+Round {2} Discussion Example:
+  1. Patient Condition Analysis: The patient continues to show stable vital signs, consistent with a UTI.
+
+  2. Treatment Option Evaluation: Nitrofurantoin remains a safe and effective choice.
+
+  3. Call Historical Shared Pool: Review feedback from other doctors in Round 1.
+
+  4. Store in Historical Shared Pool: Store the second-round decision and reasoning.
+
+  5. Refine or Confirm Based on Feedback: Feedback from other doctors supports the selection of
+     Nitrofurantoin, so the choice remains unchanged.
+      6. Express Conclusion: Choice: {E}: {Nitrofurantoin}
+
+  Round {i + 1} ≥ 3 Discussion Example:
+
+      1. Patient Condition Analysis: Same as previous rounds; the symptoms remain consistent with a UTI.
+
+      2. Treatment Option Evaluation: Nitrofurantoin is still the most appropriate choice.
+
+      3. Call Historical Shared Pool: Reference prior round discussions for further feedback.
+
+      4. Store in Historical Shared Pool: Store the third-round decision and reasoning.
+
+      5. Refine or Confirm Based on Feedback: After reviewing previous rounds, Nitrofurantoin remains the
+         confirmed choice.
+
+      6. Express Conclusion: Choice: {E}: {Nitrofurantoin}
+
+
+A.3   Lead Physician Agent
+  Lead Physician Agent’s Prompt Template
+
+  Role Description:
+  You are a Lead Physician responsible for organizing and summarizing the diagnoses and treatment recom-
+  mendations provided by specialist doctor agents in each consultation round. Your primary task is to classify
+  all responses from specialists and store them in the Historical Shared Pool for future reference. You do not
+  directly participate in diagnosis but ensure that discussions remain structured, logical, and coherent across
+  multiple rounds.
+  Task:
+  At the end of each consultation round {i}, you must perform the following tasks:
+     1. Collect Responses from All Specialists:
+        You will receive responses from all specialists in the current consultation round. Each specialist’s
+         response follows this format:
+
+              {
+                  "{Agent_Name}": {
+                    "Reasoning": "{Explanation of diagnosis and treatment choice}"
+                    "Choice": "{Option ID}: {Option Content}"
+                  }
+              }
+
+
+      2. Categorize and Organize Responses:
+         Based on the collected responses, systematically classify the information into the following four
+         categories:
+            • Consistency: Identify diagnoses and treatment recommendations that are similar or identical
+              across multiple specialists.
+            • Conflict: Highlight contradictory diagnoses or treatment choices among specialists and specify
+              the conflicting points.
+            • Independence: Extract unique insights mentioned by individual specialists that are not addressed
+              by others.
+            • Integration: Synthesize a structured summary that incorporates all perspectives, balancing
+              consensus, disagreements, and unique viewpoints.
+
+      3. Store Processed Data in Historical Shared Pool:
+         Once categorized, save the structured information in the Historical Shared Pool in JSON format:
+
+         {
+         ...
+        "round {i}": {
+          "consistency": [
+             "{...}"
+          ],
+          "conflict": [
+             "{...}"
+          ],
+          "independence": [
+             "{...}"
+          ],
+          "integration": [
+             "{...}"
+          ]
+        },
+      ...
+      }
+
+
+Process Flow:
+
+Step 1: Collect Responses from Specialist Doctors
+Gather responses from all specialists in the current consultation round:
+{
+    "Obstetrician and Gynecologist": {
+       "Choice": "E: Nitrofurantoin",
+       "Reasoning": "[...]"
+    },
+    "Pathologist": {
+       "Choice": "B: Cephalexin",
+       "Reasoning": "[...]"
+    }
+    ...
+}
+Step 2: Categorize Responses
+Process all responses into the following categories:
+
+    • Consistency: Aggregate similar or identical recommendations.
+
+    • Conflict: Identify and document differing opinions among specialists.
+
+    • Independence: Extract insights that were mentioned by only one specialist.
+
+    • Integration: Formulate a structured summary incorporating all perspectives.
+
+Step 3: Store Data in Historical Shared Pool
+Once categorized, save the processed data in JSON format:
+{
+...
+  "round {i}": {
+    "consistency": [
+       "{Summarize the common aspects found across multiple agents.}"
+    ],
+    "conflict": [
+       "{List conflicting points between agents; leave empty if no conflicts exist.}"
+    ],
+    "independence": [
+      "{Extract unique viewpoints mentioned by only one agent; leave empty if none.}"
+    ],
+         "integration": [
+           "{Provide a well-structured summary integrating all perspectives.}"
+         ]
+     }
+   ...
+   }
+
+
+
+
+A.4   Chain-of-Thought Reviewer Agent
+We present the working process of the chain-of-thought reviewer, which has been abstracted and simplified,
+omitting details that are not suitable for presentation in the paper.
+   Chain-of-Thought Reviewer Agent’s Prompt Template
+
+   Role Description:
+   You are a Chain-of-Thought Reviewer, responsible for extracting detailed chains of thought from each
+   doctor’s diagnostic process. Your task is to analyze and record the doctors’ thought processes (information
+   from the Historical Shared Pool) and store this information in a vector database for future analysis and
+   retrieval. You will process experience based on whether the consultation outcome is correct or incorrect,
+   storing the relevant information for both correct and incorrect answers.
+   Task:
+      1. Extracting the Chain of Thought:
+          (a) Step 1: Identify the Chain of Thought
+              Extract the key reasoning steps from the doctor’s discussions and decision-making process,
+              including their initial assumptions, analysis process, and final conclusions.
+          (b) Step 2: Structuring the Chain of Thought
+              Organize these steps in logical order to form a clear chain of thought, ensuring each step shows
+              how the doctor progressed from one stage to the next.
+          (c) Step 3: Recording the Chain of Thought
+              Use natural language to document each chain of thought in detail, ensuring it is comprehensive
+              enough for future analysis and reference.
+      2. Reflecting on Errors:
+          (a) Step 4: Analyze the Mistake
+              Identify which steps in the chain of thought might have led to the incorrect diagnosis. Find the
+              root cause, such as faulty assumptions, biased analysis, or overlooked critical information.
+          (b) Step 5: Document the Reflection Process
+              Clearly indicate the specific reasons for the error and suggest ways to avoid similar mistakes in the
+              future. Highlight which assumptions or analysis steps were wrong and recommend improvements
+              for future reasoning.
+      3. Storing the Chain of Thought:
+          (a) Step 6: Evaluate the Correctness of the Consultation Outcome
+              Determine whether the consultation outcome is correct or incorrect. This process involves
+              retrieving the most similar cases from the Historical Shared Pool based on cosine similarity
+              calculation. Depending on the correctness of the diagnosis, choose the appropriate branch for
+              execution below.
+                i. If the Diagnosis is Correct:
+                  A. Step 7: Store the Correct Answer
+                      If the consultation outcome is correct, store the extracted and recorded chain of thought
+                      in the Correct Answer Knowledge Base (CorrectKB). The information should include
+                      the medical problem (Question) along with the structured statements from the final
+                      consultation round. Only the final round {S_final4} should be used for the correct answer
+                      storage.
+                      The storage format in JSON should be as follows:
+                                           {
+                                                "Question": [{...}],
+                                                "Answer": [{...}],
+                                                "Summary of {S_final4}": [{...}]
+                                           }
+
+               ii. If the Diagnosis is Incorrect:
+                  A. Step 8: Store the Incorrect Answer
+                      If the consultation outcome is incorrect, store the extracted and recorded chain of thought
+                      (including the initial hypothesis, analysis process, final conclusion, and error reflection) in
+                      the Chain-of-Thought Knowledge Base (ChainKB). For incorrect diagnoses, all rounds
+                      from the Historical Shared Pool should be used for observation to analyze how the
+                      reasoning evolved over time. This will help identify the cause of the error and provide
+                      better insights into the overall decision-making process.
+                      The storage format in JSON should be as follows:
+                                            {
+                                                 "Question": [{...}],
+                                                 "Correct Answer": [{...}],
+                                                 "Initial Hypothesis": [{...}],
+                                                 "Analysis Process": [{...}],
+                                                 "Final Conclusion": [{...}],
+                                                 "Error Reflection": [{...}]
+
+                                           }
+
+                     This structure will include all rounds of reasoning from the Historical Shared Pool, with
+                     each round contributing valuable information for the error reflection and analysis.
+
+
+A.5   Safety and Ethics Reviewer
+  Safety and Ethics Reviewer’s Prompt Template
+
+  Role Description:
+  You are a Safety and Ethics Reviewer, responsible for ensuring that the final diagnosis and treatment
+  recommendation are free from harmful information. Your task is to review the doctors’ final opinions, filter
+  out any harmful or unethical suggestions, and output a safe conclusion along with the corresponding answer
+  ID.
+  Task:
+    1. Review Final Opinions:
+        Review the doctor’s final diagnosis and advice to ensure that there are no unethical or harmful
+        information.
+
+      2. Filter Harmful Information:
+         In the final diagnosis, identify any suggestions that are harmful, unethical or unsafe. This may include
+         unsafe medications, incorrect procedures, or advice that could negatively impact a patient’s well-being
+         or safety.
+
+      3. Refine and Confirm Conclusion:
+         Refine the diagnosis after filtering out any harmful information to ensure that it is safe and ethical.
+         Verify the final treatment recommendation to ensure that it is in line with the highest standards of
+         medical ethics.
+
+      4. Output Conclusion and Answer:
+         Provide a clean and accurate conclusion by outputting both the answer ID and recommended treatment
+         option as an output in this format:
+      Answer ID: {Option ID}: {Option Content}.
+  Example Prompt:
+      Patient Description: A 23-year-old pregnant woman at 22 weeks gestation presents with burning upon
+      urination. She states it started 1 day ago and has been worsening despite drinking more water and taking
+      cranberry extract. She otherwise feels well and is followed by a doctor for her pregnancy. Her temperature
+      is 97.7°F (36.5°C), blood pressure is 122/77 mmHg, pulse is 80/min, respirations are 19/min, and oxygen
+      saturation is 98% on room air. Physical exam is notable for an absence of costovertebral angle tenderness
+      and a gravid uterus. Which of the following is the best treatment for this patient?
+      Safety Review Example:
+
+        1. Review Final Opinions:
+           The doctors suggested several antibiotics for treating the urinary tract infection, including Ciprofloxacin
+           and Nitrofurantoin.
+
+        2. Filter Harmful Information:
+           Ciprofloxacin is not recommended for pregnant women due to potential harm to the fetus. It was
+           identified as unsafe and filtered out from the final recommendation.
+
+        3. Refine and Confirm Conclusion:
+           After filtering out Ciprofloxacin, Nitrofurantoin was confirmed as the safest option for treating the
+           patient’s condition during pregnancy.
+
+        4. Output Conclusion and Answer:
+           Answer ID: {E}: {Nitrofurantoin}
+
+
+B      Additional Details
+B.1     Case Studies of the Lead Physician Agent’s Role and Function
+In this section, we will illustrate how the lead physician organizes and refines the discussion outcomes from
+the current round of Agents into four categories: Consistency, Conflict, Independence, and Integration.
+All responses from the roles are based on gpt-4-turbo. We will use Case A and Case B as examples to
+demonstrate this process.
+      Lead Physician Agent (Case A)
+
+    Question: A 1-year-old boy presents to the emergency department with weakness and a change in his
+    behavior. His parents state that they first noticed the change in his behavior this morning and it has been
+    getting worse. They noticed the patient was initially weak in his upper body and arms, but now he won’t
+    move his legs with as much strength or vigor as he used to. Physical exam is notable for bilateral ptosis with
+    a sluggish pupillary response, a very weak sucking and gag reflex, and shallow respirations. The patient is
+    currently drooling and his diaper is dry. The parents state he has not had a bowel movement in over 1 day.
+    Which of the following is the pathophysiology of this patient’s condition?
+    Options: {"A": "Antibodies against postsynaptic nicotinic cholinergic ion channels", "B": "Autoantibodies
+    against the presynaptic voltage-gated calcium channels", "C": "Autoimmune demyelination of peripheral
+    nerves", "D": "Blockade of presynaptic acetylcholine release at the neuromuscular junction", "E": "Lower
+    motor neuron destruction in the anterior horn"}
+
+
+      Pediatrician:
+
+    • Reasoning: As a pediatrician, I focus on common neuro-muscular diseases in children. The symptoms
+    of this 1-year-old boy — weakness in both upper and lower limbs, sluggish pupillary response, weakened
+    swallowing and gag reflexes, as well as drooling and a dry diaper — suggest a possible neuro-muscular
+    junction disorder. Given the combination of these symptoms, the most likely pathophysiology is blockade of
+    presynaptic acetylcholine release at the neuromuscular junction (D). This is a manifestation of myasthenia
+    gravis (MG), which typically occurs due to immune responses disrupting normal neuromuscular signal
+    transmission. Other options, such as autoimmune demyelination or lower motor neuron destruction, are less
+    likely given the patient’s clinical presentation.
+    • Choice: {D} {Blockade of presynaptic acetylcholine release at the neuromuscular junction}
+Neurologist:
+
+• Reasoning: As a neurologist, I would typically consider neuro-muscular diseases in children. The boy’s
+symptoms, including symmetric ptosis, sluggish pupillary response, and weakened swallowing reflex,
+strongly suggest autoantibodies against the presynaptic voltage-gated calcium channels (B). This immune-
+mediated pathology is often seen in diseases like myasthenia gravis. While other options could also be
+linked to neuro-muscular disorders, autoantibodies against presynaptic calcium channels cause disruption of
+neural signal transmission, which is particularly evident in this patient’s symptoms.
+• Choice: {B} {Autoantibodies against the presynaptic voltage-gated calcium channels}
+
+Pathologist:
+
+• Reasoning: As a pathologist, my role is to analyze the relationship between symptoms and pathological
+mechanisms. Based on the clinical presentation, the 1-year-old boy’s symptoms, such as bilateral ptosis,
+sluggish pupillary response, and difficulty swallowing, suggest a dysfunction at the neuromuscular junction.
+Blockade of presynaptic acetylcholine release (D) best explains these symptoms, especially when the
+immune system interferes with neuromuscular signal transmission. This pathophysiological mechanism is
+common in myasthenia gravis and often leads to muscle weakness and autonomic dysfunction.
+• Choice: {D} {Blockade of presynaptic acetylcholine release at the neuromuscular junction}
+
+Pharmacist:
+
+• Reasoning: As a pharmacist, I approach the diagnosis from a pharmacological perspective. The boy’s
+symptoms, including upper and lower limb weakness, ptosis, and drooling, align with blockade of presy-
+naptic acetylcholine release (D). In this case, neural signals cannot effectively transmit to the muscles,
+leading to motor dysfunction. This pathophysiology is similar to myasthenia gravis, which is typically
+immune-mediated and disrupts neuromuscular junction signaling. Other options, such as autoimmune
+demyelination or lower motor neuron destruction, do not fully align with these symptoms.
+• Choice: {D} {Blockade of presynaptic acetylcholine release at the neuromuscular junction}
+
+Radiologist:
+
+• Reasoning: As a radiologist, I do not directly participate in treatment selection, but I consider the patient’s
+symptoms to hypothesize potential causes. Based on the boy’s symptoms, including ptosis, weakness, and
+weakened swallowing reflex, the most likely pathophysiology is blockade of presynaptic acetylcholine
+release at the neuromuscular junction (D). This mechanism typically involves the immune system interfering
+with neuromuscular junction signaling, leading to a failure in signal transmission, which aligns with the
+patient’s clinical presentation. While other options could also be causes, this mechanism is more commonly
+observed.
+• Choice: {D} {Blockade of presynaptic acetylcholine release at the neuromuscular junction}
+
+Lead Physician:
+
+Consistency:
+In this discussion, most experts chose blockade of presynaptic acetylcholine release at the neuromuscular
+junction (D), especially pathologists, pharmacists, and pediatricians who supported this choice, as they
+believe it explains the patient’s symptoms such as bilateral ptosis, weakness, and weakened swallowing
+reflexes. Several experts pointed out that this pathological mechanism aligns with common neuro-muscular
+diseases such as myasthenia gravis. However, despite this consensus, the neurologist chose autoantibodies
+against the presynaptic voltage-gated calcium channels (B), suggesting an immune-mediated mechanism,
+though this diverges from the analysis of the other specialists. Overall, the majority of experts’ choices
+reflect consistency in their focus on neuro-muscular junction dysfunction.
+Conflict:
+The conflict primarily lies in the neurologist’s choice, as he favors autoantibodies against the presynaptic
+voltage-gated calcium channels (B), believing this mechanism explains the patient’s autoimmune neuropathy.
+In contrast, other experts, such as the pathologist and pharmacist, recommended blockade of presynaptic
+acetylcholine release (D), which they argue better aligns with the symptoms, particularly considering the
+involvement of the neuro-muscular junction. This divergence highlights the difference in emphasis between
+the neurologist’s focus on autoimmune disease and the other experts’ focus on neuromuscular junction
+dysfunction.
+Independence:
+Each expert’s choice reflects their professional background and perspective. Pathologists and pharmacists
+focus on the dysfunction at the neuromuscular junction, recommending blockade of presynaptic acetylcholine
+release (D), emphasizing its role in diseases like myasthenia gravis. The neurologist, with a focus on
+autoimmune disorders, believes that autoantibodies against the presynaptic voltage-gated calcium channels
+(B) better explain the patient’s immune-related pathology. Additionally, the radiologist, while not directly
+involved in drug selection, supports blockade of presynaptic acetylcholine release (D), reflecting the
+widespread acceptance of this mechanism.
+Integration:
+In summary, while the neurologist’s choice of autoantibodies against the presynaptic voltage-gated calcium
+channels (B) offers a valid alternative, most experts recommend blockade of presynaptic acetylcholine
+release at the neuromuscular junction (D), which is more commonly observed in patients with neuro-
+muscular junction dysfunction. Pathologists, pharmacists, and pediatricians agree that this mechanism is the
+most likely cause of the patient’s symptoms, and it is consistent with the clinical presentation of myasthenia
+gravis. While the neurologist offers a different perspective based on autoimmune pathology, blockade of
+presynaptic acetylcholine release (D) remains the most widely supported explanation for this case.
+
+
+Lead Physician Agent (Case B)
+
+Question: A previously healthy 36-year-old man comes to the physician for a yellow discoloration of
+his skin and dark-colored urine for 2 weeks. He does not drink any alcohol. Physical examination shows
+jaundice. Abdominal and neurologic examinations show no abnormalities. Serum studies show increased
+levels of alanine aminotransferase (ALT) and aspartate aminotransferase (AST). A liver biopsy is performed
+and a photomicrograph after periodic acid-Schiff-staining is shown. Which of the following is the most
+likely additional finding in this patient?
+Options: {"A": "Tropheryma whipplei-specific RNA on PCR", "B": "Bullous changes of the lung bases on
+chest CT", "C": "Beading of intra- and extrahepatic bile ducts on ERCP", "D": "Myocardial iron deposition
+on cardiovascular MRI", "E": "Dark corneal ring on slit-lamp examination"}
+
+
+General Internal Medicine Doctor:
+
+• Reasoning: As a general internal medicine doctor, I first consider the patient’s symptoms — jaundice and
+dark-colored urine — which strongly suggest the possibility of liver disease. Combined with the patient’s
+abnormal liver function (elevated ALT and AST) and the pathological findings from the liver biopsy, there
+is decisive evidence supporting liver dysfunction. Given these findings, bullous changes of the lung bases
+on chest CT (B) are a common complication in such cases, especially since systemic conditions like liver
+disease can affect the lungs. I believe this aligns perfectly with the clinical presentation, so I choose B.
+• Choice: {B} {Bullous changes of the lung bases on chest CT}
+
+General Surgeon:
+
+• Reasoning: As a general surgeon, I focus on potential complications that may require surgical intervention.
+The patient’s liver dysfunction (indicated by jaundice and elevated liver enzymes) suggests chronic liver
+disease, which is known to lead to pulmonary complications. There is decisive evidence in the literature that
+bullous changes at the lung bases can occur in patients with chronic liver conditions such as cirrhosis. This
+finding is consistent with the patient’s overall clinical picture. Therefore, I also choose B.
+• Choice: {B} {Bullous changes of the lung bases on chest CT}
+
+Radiologist:
+   • Reasoning: As a radiologist, my role is to detect and interpret abnormalities in imaging studies. In
+   this case, the patient’s jaundice and liver dysfunction suggest a systemic disease that often has pulmonary
+   manifestations. Chest CT showing bullous changes at the lung bases is a typical imaging feature in patients
+   with liver disease. The fact that these changes correlate with the liver biopsy findings provides decisive
+   evidence for this diagnosis. Thus, I choose B.
+   • Choice: {B} {Bullous changes of the lung bases on chest CT}
+
+      Lead Physician:
+
+   Consistency:
+   In this discussion, all experts unanimously selected bullous changes of the lung based on chest CT (B).
+   They all emphasized that the patient’s liver disease—as evidenced by jaundice, elevated ALT and AST,
+   and liver biopsy findings—can have systemic effects, including pulmonary complications. Particularly,
+   the bullous changes seen on chest CT are decisively linked to chronic liver conditions (e.g., cirrhosis) and
+   represent a common additional finding. This strong concordance among the experts highlights that the
+   imaging abnormality is well supported by the clinical evidence.
+   Conflict:
+   No conflict exists. {...}
+   Independence:
+   No independence exists. {...}
+   Integration:
+   In summary, all experts agree that bullous changes of the lung bases on chest CT (B) is the most likely
+   additional finding. The decisive evidence—including jaundice, elevated liver enzymes, and liver biopsy
+   findings—strongly supports the presence of liver disease, which is known to cause pulmonary complications
+   such as bullous changes at the lung bases. This imaging finding, characteristic of chronic liver disease (for
+   instance, cirrhosis), reinforces the overall diagnosis and is consistently endorsed by all experts, thereby
+   confirming its relevance in the clinical scenario.
+
+
+B.2     Specialist Selection Distribution
+
+
+
+
+                            (A)                                                  (B)
+
+Figure 6: Distribution of Specialist Selection by the Primary Care Doctor Agent:(A) Distribution on MedQA dataset.
+(B) Distribution on PubMedQA dataset.
+
+   This section presents the distribution of specialists arranged by the Primary Care Doctor Agent in
+our experiments on the MedQA and PubMedQA datasets. The framework includes seven specialist
+roles: General Internal Medicine Doctor, General Surgeon, Pediatrician, Obstetrician and Gynecologist,
+Radiologist, Neurologist, Pathologist, and Pharmacist. Figure 7 shows the distribution of selected
+specialists. In the MedQA dataset, the Primary Care Doctor Agent typically assigns around 3 to 5
+specialists, whereas in PubMedQA, the selection is more centered around 5. Cases with only 2 or as many
+as 7 specialists are uncommon, and no instances involve selecting just one specialist.
+B.3      Human Evaluation
+
+                                                                                                                                                               Score
+Evaluation Criterion   Description
+                                                                                                                                                               (0-4)
+                       The correctness of the system’s diagnosis or suggestion.
+                       0 = Completely wrong
+                       1 = Partially correct with major mistakes
+Accuracy
+                       2 = Partially correct with minor mistakes
+                       3 = Mostly correct with small gaps
+                       4 = Fully correct
+                       Evaluate how clearly the system explains its reasoning. Does the explanation make sense?
+                       0 = No explanation or completely unclear
+                       1 = Explanation lacks logic or clarity
+Explainability
+                       2 = Explanation is mostly clear but somewhat confusing
+                       3 = Clear explanation with good logic but some details could be refined
+                       4 = Clear, detailed, and logical explanation
+                       Rate the system’s response in terms of how comprehensive it is. Does the system consider all relevant factors and possible diagnoses?
+                       0 = Lacks important information and key factors
+                       1 = Missing some key information
+Completeness
+                       2 = Covers some key factors but leaves out a few
+                       3 = Covers most of the relevant factors with minor omissions
+                       4 = Comprehensive and covers all important factors
+                       Evaluate if the system’s suggestion is logical and grounded in medical knowledge.
+                       0 = Completely illogical
+                       1 = Partially illogical with some reason
+Rationality
+                       2 = Mostly logical but with some issues
+                       3 = Reasonable and generally follows medical knowledge
+                       4 = Fully logical and based on solid medical knowledge
+                       Does the system provide multiple potential diagnostic paths or solutions?
+                       0 = No diversity, always gives the same answer
+                       1 = Minimal diversity
+Diversity
+                       2 = Few variations, but answers are similar
+                       3 = Provides multiple distinct solutions or perspectives
+                       4 = Offers diverse diagnostic approaches with different viewpoints
+                       Rate the time efficiency of the system. How quickly does it generate responses, especially during multi-round discussions?
+                       0 = Extremely slow, cannot provide useful results in reasonable time
+                       1 = Slow, long wait times
+Efficiency
+                       2 = Acceptable, but sometimes a bit slow
+                       3 = Usually efficient and provides results quickly
+                       4 = Fast and provides valid answers almost immediately
+                       Evaluate whether the system’s responses are consistent across different rounds of consultation.
+                       0 = Completely inconsistent
+                       1 = Mostly inconsistent, with some contradictions
+Consistency
+                       2 = Some inconsistencies, but mostly similar answers
+                       3 = No contradictions, consistent throughout
+                       4 = Completely consistent with no contradictions
+                       Rate your overall experience interacting with the system. Is it easy to use and intuitive?
+                       0 = Difficult to use and navigate
+                       1 = Poor user experience
+User Experience
+                       2 = Fairly intuitive but some issues
+                       3 = Easy to use and navigate, good experience
+                       4 = Extremely smooth, intuitive, and user-friendly
+                       Rate the safety of the system’s suggestions. Did it ever provide potentially unsafe or harmful advice?
+                       0 = Provided dangerous or unsafe advice
+                       1 = Some potential risks that need attention
+Safety
+                       2 = Slightly unsafe, requires confirmation
+                       3 = Generally safe but needs further confirmation
+                       4 = Completely safe, no risks or errors
+                       Rate the level of innovation in the system’s diagnostic approach. Did it offer creative or new ideas?
+                       0 = No innovation, completely conventional
+                       1 = Some new ideas but mostly conventional
+Innovation
+                       2 = Some innovative solutions
+                       3 = Significant innovation and new ideas
+                       4 = Very creative and novel approach with new ways of thinking
+
+
+                                     Table 4: MDTeamGPT Human Evaluation Questionnaire.
+
+
+   To comprehensively evaluate the performance of MDTeamGPT, we invited five volunteers to participate
+in the tests. All volunteers hold at least a bachelor’s degree in clinical medicine, and two of them have
+medical practitioner qualifications. We randomly selected five questions from the MedQA dataset and five
+questions from the PubMedQA dataset, resulting in a total of 10 test questions. Volunteers observed the
+outputs of MDTeamGPT and rated them using the survey questionnaire shown in Table 4. Each volunteer
+was assigned integer scores for every test. The evaluation covered 10 dimensions: accuracy, explainability,
+completeness, rationality, diversity, efficiency, consistency, user experience, safety, and innovation. This
+portion of the testing was conducted using gpt4-turbo.
+   As shown in Figure 7, the volunteers assigned relatively low scores to the "Efficiency" metric, primarily
+                      Figure 7: Human Evaluation: Average Scores of MDTeamGPT.
+due to the increased time required for multi-round discussions among multiple roles compared to the
+Single-Agent approach. The "Diversity" metric also received an average score below 3. This may be
+attributed to the Temperature setting of 0.7, which was chosen to balance determinism and randomness;
+increasing this value could potentially enhance diversity. For "Completeness", the average score was
+3, though some feedback indicated that certain responses lacked sufficient consideration. To address
+this, future improvements will focus on designing more comprehensive prompts and optimizing the
+framework’s efficiency. All other metrics received scores above 3, demonstrating the potential value of
+MDTeamGPT in practical medical applications.
+

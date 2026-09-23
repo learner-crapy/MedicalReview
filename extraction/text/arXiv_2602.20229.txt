@@ -1,0 +1,1293 @@
+                                         HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for
+                                                                   Multi-Agent Systems
+
+
+                                                                                Tianjun Yao * 1 Zhaoyi Li * 1 Zhiqiang Shen 1
+
+
+                                                                     Abstract                                    Beyond application-specific designs, researchers have iden-
+                                              Multi-agent systems (MAS) built on large lan-                      tified fundamental challenges in multi-agent coordination
+
+
+
+
+arXiv:2602.20229v1 [cs.MA] 23 Feb 2026
+                                              guage models (LLMs) have demonstrated remark-                      and proposed systematic optimization approaches along
+                                              able performance across diverse tasks. Exist-                      several key dimensions: communication topology learn-
+                                              ing approaches optimize communication topol-                       ing (Zhuge et al., 2024; Zhang et al., 2024a; 2025), which
+                                              ogy, role assignment, or LLM routing in isola-                     optimizes the information flow structure between agents;
+                                              tion, while treating each agent as a monolithic                    role assignment and specialization (Qian et al., 2025b; Hong
+                                              unit—failing to exploit internal LLM mixtures                      et al., 2024; Liu et al., 2023b), which determines how agents
+                                              that can enhance individual role capabilities. We                  are assigned distinct functional responsibilities; and LLM
+                                              propose HieraMAS, a hierarchical agent collab-                     routing (Ong et al., 2024; Yue et al., 2025), which selects
+                                              oration framework with intra-node LLM mix-                         appropriate backbone models for different agent roles to bal-
+                                              tures and inter-node communication topology.                       ance cost and capability. Concurrently, researchers have dis-
+                                              HieraMAS introduces supernodes, where each                         covered that LLMs generate substantially better responses
+                                              functional role comprises multiple heterogeneous                   when provided with outputs from other models as auxiliary
+                                              LLMs in a propose-synthesis structure. The op-                     input (Wang et al., 2024; Li et al., 2025a;b). This phe-
+                                              timization of HieraMAS poses unique credit as-                     nomenon offers an intriguing connection to MAS: MAS
+                                              signment challenges, as final task performance                     inherently involves collaboration among potentially hetero-
+                                              heavily depends on LLM capabilities, potentially                   geneous LLMs through different roles and communication
+                                              causing erroneous reinforcement of suboptimal                      patterns, while the aforementioned phenomenon provides an
+                                              configurations. We address this via a two-stage al-                alternative form of LLM collaboration through input-output
+                                              gorithm: (1) multi-level reward attribution provid-                composition. However, this connection remains unexplored
+                                              ing fine-grained feedback at both node and system                  in current research. Existing approaches either focus on role
+                                              levels; and (2) graph classification treating topol-               assignment (Liu et al., 2023b; Chen et al., 2023) or LLM
+                                              ogy selection as a holistic task rather than per-                  routing (Yue et al., 2025), but none effectively integrates
+                                              edge optimization. Experiments on reasoning and                    the collaborativeness property, as they treat each agent as a
+                                              coding benchmarks demonstrate that HieraMAS                        monolithic unit rather than exploiting the potential for inter-
+                                              significantly outperforms existing methods while                   nal LLM mixtures to enhance individual role capabilities.
+                                              achieving better cost-performance trade-offs.                      In this work, we propose HieraMAS (Hierarchical Col-
+                                                                                                                 laboration with MAS), which unifies these two forms of
+                                                                                                                 collaboration within a coherent MAS framework. Unlike
+                                         1. Introduction                                                         conventional MAS where each node corresponds to a single
+                                         Recent advances in large language model (LLM) based                     agent, HieraMAS introduces supernodes, each comprising
+                                         agents have revealed a parallel phenomenon in artificial in-            multiple potentially heterogeneous agents that implement a
+                                         telligence. A growing body of research demonstrates that                propose-synthesis structure to augment each functional role.
+                                         multi-agent systems (MAS) substantially outperform single-              Intuitively, enhancing each role’s capability through inter-
+                                         agent approaches across diverse tasks (Du et al., 2024a;                nal mixtures may induce cascading effects on the overall
+                                         Liang et al., 2024; Talebirad & Nadiri, 2023; Chen et al.,              system, e.g., some communication edges may no longer be
+                                         2024), catalyzing the development of numerous MAS frame-                necessary, leading to sparser and more efficient structures.
+                                         works (Wu et al., 2024; Hong et al., 2024; Qian et al., 2024).          Motivated by this hypothesis, HieraMAS jointly optimizes
+                                                                                                                 three interconnected dimensions: ① graph topology that
+                                            *
+                                              Equal contribution 1 Mohamed bin Zayed University of Artifi-       determines inter-supernode communication patterns; ② role
+                                         cial Intelligence, Abu Dhabi, UAE.                                      pruning that identifies which functional roles to retain; and
+                                         Preprint, February, 2026.                                               ③ LLM selection within supernodes that configures the in-
+
+                                                                                                             1
+                  HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+
+
+
+          CHALLENGE 1
+
+
+
+
+           CHALLENGE 2
+
+
+Figure 1. Illustration of two credit assignment challenges in joint optimization and our solutions. Challenge 1: Final task rewards mask
+individual node errors—Node 2 produces incorrect output but receives high reward R2 = 0.92. HieraMAS addresses this via multi-level
+rewards that provide effective per-role attribution (R2ef f = −0.23). Challenge 2: Per-edge optimization suffers from entangled attribution,
+where edges may be falsely reinforced or suppressed. HieraMAS reformulates topology selection as a holistic graph classification task,
+using a graph generator to produce candidates and a graph classifier to select the optimal topology.
+
+
+ternal agent mixtures. This joint optimization can naturally               role retention) and inter-node structures (communication
+be formulated as a credit assignment problem (Sutton, 1984)                topology), enabling holistic system optimization.
+using reinforcement learning (Sutton et al., 1998). How-
+ever, compared to methods that optimize a single dimension,              • We design multi-level rewards for fine-grained per-role
+credit assignment becomes substantially more difficult in                  credit assignment, and reformulate topology optimization
+our setting (Figure 1). ① Relying solely on final task rewards             as a graph classification task to circumvent the intractable
+leads to inaccurate per-role attribution, as high rewards may              edge-level attribution problem.
+mask individual node errors that were compensated by other
+                                                                         • We conduct extensive experiments on programming, math-
+agents. ② Per-edge optimization faces similar attribution
+                                                                           ematical reasoning, and general knowledge benchmarks
+challenges but is even more challenging, as the contribu-
+                                                                           spanning diverse subjects. HieraMAS achieves state-of-
+tion of individual communication edges is entangled with
+                                                                           the-art performance while maintaining cost-efficiency.
+both the sending and receiving nodes’ behaviors, making it
+challenging to isolate edge-level effects. To address these
+challenges, HieraMAS employs a two-phase algorithm: in                   2. Preliminaries
+the first phase, we use multi-level rewards rather than final
+                                                                         In this section, we formalize the HieraMAS framework
+outcome rewards alone, providing fine-grained attribution
+                                                                         as a Markov Decision Process (MDP) and introduce its
+signals for optimizing supernode (Def. 1) configurations; in
+                                                                         optimization objectives.
+the second phase, given the inherent difficulty of edge-level
+credit assignment, we propose treating topology selection
+                                                                         2.1. Notation Establishment
+as a holistic graph classification task rather than per-edge
+optimization. We summarize our contributions as follows:                 Search Space. We define the search space of a MAS as S =
+                                                                         (M, R, G), where M denotes the pool of Nm available LLM
+• We introduce a novel MAS paradigm where collabora-                     backbones (including a special skip token), R represents
+  tiveness emerges at two levels: intra-node collaboration               the set of Nr predefined agent roles (e.g., Mathematical
+  through internal LLM mixtures within supernodes, and                   Analyst, Math Solver, Inspector), and G denotes the space
+  inter-node collaboration through communication across                  of graph topologies encoding inter-agent communication
+  functional roles.                                                      (e.g., Chain, FullyConnected, Star).
+• We propose HieraMAS, a unified framework that jointly                  Definition 1 (Supernode). A supernode Si is a mixture-
+  optimizes intra-node configurations (LLM selection and                 of-LLMs unit with role ri ∈ R, consisting of W proposer
+
+                                                                     2
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+positions and one synthesizer:                                        customized MAS by: (1) selecting optimal LLMs for each
+        
+                (w)        (a)
+                               
+                                       (w)    (a)                     position within supernodes, and (2) selecting an appropriate
+  Si = ri , {mi,j }Wj=1 , mi     ,    mi,j , mi ∈ M.       (1)        inter-supernode communication topology. We employ a
+Here, i indexes the supernode within the system, j ∈                  two-stage training algorithm that addresses the unique credit
+{1, . . . , W } indexes proposer positions within supernode           assignment challenges arising from joint optimization.
+Si , the superscript (w) denotes proposer LLMs that gener-
+ate diverse proposals, and (a) denotes the synthesizer LLM            3.1. LLM Selection within Supernodes
+that synthesizes proposer outputs into a unified response.            Each supernode Si contains W proposer positions and
+Internally, each proposer connects to the synthesizer, which          one synthesizer position. We learn to select the optimal
+aggregates the diverse proposals from proposers and gener-            LLM for each position based on task characteristics and
+ates the final response. This internal structure is inspired by       role requirements. We encode the query with role in-
+prior work (Wang et al., 2024) and is not optimized.                  formation as hQ,r = fψ (Q, r, desc(r)) using a sentence
+                                                                      encoder (Reimers & Gurevych, 2019), and pre-compute
+2.2. MDP Formulation                                                  LLM profile embeddings hmℓ = fψ (profile(mℓ )) for each
+We formulate HieraMAS as an MDP (X , A, P, R):                        mℓ ∈ M. The selection probability over LLMs is:
+
+State X . The state encodes the current configuration of the                                            exp(sℓ /τ )
+                                                                                πm (mℓ |Q, r) = P                      ,
+MAS:                                                                                                 m′ ∈M exp(sm /τ )           (5)
+                                                                                                                    ′
+                                                   
+                             (w)    (a)                                            where    sℓ = MLP(hQ,r , hmℓ )
+          x = {ri }N i=1 , {mi,j , mi   }i,j , E, Q   ,  (2)
+                                                                      and τ is the temperature.
+where {ri }Ni=1 are the role assignments for up to N supern-
+          (w)    (a)
+odes, {mi,j , mi } are the LLM assignments within each                Role and proposer Pruning via Skip Token. Critically,
+supernode, E ∈ {0, 1}N ×N is the adjacency matrix, and Q              M includes a special skip token that enables automatic
+is the input query.                                                   pruning at multiple granularities. When skip is selected for
+                                                                      a proposer position, that proposer is omitted and incurs zero
+Action A. The action space consists of three components:              cost, allowing the system to adaptively reduce the mixture
+(1) Role selection: for each supernode Si , select a role             size within a supernode. When skip is selected for a
+ri ∈ R or deactivate it; (2) LLM selection: for each position         synthesizer position, the entire supernode is deactivated,
+within a supernode (up to W + 1 positions), select an LLM             effectively pruning that functional role from the MAS. This
+m ∈ M or skip; and (3) Edge selection: select a subset of             unified mechanism enables HieraMAS to jointly learn both
+edges E ⊆ G to enable communication among supernodes.                 the optimal LLM configuration and which roles/proposers
+Transition P . Given state x and action a, the transition             are necessary for a given query, without requiring separate
+P (x′ |x, a) deterministically updates the system configura-          pruning modules.
+tion and executes the MAS to obtain outputs.
+                                                                      3.2. Graph Topology Selection
+Reward R. The reward balances task performance and
+computational cost:                                                   To circumvent the challenge of the per-edge credit assign-
+                                                                      ment, we propose treating topology selection as a holistic
+          R(x, a) = f (U (S; Q, a∗ ), C(S; Q)) ,           (3)
+                                                                      graph classification problem rather than per-edge optimiza-
+where S = {Si }N
+               i=1 denotes the set of all supernodes in the           tion. Instead of learning edge probabilities directly, we train
+                                                          ∗
+system, U (·) measures correctness against ground-truth a ,           a graph classifier that scores a pool of topology candidates
+and C(·) quantifies token expenditure.                                and selects the most suitable one for each query. This formu-
+                                                                      lation sidesteps edge-level credit assignment by evaluating
+2.3. Optimization Objective                                           topologies as indivisible units.
+Given a dataset D of queries Q with ground-truth answers              Graph Candidate Pool. We pre-generate a diverse
+a∗ , HieraMAS aims to learn a policy πθ that maximizes                pool of K random directed acyclic graphs (DAGs) G =
+expected reward:                                                      {G1 , G2 , . . . , GK }, where each graph Gk represents a po-
+                                                                      tential communication topology. The graphs are sampled
+            max E(Q,a∗ )∼D,a∼πθ (·|x) [R(x, a)] .          (4)
+              θ                                                       with varying edge densities to ensure diversity, covering
+                                                                      sparse, medium, and dense connectivity patterns.
+3. Method
+                                                                      Graph Classifier. Given a query Q and a candidate graph
+In this section, we introduce our HieraMAS framework.                 Gk represented by its adjacency matrix Ak ∈ {0, 1}N ×N ,
+Given a query Q, our framework progressively constructs a             the classifier predicts a suitability score. We first construct
+
+                                                                  3
+             HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+
+
+
+Figure 2. The overall framework of HieraMAS. By optimizing a policy learner πm with multi-level rewards (Stage 1) and a graph
+classifier fG (·) with contrastive rewards (Stage 2), HieraMAS learns to select optimal supernode configurations and communication
+topologies. During inference, the trained modules jointly determine the supernode configurations and graph topology, then execute the
+MAS to produce the final answer.
+
+
+node features by concatenating role embeddings with the              patterns, preventing overfitting to a single topology; and
+query embedding, then apply a Graph Convolutional Net-               (2) it decouples supernode learning from topology learning,
+work (GCN) (Kipf & Welling, 2017) to obtain graph-aware              allowing the selector to learn robust LLM assignments that
+node representations:                                                generalize across different graph structures.
+                                                            Multi-Level Reward. To address the per-node credit as-
+Z = GCN(X, Ak ),        zG = Pool(Z),   sk = MLP(zG , hQ ), signment challenge (Challenge 1 in Figure 1), we employ a
+                                                        (6) multi-level reward structure that provides feedback at both
+where X contains node features and Pool(·) aggregates node  the system level and individual supernode level. For each
+representations into a graph-level embedding. At inference, supernode Si , we compute a node-level reward Rinode by
+we select G∗ = arg maxGk ∈G sk .                            evaluating its synthesizer output against the ground truth.
+                                                                     The effective reward combines both signals:
+3.3. Two-Stage Training Algorithm
+                                                                                  Rieff = α · Rinode + (1 − α) · Rfinal ,         (7)
+Training HieraMAS requires addressing the entangled op-
+timization of supernode configurations and graph topology.           where α ∈ [0, 1] controls the mixing coefficient and Rfinal is
+We propose a two-stage algorithm that decouples these com-           the reward from the decision node’s output. For roles whose
+ponents to enable more effective learning. The complete              outputs are not directly comparable to the final answer (e.g.,
+procedure is summarized in Algorithm 1.                              planners, critics), we set α = 0 to rely solely on the final
+                                                                     reward signal.
+3.3.1. S TAGE 1: S UPERNODE O PTIMIZATION WITH                       Cost-Aware Reward Function. Each reward (both Rinode
+       R ANDOM G RAPHS                                               and Rfinal ) is computed using a cost-sensitive reward func-
+In the first stage, we focus on learning optimal LLM selec-          tion that balances correctness and computational cost:
+                                                                                           (
+tion within supernodes while using randomly sampled graph                                    exp(−λ · C), if u = 1
+topologies. For each training sample, we randomly select a                     R(u, C) =                                      (8)
+                                                                                             − exp(λ · C), if u = −1
+graph Gk from the candidate pool G and execute the MAS
+with this fixed topology. This design serves two purposes:           where u ∈ {−1, 1} is the utility (correctness), C is the
+(1) it exposes the LLM selector to diverse communication             token cost, and λ is the cost sensitivity hyperparameter. This
+
+                                                                 4
+              HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+formulation encourages the policy to select cost-efficient                 (ii) (Per-edge credit assignment) Per-edge policy gradi-
+LLMs: correct solutions yield positive rewards that decrease                    ent optimization incurs an irreducible error rate of
+with cost, while failures incur negative rewards that grow                      Ω((1 − ρ)q), where ρ is the fraction of optimal edges
+more severe with higher cost.                                                   and q is the probability of high final reward. In con-
+                                                                                trast, holistic graph scoring with random graph gen-
+Stage 1 Training Objective. The total loss for Stage 1
+                                                                                eration
+                                                                                      p reduces this to a vanishing estimation error
+combines policy gradient with entropy regularization to
+                                                                                O(1/ Nsamples ), enabling correct topology identifica-
+encourage exploration:
+                                                                                tion with sufficient samples.
+              N
+              X                                        X
+                                                              (p)
+Lstage1 = −         log πm (mi |Q, ri ) · Rieff − λH       H(πm   ),       Intuitively, multi-level rewards prevent the masking effect
+              i=1                                      p                   where system-level success hides individual failures, while
+                                                       (9)                 graph-level scoring transforms the ill-posed per-edge credit
+           (p)       P
+where H(πm ) = − mℓ πm (mℓ ) log πm (mℓ ) is the en-                       assignment into a well-posed estimation problem. The for-
+tropy of LLM selection at position p, preventing premature                 mal proofs are deferred to Appendix C.
+convergence to suboptimal configurations.
+
+3.3.2. S TAGE 2: G RAPH C LASSIFIER T RAINING                              4. Experiments
+After Stage 1 converges, we freeze the LLM selector and                    4.1. Experimental Setup
+train the graph classifier. This stage generates labeled train-            Datasets and Metrics. We evaluate our approach on
+ing data by executing the fixed MAS with different graph                   three diverse benchmark datasets to comprehensively as-
+topologies.                                                                sess its performance across different task types: (1) Hu-
+Data Generation. For each task Q in the training set, we                   manEval++ (Liu et al., 2023a): An enhanced version of
+sample M random graphs from G and execute the MAS with                     the original HumanEval benchmark (Chen, 2021), featur-
+each topology using the frozen LLM selector. We record the                 ing more robust evaluation via improved test suites for
+reward Rk for each graph Gk , and label the top-performing                 function-implementation tasks in code generation. (2)
+graphs (with positive reward) as positive examples.                        MATH (Hendrycks et al., 2021): A mathematical rea-
+                                                                           soning benchmark containing challenging high school
+Classifier Training. We train the graph classifier using                   competition problems requiring multi-step reasoning. (3)
+binary cross-entropy loss:                                                 MMLU-Redux (Gema et al., 2025): A decontaminated
+                    Lstage2 = BCE(yk , σ(sk )),                 (10)       and disambiguated subset of the original MMLU bench-
+                                                                           mark (Hendrycks et al., 2020), covering 30 subjects across
+where yk is the label, σ(·) is the sigmoid function.                       STEM, humanities, and social sciences.
+This two-stage approach offers several advantages: (1) it                  For HumanEval++, we report Pass@1, and for MATH and
+avoids the credit assignment problem in edge-level optimiza-               MMLU-Redux, we report accuracy.
+tion by treating topologies holistically; (2) it leverages the
+optimized LLM selector to generate meaningful training                     Baselines. We compare against a comprehensive set of
+signals for the graph classifier; and (3) it enables efficient             baselines spanning single-agent and multi-agent approaches:
+inference by simply scoring pre-generated graph candidates                 Single-agent methods: Base (direct prompting), Chain-
+rather than sampling edges stochastically.                                 of-Thought (CoT) (Wei et al., 2022). Fixed multi-agent
+                                                                           methods: Self-Consistency (Wang et al., 2022), Self-
+3.4. Theoretical Analysis                                                  Consistency+CoT, LLM-Debate (Du et al., 2024b; Liang
+                                                                           et al., 2024), Full-Graph (fully-connected topology with all
+We provide theoretical justification for our two-stage design              agents communicating), and Random-Graph (randomly gen-
+in addressing the credit assignment challenges.                            erated communication topology). Learning-based multi-
+Theorem 3.1. Consider optimizing a multi-agent system                      agent methods: AFlow (Zhang et al., 2024b), which op-
+with N supernodes and a communication graph G ∈ G.                         timizes workflows using Monte Carlo Tree Search; GDe-
+                                                                           signer (Zhang et al., 2024a), which uses GNN-based topol-
+ (i) (Per-node credit assignment) Under final-reward-only                  ogy optimization; and MASRouter (Yue et al., 2025), which
+     training, when a failing supernode’s error is compen-                 learns to route between predefined topologies.
+     sated by other agents, its policy gradient points in the
+     wrong direction. Multi-level rewards with sufficient                  LLM Pools. We use a diverse pool of LLMs for
+     weight on node-level feedback ensure the gradient sign                heterogeneous agent assignment: Qwen3-8B (Yang
+     matches the desired update direction.                                 et al., 2025), Qwen3-Next-80B-A3B-Instruct (Yang et al.,
+
+                                                                       5
+             HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+Table 1. Main results on three benchmarks. We report accuracy (%) for each dataset. ✓ indicates the method uses the corresponding
+component: Multi = multi-agent, Topo = optimizing topology, Role = optimizing roles and LLMs in each role, Node = optimizing
+intra-node configuration. Best results are in bold, second best are underlined.
+
+                                                         HumanEval++                MATH                   MMLU-Redux
+ Method                 Multi   Topo   Role   Node                                                                              Avg.
+                                                     GPT-5-Mini Qwen3-80B    GPT-5-Mini Qwen3-80B      GPT-5-Mini Qwen3-80B
+ Base                    ✗       ✗      ✗      ✗       89.06      84.14        77.78        74.44        92.00       82.40     83.14
+ CoT                     ✗       ✗      ✗      ✗       87.50      85.94        92.22        90.00        93.60       89.60     89.81
+ Self-Consistency        ✓       ✗      ✗      ✗       89.06      87.50        93.33        91.11        94.40       83.20     89.77
+ Self-Consistency+CoT    ✓       ✗      ✗      ✗       90.62      85.94        94.44        92.22        93.60       92.80     91.60
+ LLM-Debate              ✓       ✗      ✗      ✗       87.50      87.50        94.44        94.44        92.80       92.00     91.45
+ Full-Graph              ✓       ✗      ✗      ✗       89.06      92.19        95.56        96.67        94.40       88.80     92.78
+ Random-Graph            ✓       ✗      ✗      ✗       85.94      92.19        93.33        94.44        91.20       88.00     90.85
+ AFlow                   ✓       ✓      ✗      ✗       95.31      98.44        95.56        84.44        91.20       91.20     92.69
+ GDesigner               ✓       ✓      ✗      ✗       90.62      93.75        91.11        87.77        92.00       88.80     90.68
+ MASRouter               ✓       ✓      ✓      ✗       96.88      98.44        91.11        88.88        88.33       81.67     90.89
+ Ours                    ✓       ✓      ✓      ✓       93.75      96.88        96.67        95.56        95.20       89.60     94.61
+
+
+
+2025), DeepSeek-R1-Distill-Qwen-14B (Guo et al., 2025),               Table 2. Ablation study on MATH and MMLU-Redux benchmarks.
+                                                                      We evaluate the contribution of graph topology scoring and LLM
+Llama-3.1-8B-Instruct (Dubey et al., 2024), DeepSeek-                 selection. Acc (%) and Cost (USD) are reported.
+V3.2 (DeepSeek-AI, 2024), and Gemma-3-27B-IT (Team
+et al., 2025), GPT-5-Mini (OpenAI, 2025), GPT-5-                                                     MATH        MMLU-Redux
+Nano (OpenAI, 2025) and GPT-4o-Mini (Achiam et al.,                    Variant
+                                                                                                    Acc Cost     Acc  Cost
+2023). All models are accessible via open APIs, supporting
+reproducibility of our experiments. We conduct experiments             w/o Graph                93.33     1.57   92.00        1.36
+with two settings: GPT-5-Mini and Qwen3-Next-80B-A3B-                  w/o LLM Selection        97.78     2.56   94.40        3.92
+Instruct. For the GPT-5-Mini setting, methods that support             Ours                     96.67     1.52   95.20        1.29
+learnable LLM selection (HieraMAS and MASRouter) use
+all LLMs in the pool; for the Qwen3-80B setting, these
+methods exclude all GPT models from the pool. For other
+methods, GPT-5-Mini and Qwen3-Next-80B-A3B-Instruct                   proach by over 3%. ③ GDesigner and MASRouter both em-
+are utilized respectively.                                            ploy learning-based topology optimization. However, MAS-
+                                                                      Router routes between only 4 predefined regular topologies
+                                                                      (e.g., debate, chain), constraining its search space. Our
+Implementation Details. Details on implementations of
+                                                                      method instead learns to score and select from diverse ran-
+HieraMAS are deferred to Appendix D.1.
+                                                                      dom graph structures, discovering more effective collab-
+                                                                      oration strategies that better exploit heterogeneous LLM
+4.2. Main Results                                                     capabilities. This gap also highlights the importance of
+Table 1 presents the main results comparing our approach              learned topologies, consistent with recent findings that irreg-
+against all baselines. Our method achieves the best aver-             ular topologies outperform regular ones (Qian et al., 2025a).
+age performance of 94.61%, outperforming AFlow and
+MAS with full graph by a large margin. Notably, our ap-               4.3. In-depth Analysis
+proach demonstrates consistent improvements across all
+                                                                      We conduct more experimental analysis in this section, using
+three benchmarks, achieving the best performance on Hu-
+                                                                      GPT-5-Mini setting. Additional experimental results are
+manEval++ and MATH, and competitive results on MMLU-
+                                                                      demonstrated in Appendix D, including: (1) The effect of
+Redux. ① Full-Graph achieves 92.78% average accuracy
+                                                                      #Proposers in supernodes, and (2) The effect of the size of
+by enabling all agents to communicate, but incurs signif-
+                                                                      graph pool G.
+icant computational overhead, for instance, on MMLU-
+Redux with GPT-5-Mini, our method costs $1.29 while Full-             Ablation Study. We conduct ablation experiments to evalu-
+Graph requires $4.23 (3.27× more expensive). AFlow op-                ate the contribution of each component in our framework,
+timizes workflows via MCTS with Claude 3.5-Sonnet (An-                as shown in Table 2. We consider two variants: (1) w/o
+thropic, 2024), resulting in prohibitive training costs: on           Graph, which removes the graph scoring mechanism and
+HumanEval++ with GPT-5-Mini, our training cost is 18.41x              instead uses three randomly sampled graphs with averaged
+cheaper than AFlow (More training cost is included in Ap-             outputs; (2) w/o LLM Selection, which uses the learned opti-
+pendix D). ② LLM-Debate and Random-Graph rely on                      mal graph structure G ∗ but assigns all agents the strongest
+fixed debate patterns or random structures, trailing our ap-          LLM backbone (i.e., GPT-5-Mini).
+
+                                                                  6
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+Removing the graph scoring mechanism (w/o Graph) leads                Table 3. Generalization performance (%) on unseen MMLU cate-
+                                                                      gories. Best in bold, second best underlined.
+to substantial performance degradation on both benchmarks:
+3.45% drop on MATH and 3.36% drop on MMLU-Redux,
+                                                                             Method          GPT-5-Mini       Qwen3-80B
+demonstrating the importance of learned topology selec-
+tion. For w/o LLM Selection, using only the learned struc-                   SC+CoT              68.00            64.00
+ture G ∗ with a fixed strongest LLM (GPT-5-Mini) yields                      AFlow               72.00            68.00
+marginal improvement on MATH, but at the expense of sig-                     GDesigner           72.00            68.00
+nificantly higher cost ($2.56 vs. $1.52). On MMLU-Redux,                     MASRouter           56.00            68.00
+using GPT-5-Mini for all nodes incurs 203.9% more cost                       Ours                68.00            72.00
+while achieving lower accuracy compared to HieraMAS.
+This demonstrates that our heterogeneous LLM assignment
+strategy in the supernode, mixing weaker and stronger                 A3B-Instruct offers superior cost-effectiveness for mathe-
+models based on role requirements, achieves better cost-              matical reasoning. For synthesizer nodes, we observe highly
+performance trade-offs than uniformly using the strongest             consistent preferences with proposer nodes, suggesting that
+LLM in the MAS.                                                       LLM selection is primarily driven by task characteristics
+Analysis on Learned Topology in MMLU-Redux. We vi-                    rather than positional roles within the supernode architec-
+sualize the most frequently selected communication topolo-            ture. Notably, the skip token is rarely selected across all
+gies learned by HieraMAS on MMLU-Redux under GPT-                     tasks, indicating that HieraMAS prefers to reduce costs
+5-Mini setting in Figure 3. The pairwise Jaccard similarity           through sparser communication topologies (density 0.23-
+between the top-5 graphs ranges from 0.11 to 0.44, indicat-           0.32) rather than removing functional roles from the MAS.
+ing substantial structural diversity in the learned topologies.       Generalization Analysis on MMLU-Redux. We evalu-
+Despite this diversity, we identify several consistent patterns       ate out-of-domain generalization by reserving 5 subjects
+across the top-ranked graphs.                                         from MMLU-Redux that are excluded from both training
+Common structural properties: (1) Sink nodes: The                     and in-domain testing, using the remaining 25 subjects for
+Psychologist and Doctor roles consistently serve as sink              training, as shown in Table 3. GDesigner and AFlow, de-
+nodes (high in-degree, zero out-degree) across most top               spite being learning-based methods, demonstrate compet-
+graphs, receiving information from multiple sources but not           itive generalization, comparable to or exceeding SC+CoT.
+propagating further. This suggests these roles function as fi-        This may be attributed to their use of the strongest available
+nal synthesizers or decision-makers. (2) Source nodes: The            LLM during execution without learning, which provides
+Critic role consistently acts as a primary source node (high          an implicit bias toward generalization. In contrast, MAS-
+out-degree, low in-degree), broadcasting information to mul-          Router and HieraMAS involve more extensive learning
+tiple agents. The Economist also frequently serves as a hub           components (LLM/Role selection and topology optimiza-
+with high out-degree. (3) Sparse and irregular structure:             tion), posing greater challenges for out-of-domain gener-
+The density ratios range from 0.23 to 0.32, indicating that           alization. Notably, MASRouter exhibits significant degra-
+the learned topologies are considerably sparser than a fully-         dation under GPT-5-Mini setting, as its most frequently
+connected graph (density=1.0).                                        selected LLMs are Qwen3-Next-80B-A3B-Instruct, Qwen3-
+                                                                      8B, and Gemma-3-27B, models that may not generalize well
+Analysis on Intra-Node Configuration. We analyze the                  to unseen subjects. In comparison, HieraMAS maintains
+dataset-level LLM selection preferences πm learned by                 performance by preferring GPT-5-Mini and GPT-5-Nano,
+HieraMAS for proposer and synthesizer positions within                which are more amenable to generalization across diverse
+supernodes, as shown in Figure 4. The normalized logits               subjects due to their broad pretraining coverage. Addi-
+reveal that HieraMAS learns distinct LLM preferences tai-             tionally, we hypothesize that the learned communication
+lored to different task characteristics. For proposer nodes,          topologies in HieraMAS, with Psychologist and Doctor as
+although the preferred LLMs vary across tasks, they con-              sink nodes and Critic as the source node, represent more
+sistently form strong-weak combinations that balance                  generalizable collaboration patterns that transfer effectively
+capability and cost. On HumanEval++, Llama-3.1-8B-                    to unseen domains.
+Instruct, DeepSeek-R1-Distill-Qwen-14B, and DeepSeek-
+V3.2 emerge as the most preferred models. For MATH,                   Cost Analysis. We compare inference costs with MAS-
+Qwen3-Next-80B-A3B-Instruct and Qwen3-8B dominate                     Router and GDesigner across the three benchmarks, as
+the selection, while MMLU-Redux favors GPT-5-Nano and                 shown in Table 4. MASRouter achieves the lowest cost,
+GPT-5-Mini. These patterns reveal task-specific model                 which can be attributed to two factors: (1) its reward func-
+strengths: the GPT-5 series excels on general knowledge               tion explicitly incorporates cost penalties, and (2) following
+tasks requiring broad coverage, whereas Qwen3-Next-80B-               their original implementation, we constrain the maximum
+                                                                      number of agents to 6, resulting in aggressive role prun-
+
+                                                                  7
+                    HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+                                                                                                                                                                                                                                  0.5
+                                                                                                                                                                               Top-1    –       0.29     0.25     0.29     0.43
+                                                                                                                                                                                                                                  0.4
+
+
+
+
+                                                                                                                                                                                                                                        Jaccard Similarity
+                                                                                                                                                                               Top-2   0.29      –       0.11     0.24     0.12
+                                                                                                                                                                                                                                  0.3
+                                                                                                                                                                               Top-3   0.25     0.11      –       0.20     0.39
+                                                                                                                                                                                                                                  0.2
+                                                                                                                                                                               Top-4   0.29     0.24     0.20      –       0.17
+                                                                                                                                                                                                                                  0.1
+                                                                                                                                                                               Top-5   0.43     0.12     0.39     0.17      –
+                                                                                                                                                                                                                                  0.0
+                                                                                                                                                                                       1        2        3        4        5
+                                                                                                                                                                                   To         To       To       To       To
+                                                                                                                                                                                     p-         p-       p-       p-       p-
+
+
+                                               (a) Top-3 learned graph topologies.                                                                                        (b) Pairwise Jaccard similarity of top-5 graphs.
+Figure 3. Analysis of learned topologies on MMLU-Redux. (a) Visualization of the top-3 most frequently selected graph structures with
+their density. (b) Pairwise Jaccard similarity between top-5 graphs, showing low structural overlap.
+
+
+
+
+                                                                                                                                    Normalized Logits
+                                                                                                                             1.0
+                                                                                                                                                            of-Agents (Wang et al., 2024) introduces a layered archi-
+HumanEval        1.00   0.16         0.13       0.07       -0.06   -0.25        -0.45        -0.67       -0.77       -1.00
+                                                                                                                             0.5
+                                                                                                                                                            tecture exploiting the collaborativeness phenomenon where
+    MATH       -0.59    0.05         0.17       -0.61       0.56       1.00     -0.04        -1.00       -0.21       -0.24   0.0                            LLMs generate better responses when provided with outputs
+   MMLU        -0.80    -0.54        -0.59      -0.60      -0.95   -1.00        0.68         -0.55       1.00        0.64
+                                                                                                                             −0.5                           from other models. Our work builds upon this insight by
+               B    1-           3           27         3-         B          ini       Sk            o          in  i
+                                                                                                                             −1.0                           incorporating intra-node LLM mixtures within a broader
+            -8        14        V               B          8B   3-                        ip         an
+       aM
+           A
+               D
+                S-
+                        B   D
+                                S-
+                                       m
+                                          a-        wen     wen
+                                                                  80
+                                                                       T
+                                                                         -5
+                                                                           -M                  -5
+                                                                                                 -N       -4o-
+                                                                                                                 M
+                                                                                                                                                            MAS framework, while jointly optimizing communication
+      LL          R                  em        Q                   P                      PT          P
+                                 G                        Q        G                     G           G
+                                                                                                       T
+                                                                                                                                                            topology and role configurations.
+Figure 4. Dataset-level LLM selection preferences learned by                                                                                                Optimizing Multi-Agent Systems. Recent research has
+HieraMAS. Normalized Logits indicate selection preference, with                                                                                             focused on optimizing MAS from multiple perspectives:
+higher values indicating stronger preference.
+                                                                                                                                                            communication topology optimization via graph-based rep-
+                                                                                                                                                            resentations and reinforcement learning (Zhuge et al., 2024;
+       Table 4. Cost comparison ($). Lowest cost in bold.
+                                                                                                                                                            Zhang et al., 2024a; 2025; Qian et al., 2025b), dynamic
+   Method                        HumanEval++                                        MATH                         MMLU                                       role assignment with agent importance scoring (Liu et al.,
+                                                                                                                                                            2023b), and LLM routing for cost-quality trade-offs (Ong
+   GDesigner                                        1.33                                2.16                             3.66                               et al., 2024; Yue et al., 2025). Beyond these directions,
+   MASRouter                                        0.12                                0.32                             0.15                               AgentVerse (Chen et al., 2024) explores dynamic agent re-
+   Ours                                             0.53                                1.52                             1.29                               cruitment that adaptively assembles agent teams based on
+                                                                                                                                                            task complexity, while MetaGPT (Hong et al., 2024) in-
+                                                                                                                                                            troduces structured communication protocols inspired by
+ing. In contrast, HieraMAS with skip action does not                                                                                                        software engineering workflows to reduce redundant interac-
+impose such hard constraints; instead, it learns to reduce                                                                                                  tions. While most of these works optimize individual dimen-
+costs through sparser communication topologies rather than                                                                                                  sions or focus on single-agent routing, HieraMAS jointly
+pruning agents, achieving a better trade-off between cost                                                                                                   optimizes topology and intra-node LLM configurations for
+and performance. Compared to GDesigner, which incurs                                                                                                        multi-agent collaboration within a unified framework.
+the highest cost, the difference stems from its lack of LLM
+and role selection: it defaults to using the strongest (and                                                                                                 6. Conclusion
+most expensive) model for all agents. Furthermore, GDe-
+signer requires 3 rounds of agent communication, whereas                                                                                                    We presented HieraMAS, a framework that unifies intra-
+HieraMAS completes inference in a single round, further                                                                                                     node and inter-node collaboration in multi-agent systems.
+contributing to the cost reduction.                                                                                                                         By introducing supernodes with internal LLM mixtures
+                                                                                                                                                            and a two-stage training algorithm, HieraMAS addresses
+                                                                                                                                                            the fundamental credit assignment challenges: multi-level
+5. Related Work                                                                                                                                             rewards resolve per-node attribution, while holistic graph
+Multi-Agent Systems. LLM-based multi-agent systems                                                                                                          classification circumvents intractable per-edge credit assign-
+have emerged as a powerful paradigm, with foundational                                                                                                      ment. Experiments on diverse domains demonstrate that
+frameworks enabling agent collaboration through conversa-                                                                                                   HieraMAS achieves state-of-the-art performance with su-
+tion programming, standardized operating procedures, and                                                                                                    perior cost-efficiency. We believe that this new paradigm
+dynamic composition (Li et al., 2023; Hong et al., 2024;                                                                                                    opens promising directions for improving the reasoning
+Qian et al., 2024; Chen et al., 2024). More recently, Mixture-                                                                                              ability for more complex, real-world tasks.
+
+                                                                                                                                                        8
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+Impact Statement                                                      Human Language Technologies (Volume 1: Long Papers),
+                                                                      pp. 5069–5096, 2025.
+This paper presents work on MAS, which are increasingly
+prevalent across various application domains. We believe            Guo, D., Yang, D., Zhang, H., Song, J., Zhang, R., Xu, R.,
+this research contributes positively to the broader field of          Zhu, Q., Ma, S., Wang, P., Bi, X., et al. Deepseek-r1: In-
+machine learning and collaborative AI systems. We do not              centivizing reasoning capability in llms via reinforcement
+foresee any direct negative societal consequences arising             learning. arXiv preprint arXiv:2501.12948, 2025.
+from this work.
+                                                                    Hendrycks, D., Burns, C., Basart, S., Zou, A., Mazeika,
+                                                                      M., Song, D., and Steinhardt, J. Measuring mas-
+References                                                            sive multitask language understanding. arXiv preprint
+Achiam, J., Adler, S., Agarwal, S., Ahmad, L., Akkaya, I.,            arXiv:2009.03300, 2020.
+  Aleman, F. L., Almeida, D., Altenschmidt, J., Altman, S.,         Hendrycks, D., Burns, C., Kadavath, S., Arora, A., Basart,
+  Anadkat, S., et al. Gpt-4 technical report. arXiv preprint          S., Tang, E., Song, D., and Steinhardt, J. Measuring math-
+  arXiv:2303.08774, 2023.                                             ematical problem solving with the math dataset. arXiv
+                                                                      preprint arXiv:2103.03874, 2021.
+Anthropic. Claude 3.5 sonnet model card. https://www.
+  anthropic.com/news/claude-3-5-sonnet,                             Hong, S., Zhuge, M., Chen, J., Zheng, X., Cheng, Y., Zhang,
+  2024.                                                               C., Wang, J., Wang, Z., Yau, S. K. S., Lin, Z., Zhou, L.,
+                                                                      Ran, C., Xiao, L., Wu, C., and Schmidhuber, J. Metagpt:
+Chen, G., Dong, S., Shu, Y., Zhang, G., Sesay, J., Karls-
+                                                                      Meta programming for a multi-agent collaborative frame-
+  son, B. F., Fu, J., and Shi, Y. Autoagents: A frame-
+                                                                      work. In The Twelfth International Conference on Learn-
+  work for automatic agent generation. arXiv preprint
+                                                                      ing Representations, 2024.
+  arXiv:2309.17288, 2023.
+                                                                    Kingma, D. P. Adam: A method for stochastic optimization.
+Chen, M. Evaluating large language models trained on code.
+                                                                      arXiv preprint arXiv:1412.6980, 2014.
+  arXiv preprint arXiv:2107.03374, 2021.
+                                                                    Kipf, T. N. and Welling, M. Semi-supervised classifica-
+Chen, W., Su, Y., Zuo, J., Yang, C., Yuan, C., Chan, C.-M.,           tion with graph convolutional networks. In International
+  Yu, H., Lu, Y., Hung, Y.-H., Qian, C., Qin, Y., Cong, X.,           Conference on Learning Representations, 2017.
+  Xie, R., Liu, Z., Sun, M., and Zhou, J. Agentverse: Facil-
+  itating multi-agent collaboration and exploring emergent          Li, D., Tan, Z., Qian, P., Li, Y., Chaudhary, K., Hu, L., and
+  behaviors. In The Twelfth International Conference on               Shen, J. Smoa: Improving multi-agent large language
+  Learning Representations, 2024.                                     models with s parse m ixture-o f-a gents. In Pacific-Asia
+                                                                      Conference on Knowledge Discovery and Data Mining,
+DeepSeek-AI. Deepseek-v3 technical report. arXiv preprint             pp. 54–65. Springer, 2025a.
+  arXiv:2412.19437, 2024.
+                                                                    Li, G., Hammoud, H., Itani, H., Khizbullin, D., and Ghanem,
+Du, Y., Li, S., Torralba, A., Tenenbaum, J. B., and Mordatch,          B. Camel: Communicative agents for" mind" exploration
+  I. Improving factuality and reasoning in language models             of large language model society. Advances in Neural
+  through multiagent debate. In Forty-first International             Information Processing Systems, 36:51991–52008, 2023.
+  Conference on Machine Learning, 2024a.
+                                                                    Li, W., Lin, Y., Xia, M., and Jin, C. Rethinking mixture-of-
+Du, Y., Li, S., Torralba, A., Tenenbaum, J. B., and Mordatch,         agents: Is mixing different large language models benefi-
+  I. Improving factuality and reasoning in language models            cial? arXiv preprint arXiv:2502.00674, 2025b.
+  through multiagent debate. In International Conference
+  on Machine Learning, 2024b.                                       Liang, T., He, Z., Jiao, W., Wang, X., Wang, Y., Wang,
+                                                                      R., Yang, Y., Shi, S., and Tu, Z. Encouraging divergent
+Dubey, A., Jauhri, A., Pandey, A., Kadian, A., Al-Dahle,              thinking in large language models through multi-agent
+ A., Letman, A., Mathur, A., Schelten, A., Yang, A., Fan,             debate. In Proceedings of the 2024 Conference on Em-
+ A., et al. The llama 3 herd of models. arXiv preprint                pirical Methods in Natural Language Processing, pp.
+  arXiv:2407.21783, 2024.                                             17889–17904, 2024.
+Gema, A. P., Leang, J. O. J., Hong, G., Devoto, A., Mancino,        Liu, J., Xia, C. S., Wang, Y., and Zhang, L. Is your code
+  A. C. M., Saxena, R., He, X., Zhao, Y., Du, X., Madani,             generated by chatgpt really correct? rigorous evaluation
+  M. R. G., et al. Are we done with mmlu? In Proceedings              of large language models for code generation. Advances
+  of the 2025 Conference of the Nations of the Americas               in Neural Information Processing Systems, 36:21558–
+  Chapter of the Association for Computational Linguistics:           21572, 2023a.
+
+                                                                9
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+Liu, N. F., Lin, K., Hewitt, J., Paranjape, A., Bevilacqua,           Wang, J., Wang, J., Athiwaratkun, B., Zhang, C., and Zou,
+  M., Petroni, F., and Liang, P. Lost in the middle: How               J. Mixture-of-agents enhances large language model ca-
+  language models use long contexts. Transactions of the               pabilities, 2024. URL https://arxiv.org/abs/
+  association for computational linguistics, 12:157–173,               2406.04692.
+  2024.
+                                                                      Wang, X., Wei, J., Schuurmans, D., Le, Q., Chi, E., Narang,
+Liu, Z., Zhang, Y., Li, P., Liu, Y., and Yang, D. Dy-                  S., Chowdhery, A., and Zhou, D. Self-consistency im-
+  namic llm-agent network: An llm-agent collaboration                  proves chain of thought reasoning in language models.
+  framework with agent team optimization. arXiv preprint               arXiv preprint arXiv:2203.11171, 2022.
+  arXiv:2310.02170, 2023b.
+                                                                      Wei, J., Wang, X., Schuurmans, D., Bosma, M., Xia, F., Chi,
+Ong, I., Almahairi, A., Wu, V., Chiang, W.-L., Wu, T.,                 E., Le, Q. V., Zhou, D., et al. Chain-of-thought prompting
+  Gonzalez, J. E., Kadous, M. W., and Stoica, I. Routellm:             elicits reasoning in large language models. Advances in
+  Learning to route llms with preference data, 2024. URL               neural information processing systems, 35:24824–24837,
+  https://arxiv.org/abs/2406.18665.                                    2022.
+                                                                      Williams, R. J. Simple statistical gradient-following algo-
+OpenAI. Introducing gpt-5. https://openai.com/
+                                                                       rithms for connectionist reinforcement learning. Machine
+  index/introducing-gpt-5/, 2025.
+                                                                       Learning, 8(3-4):229–256, 1992.
+Qian, C., Liu, W., Liu, H., Chen, N., Dang, Y., Li, J., Yang,         Wu, Q., Bansal, G., Zhang, J., Wu, Y., Li, B., Zhu, E., Jiang,
+  C., Chen, W., Su, Y., Cong, X., Xu, J., Li, D., Liu, Z., and         L., Zhang, X., Zhang, S., Liu, J., Awadallah, A. H., White,
+  Sun, M. Chatdev: Communicative agents for software                   R. W., Burger, D., and Wang, C. Autogen: Enabling next-
+  development. In Proceedings of the 62nd Annual Meeting               gen llm applications via multi-agent conversation. In
+  of the Association for Computational Linguistics, 2024.              Forty-first International Conference on Machine Learn-
+                                                                       ing, 2024.
+Qian, C., Xie, Z., Wang, Y., Liu, W., Dang, Y., Du, Z.,
+  Chen, W., Yang, C., Liu, Z., Sun, M., Zhu, K., and Xia,             Yang, A., Li, A., Yang, B., Zhang, B., Hui, B., Zheng, B.,
+  H. Scaling large-language-model-based multi-agent col-                Yu, B., Gao, C., Huang, C., Lv, C., et al. Qwen3 technical
+  laboration. In International Conference on Learning                   report. arXiv preprint arXiv:2505.09388, 2025.
+  Representations, 2025a.
+                                                                      Yue, Y., Zhang, G., Liu, B., Wan, G., Wang, K., Cheng, D.,
+Qian, C., Xie, Z., Wang, Y., Liu, W., Zhu, K., Xia, H., Dang,           and Qi, Y. Masrouter: Learning to route llms for multi-
+  Y., Du, Z., Chen, W., Yang, C., Liu, Z., and Sun, M.                  agent systems. In Annual Meeting of the Association for
+  Scaling large language model-based multi-agent collab-                Computational Linguistics, 2025.
+  oration. In The Thirteenth International Conference on
+                                                                      Zhang, G., Yue, Y., Sun, X., Wan, G., Yu, M., Fang, J.,
+  Learning Representations, 2025b.
+                                                                        Wang, K., Chen, T., and Cheng, D. G-designer: Archi-
+Reimers, N. and Gurevych, I. Sentence-bert: Sentence                    tecting multi-agent communication topologies via graph
+  embeddings using siamese bert-networks. In Proceedings                neural networks, 2024a. URL https://arxiv.org/
+  of the 2019 Conference on Empirical Methods in Natural                abs/2410.11782.
+  Language Processing, pp. 3982–3992, 2019.                           Zhang, G., Yue, Y., Li, Z., Yun, S., Wan, G., Wang, K.,
+                                                                        Cheng, D., Yu, J. X., and Chen, T. Cut the crap: An
+Sutton, R. S. Temporal credit assignment in reinforcement
+                                                                        economical communication pipeline for llm-based multi-
+  learning. University of Massachusetts Amherst, 1984.
+                                                                        agent systems. In International Conference on Learning
+Sutton, R. S., Barto, A. G., et al. Reinforcement learning:             Representations, 2025.
+  An introduction, volume 1. MIT press Cambridge, 1998.               Zhang, J., Xiang, J., Yu, Z., Teng, F., Chen, X., Chen, J.,
+                                                                        Zhuge, M., Cheng, X., Hong, S., Wang, J., et al. Aflow:
+Talebirad, Y. and Nadiri, A. Multi-agent collaboration:
+                                                                        Automating agentic workflow generation. arXiv preprint
+  Harnessing the power of intelligent llm agents, 2023.
+                                                                        arXiv:2410.10762, 2024b.
+  URL https://arxiv.org/abs/2306.03314.
+                                                                      Zhuge, M., Wang, W., Kirsch, L., Faccio, F., Khizbullin,
+Team, G., Kamath, A., Ferret, J., Pathak, S., Vieillard, N.,            D., and Schmidhuber, J. Language agents as optimiz-
+  Merhej, R., Perrin, S., Matejovicova, T., Ramé, A., Riv-              able graphs. In Forty-first International Conference on
+  ière, M., et al. Gemma 3 technical report. arXiv preprint             Machine Learning, 2024.
+  arXiv:2503.19786, 2025.
+
+                                                                 10
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+                                                       Appendix
+A. Notation Table
+Table 5 summarizes the key notation used throughout this paper.
+
+                                         Table 5. Summary of notation used in this paper.
+
+              Symbol     Description                                Symbol     Description
+               Search Space & Supernode Structure
+                 S      Search space (M, R, G)                        Si       Supernode i with role ri
+                M       Pool of Nm LLM backbones                      ri       Role for supernode i, ri ∈ R
+                 R      Set of Nr predefined agent roles              W        Number of proposers per supernode
+                                                                      (w)
+                G       Space of graph topologies                    mi,j      LLM for j-th proposer in supernode i
+                                                                       (a)
+                 G      Pool of K candidate DAGs                     mi        LLM for synthesizer in supernode i
+                N       Max number of supernodes
+               MDP Components & Policy
+                X     State space                                     πm       LLM selection policy
+                A     Action space                                    πθ       Overall policy with parameters θ
+                P     Transition function                             fG       Graph classifier
+                R     Reward function                                  τ       Softmax temperature
+                Q     Input query                                    hQ,r      Query-role embedding
+                a∗    Ground-truth answer                            hmℓ       LLM profile embedding
+                E     Adjacency matrix ∈ {0, 1}N ×N
+               Rewards
+               Rfinal  Final task reward                              U (·)    Utility (correctness) function
+               Rinode  Node-level reward for supernode i              C(·)     Cost function (token expenditure)
+               Rieff   Effective reward (node + final)                 λ       Cost sensitivity hyperparameter
+                 α     Mixing coefficient for multi-level reward
+               Training Objectives
+              Lstage1   Stage 1 loss (LLM selector)                  T1 , T2   Training iterations for Stage 1, 2
+              Lstage2   Stage 2 loss (graph classifier)                D       Training dataset
+                λH      Entropy regularization coefficient            DG       Graph classification dataset
+                  (p)
+              H(πm ) Entropy at position p
+               Graph Classifier
+                Ak     Adjacency matrix for graph Gk                  zG       Graph-level embedding
+                X      Node feature matrix                            sk       Suitability score for Gk
+                Z      Graph-aware node representations               G∗       Selected optimal graph
+
+
+
+B. Algorithm
+Algorithm 1 presents the complete two-stage training procedure for HieraMAS.
+
+C. Theoretical Analysis
+In this section, we provide formal theoretical analysis justifying our two-stage training design, corresponding to Theorem 3.1
+in Section 3.4. The theorem identifies two fundamental credit assignment challenges in multi-agent systems: (i) per-
+node credit assignment, where individual agent failures may be masked by system-level success, and (ii) per-edge credit
+assignment, where the contribution of individual communication links is difficult to isolate. Below, we formalize these
+challenges and prove how our proposed solutions: multi-level rewards and holistic graph selection to address them.
+Problem Setting. We consider multi-agent coordination problems formalized as MDPs with bounded rewards R ∈ [−B, B],
+finite state space X , and finite action space A (corresponding to discrete LLM and topology selections). The communication
+topology is represented as a directed acyclic graph (DAG) over N supernodes.
+
+                                                               11
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+Algorithm 1 HieraMAS Two-Stage Training
+Require: Training set D, graph pool G, LLM pool M
+Ensure: Trained LLM selector πm , graph classifier fG
+
+    Stage 1: Supernode Optimization
+ 1: for iteration = 1, . . . , T1 do
+ 2:     Sample batch {Qb }B     b=1 from D
+ 3:     for each query Q in batch do
+ 4:         Sample random graph Gk ∼ Uniform(G)
+ 5:         Sample LLM assignments m ∼ πm (·|Q)
+ 6:         Execute MAS with topology Gk and LLMs m, obtain output â
+ 7:         Compute rewards using ground-truth: {Rinode } and Rfinal
+ 8:         Compute effective rewards Rieff via Eq. equation 7
+ 9:     end for
+10:     Update πm by minimizing Lstage1 (Eq. equation 9)
+11: end for
+
+    Stage 2: Graph Classifier Training
+12: Freeze LLM selector πm
+13: DG ← ∅                                                                                    ▷ Graph classification dataset
+14: for each query Q in D do
+15:     for k = 1, . . . , M do
+16:         Sample graph Gk from G, execute MAS, compute reward Rk
+17:     end for
+18:     Label top graphs with Rk > 0 as positive; add to DG
+19: end for
+20: for iteration = 1, . . . , T2 do
+21:     Update graph classifier fG on DG via Eq. equation 10
+22: end for
+
+
+Section C.1 provides the formal proof for Theorem 3.1(i), showing how multi-level rewards guarantee correct gradient
+direction for all supernodes by preventing the masking effect. Section C.2 proves Theorem 3.1(ii), demonstrating that
+per-edge optimization incurs irreducible credit assignment error, while our holistic graph selection approach reduces this to
+a vanishing estimation error.
+
+C.1. Per-Node Credit Assignment: Multi-Level Rewards
+This subsection provides the formal proof for Theorem 3.1(i), which addresses the per-node credit assignment challenge. As
+illustrated in Figure 1(a), when using only final task rewards, a failing supernode (e.g., a Reviewer that introduces errors)
+may receive positive gradient updates if other agents compensate for its mistakes, leading to incorrect policy reinforcement.
+Our multi-level reward mechanism (Eq. equation 7) addresses this by combining node-level rewards Rinode with the final
+reward Rfinal , ensuring that each supernode receives feedback proportional to its individual contribution.
+We provide theoretical justification for why multi-level rewards lead to more accurate policy gradients compared to using
+final rewards alone. The key insight is that when agents have heterogeneous performance, final-reward-only training can
+push poorly-performing agents’ policies in incorrect directions.
+Proposition 1 (Gradient Bias under Final Reward). Consider a multi-agent system with N supernodes, where the policy for
+selecting LLM configuration at supernode i is parameterized by θi . Let Rfinal denote the final task reward and Rinode denote
+the node-level reward for supernode i. Define the policy gradient under final reward as:
+
+                                            gifinal = ∇θi log πθi (mi |Q) · Rfinal ,                                    (11)
+
+and the policy gradient under multi-level reward as:
+
+                                             gimulti = ∇θi log πθi (mi |Q) · Rieff ,                                    (12)
+
+                                                              12
+             HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+where Rieff = α · Rinode + (1 − α) · Rfinal .
+Suppose there exists a “failed” supernode j such that Rjnode < 0, while the final reward is positive due to other agents
+compensating for this failure, i.e., Rfinal > 0. Then:
+
+ (i) Under final reward, the gradient gjfinal reinforces the current (suboptimal) policy for supernode j.
+                                                  final
+(ii) Under multi-level reward with α > RfinalR−Rnode , the gradient gjmulti correctly penalizes the suboptimal policy.
+                                                          j
+
+
+
+Proof. We analyze the direction of policy updates for supernode j.
+Part (i): Final Reward Case. The policy gradient update rule increases the probability of actions that receive positive
+reward and decreases the probability for actions with negative reward. Under the REINFORCE estimator (Williams, 1992),
+the expected update direction for supernode j is:
+
+                                       E gjfinal = E ∇θj log πθj (mj |Q) · Rfinal .
+                                                                              
+                                                                                                                   (13)
+
+Since Rfinal > 0 by assumption, this gradient will increase the log-probability of the sampled action mj . However, supernode
+j produced a suboptimal output (as evidenced by Rjnode < 0). Therefore, the policy is reinforced in a direction that maintains
+or increases the probability of selecting the suboptimal configuration, the gradient direction is incorrect with respect to
+improving supernode j’s individual performance.
+Part (ii): Multi-Level Reward Case. Under the multi-level reward, the effective reward for supernode j is:
+
+                                                Rjeff = α · Rjnode + (1 − α) · Rfinal .                                    (14)
+
+For the gradient to correctly penalize the suboptimal policy, we require Rjeff < 0, which implies:
+
+                                 α · Rjnode + (1 − α) · Rfinal < 0                                                         (15)
+                                                (1 − α) · Rfinal < −α · Rjnode                                             (16)
+                                                                  final
+                                                (1 − α) · R               < α · |Rjnode |   (since Rjnode < 0)             (17)
+
+Rearranging:
+
+                                            Rfinal − α · Rfinal < α · |Rjnode |                                            (18)
+                                                                  final             final
+                                                                R      < α · (R       + |Rjnode |)                         (19)
+                                                                Rfinal < α · (Rfinal − Rjnode )                            (20)
+                                                                                final
+                                                                                  R
+                                                                    α>                       .                             (21)
+                                                                             Rfinal − Rjnode
+
+When this condition holds, Rjeff < 0, and the gradient gjmulti will decrease the probability of the suboptimal action, correctly
+updating the policy in the direction that discourages the failing configuration.
+Corollary C.1 (Sufficient Condition for Gradient with Correct Sign). If the reward signals are normalized such that
+Rfinal , Rinode ∈ [−1, 1], then setting α ≥ 0.5 ensures the gradient sign matches the desired update direction whenever
+Rjnode ≤ 0 and Rfinal ≤ 1.
+
+Proof. The worst case occurs when Rfinal = 1 and Rjnode = 0 (marginal failure). The threshold becomes α∗ = 1−0
+                                                                                                            1
+                                                                                                               = 1.
+                                    node
+However, for any strictly negative Rj < 0, we have:
+
+                                                                   Rfinal       Rfinal
+                                                α∗ =                          <        = 1.                                (22)
+                                                              Rfinal − Rjnode   Rfinal
+
+                                                                           13
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+More practically, when Rjnode = −1 (complete failure) and Rfinal = 1:
+                                                           1     1
+                                                α∗ =            = = 0.5.                                                  (23)
+                                                       1 − (−1)  2
+
+Thus, α ≥ 0.5 ensures the gradient sign matches the desired update direction for all cases where the node-level performance
+is at least as negative as the final reward is positive, in magnitude.
+
+This analysis provides theoretical grounding for our multi-level reward design in Eq. equation 7. By incorporating node-level
+feedback, HieraMAS avoids the pathological case where high-performing agents mask the failures of others, enabling more
+accurate credit assignment and faster convergence to optimal supernode configurations.
+
+C.2. Per-Edge Credit Assignment: Holistic Graph Selection
+This subsection provides the formal proof for Theorem 3.1(ii), which addresses the per-edge credit assignment challenge. As
+illustrated in Figure 1(b), when optimizing communication topology via per-edge policy gradients, individual edges receive
+credit based on the final task reward. However, after Stage 1 optimization, the LLM selector is already well-trained, causing
+most configurations to achieve positive rewards regardless of topology. This leads to an irreducible credit assignment error:
+non-beneficial edges are incorrectly reinforced simply because they co-occur with successful task completions.
+Our holistic graph selection approach (Section 3.2) circumvents this problem by treating topology selection as a graph
+classification problem rather than per-edge optimization. By evaluating entire topologies as indivisible units and selecting
+from a pre-generated candidate pool G, we transform the ill-posed per-edge credit assignment into a well-posed estimation
+problem with vanishing error.
+We now analyze the credit assignment problem in per-edge topology optimization and justify our holistic graph selection
+approach.
+Proposition 2 (Credit Assignment Error in Per-Edge Optimization). Consider optimizing graph topology via per-edge
+policy gradient after the LLM mixture has been optimized (Stage 1 converged). Let G∗ ⊆ E denote the set of edges in the
+optimal topology, where E is the set of all possible edges. For each edge e ∈ E, let πϕ (e) denote the probability of including
+edge e, parameterized by ϕ. The per-edge policy gradient is:
+                                        ge = ∇ϕ log πϕ (e) · Rfinal ,   if e is sampled.                                  (24)
+
+Assumptions:
+
+(A1)    After Stage 1 optimization, the final reward is high with probability q > 0.5, i.e., Pr(Rfinal > 0) = q.
+(A2)    Each edge e is sampled independently with probability p = 0.5.
+
+Justification of Assumptions:
+
+(A1)    Stage 1 optimizes the LLM mixture over the expectation of randomly sampled graphs. We posit that the capability of
+        the LLM combination has a larger impact on task success than the communication topology, i.e., strong LLMs can
+        compensate for suboptimal topologies, but weak LLMs cannot be saved by optimal topologies. Therefore, after
+        Stage 1 converges, the optimized LLM selector achieves positive reward on more than half of the instances, i.e.,
+        q > 0.5.
+(A2)    Since we use randomly generated graphs during Stage 1 training, edges are sampled uniformly at random. For
+        simplicity, we assume p = 0.5, corresponding to a uniform edge inclusion probability.
+
+Let E + = G∗ denote the set of beneficial edges (those in the optimal topology) and E − = E \ G∗ denote the set of
+non-beneficial edges. Define the gradient direction error for an edge e as:
+                               
+                                             +
+                               1 if e ∈ E and ge < 0 (beneficial edge incorrectly weakened)
+                               
+                  Error(e) = 1 if e ∈ E − and ge > 0 (non-beneficial edge incorrectly reinforced)             (25)
+                               
+                                 0 otherwise (correct gradient direction)
+                               
+
+                                                              14
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+Then the expected fraction of edges with incorrect gradient direction is:
+                                            "                 #
+                                               1 X
+                                          E          Error(e) ≥ (1 − ρ) · p · q,                                        (26)
+                                              |E|
+                                                   e∈E
+
+              ∗
+where ρ = |G  |
+           |E| is the fraction of edges in the optimal topology.
+
+
+Proof. We analyze the gradient direction for edges in E + and E − separately.
+Case 1: Non-beneficial edges (e ∈ E − ).
+Consider an edge e ∈ E − that is sampled (included in the current graph G). The gradient update is:
+
+                                                 ge = ∇ϕ log πϕ (e) · Rfinal .                                          (27)
+
+Since ∇ϕ log πϕ (e) points in the direction that increases πϕ (e), and Rfinal > 0 with probability q (by Assumption 2), the
+gradient ge > 0 will increase the probability of selecting edge e.
+However, e ∈/ G∗ , meaning this edge is not part of the optimal topology. Therefore, reinforcing e is incorrect, the gradient
+pushes the policy toward including a suboptimal edge.
+The probability that a non-beneficial edge e ∈ E − receives an incorrect gradient update is:
+
+                          Pr(Error(e) = 1 | e ∈ E − ) = Pr(e sampled) · Pr(Rfinal > 0) = p · q.                         (28)
+
+Case 2: Beneficial edges (e ∈ E + ).
+For edges e ∈ E + = G∗ , correct gradient direction requires ge > 0 (reinforcement). When Rfinal > 0, sampled beneficial
+edges receive correct positive gradients. However, when Rfinal < 0 (which occurs with probability 1 − q), beneficial edges
+that were sampled receive incorrect negative gradients.
+The probability that a beneficial edge receives an incorrect gradient:
+
+                       Pr(Error(e) = 1 | e ∈ E + ) = Pr(e sampled) · Pr(Rfinal < 0) = p · (1 − q).                      (29)
+
+Total Expected Error.
+The expected error across all edges is:
+                            "             #
+                              X              X                    X
+                          E       Error(e) =   Pr(Error(e) = 1) +   Pr(Error(e) = 1)                                    (30)
+                              e∈E               e∈E −                           e∈E +
+                                                  −
+                                              = |E | · p · q + |E + | · p · (1 − q)                                     (31)
+                                                               ∗            ∗
+                                              = p · [(|E| − |G |) · q + |G | · (1 − q)]                                 (32)
+                                                                    ∗           ∗       ∗
+                                              = p · [|E| · q − |G | · q + |G | − |G | · q]                              (33)
+                                                                    ∗
+                                              = p · [|E| · q + |G | · (1 − 2q)] .                                       (34)
+
+                                    ∗
+Dividing by |E| and letting ρ = |G  |
+                                 |E| :
+
+                                          "             #
+                                            1 X
+                                         E      Error(e) = p · [q + ρ · (1 − 2q)]                                       (35)
+                                           |E|
+                                               e∈E
+                                                                = p · [q + ρ − 2ρq]                                     (36)
+                                                                = p · [q(1 − 2ρ) + ρ] .                                 (37)
+
+                                                               15
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+When q is high (close to 1) and ρ is small (sparse optimal topology), the dominant term is:
+
+                                 E[Error Rate] ≈ p · q · (1 − 2ρ) + p · ρ ≈ p · q · (1 − ρ),                             (38)
+
+for ρ ≪ 1. Since p · q represents the probability of sampling an edge under high reward, and (1 − ρ) is the fraction of
+non-beneficial edges, this shows that:
+                                            E[Error Rate] ≥ (1 − ρ) · p · q.                                       (39)
+
+
+
+The error rate (1 − ρ) · p · q reveals a fundamental tension in per-edge optimization after Stage 1. With p = 0.5 and q > 0.5,
+the error rate exceeds (1 − ρ)/4. The error is amplified when the optimal topology is sparse (ρ → 0) or when Stage 1
+achieves high success rate.
+Corollary C.2 (Justification for Holistic Graph Selection). The high error rate in per-edge optimization motivates treating
+topology selection as a holistic graph classification problem (Section 3.2). By evaluating entire topologies as indivisible
+units and selecting from a pre-generated candidate pool, our approach avoids the per-edge credit assignment problem
+entirely.
+
+C.3. Generalization Guarantee for Graph Classifier
+We now provide theoretical guarantees for our graph classifier approach.
+Theorem C.3 (Generalization Guarantee for Graph Classifier). Let G = {G1 , G2 , . . . , GK } be the pre-generated graph
+                         ∗
+candidate pool, and let πm denote the optimized LLM selector from Stage 1.
+Assumptions:
+
+(B1)    (Optimal topology coverage) The candidate pool G contains an optimal graph G∗ ∈ G.
+(B2)    (Reward separability) Let µk = E[R(Q, Gk )] denote the expected reward for graph Gk . There exists a margin
+        γ > 0 such that:
+                                              µ∗ − µk ≥ γ, ∀Gk ̸= G∗ .                                         (40)
+
+(B3)    (Bounded reward) The reward is bounded: R(Q, Gk ) ∈ [−B, B] for all Q, Gk .
+
+Justification of Assumptions:
+
+(B1)    In practical settings, the number of roles is typically small. For instance, MATH uses 3 roles and MMLU-Redux uses
+        8 predefined roles at maximum, resulting in a finite and tractable search space of candidate topologies. Therefore
+        the probability of including the optimal or near-optimal topology is high. Furthermore, if the exact optimal graph
+        is not in G, a near-optimal graph with similar structure is likely to be present.
+(B2)    This assumption is necessary and reflects our belief that the optimal communication topology leads to better
+        performance given the same supernode configuration. If all topologies performed identically, topology optimization
+        would be meaningless. The margin γ captures the performance gap between optimal and suboptimal topologies.
+(B3)    This assumption is directly satisfied by our reward formulation in Eq. 8, where the utility and normalized cost ensure
+        bounded rewards.
+
+In Stage 2, for each graph Gk , we collect Nk i.i.d. samples and compute the empirical mean reward:
+                                                             Nk
+                                                         1 X
+                                                 µ̂k =          R(Qj , Gk ).                                             (41)
+                                                         Nk j=1
+
+                  2
+Then, if Nk ≥ 8B log(2K/δ)
+                   γ2      for all k ∈ [K], with probability at least 1 − δ:
+
+                                                    arg max µ̂k = G∗ .                                                   (42)
+                                                         Gk ∈G
+
+
+                                                              16
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+Proof. By Hoeffding’s inequality, for bounded random variables in [−B, B]:
+
+                                                           2Nk ϵ2                Nk ϵ 2
+                                                                                     
+                           Pr [|µ̂k − µk | > ϵ] ≤ 2 exp −            = 2 exp   −          .                             (43)
+                                                           (2B)2                 2B 2
+
+Applying union bound over all K graphs:
+                                                                            Nk ϵ 2
+                                                                                  
+                                       Pr [∃k : |µ̂k − µk | > ϵ] ≤ 2K exp −          .                                  (44)
+                                                                            2B 2
+
+                               2
+Setting ϵ = γ/4 and Nk ≥ 8B log(2K/δ)
+                              γ2      :
+
+                                      8B 2 log(2K/δ) γ 2
+                                                        
+                                  1
+                         2K exp − 2 ·               ·      = 2K exp(− log(2K/δ)) = δ.                                   (45)
+                                 2B          γ2       16
+
+Thus, with probability at least 1 − δ, for all k simultaneously: |µ̂k − µk | ≤ γ/4.
+Under this event, for any Gk ̸= G∗ :
+                                                              γ          γ
+                                             µ̂∗ − µ̂k ≥ (µ∗ −  ) − (µk + )                                             (46)
+                                                              4          4
+                                                          ∗          γ
+                                                      = (µ − µk ) −                                                     (47)
+                                                                     2
+                                                            γ     γ
+                                                      ≥ γ − = > 0.                                                      (48)
+                                                            2     2
+
+Therefore, G∗ = arg maxGk µ̂k .
+
+This theorem reveals a fundamental difference from per-edge policy gradient:
+
+   • Per-edge RL (Proposition 2): The gradient error Ω((1 − ρ)pq) is irreducible, and persists regardless of sample size
+     due to inherent credit assignment ambiguity.
+                                                                               √
+   • Graph classifier (Theorem C.3): The estimation error |µ̂k − µk | = O(B/ Nk ) vanishes with more samples. With
+     Nk = O(B 2 log(K)/γ 2 ), the optimal graph is identified with high probability.
+
+The key insight is that: treating graph selection as supervised learning transforms an ill-posed credit assignment problem
+into a well-posed estimation problem.
+
+D. Additional Experimental Details
+D.1. Implementation Details
+Training Procedure.     Our training procedure consists of two stages:
+Stage 1 (Supernode Optimization): We optimize the LLM selector πm using the Adam optimizer (Kingma, 2014) with
+learning rate 2 × 10−3 and weight decay 5 × 10−4 . During this stage, graph topologies are randomly sampled from the
+candidate pool G to expose the LLM selector to diverse communication patterns. The mixing coefficient α for multi-level
+rewards is set to 0.5 based on the theoretical analysis in Corollary C.1. The training iterations T1 is searched over {5, 10}
+with batch size 8.
+Stage 2 (Graph Classifier Training): After Stage 1 converges, we freeze the LLM selector πm and train the GCN-based
+graph classifier. For each training instance, we sample M = 5 random graphs from the candidate pool. We select the top-2
+highest reward graphs as positive samples and the remaining 3 as negative samples. The GCN encoder consists of 2 graph
+convolutional layers with hidden dimension 256, followed by mean pooling and a linear classifier. We tune the dropout rate
+across {0.05, 0.1, 0.2, 0.5} and select the best model based on validation performance. We train for T2 = 20 epochs with
+early stop.
+
+                                                             17
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+                          Table 6. Effect of the number of proposers per supernode on MMLU-Redux.
+
+                                        Method                Acc (%)     Cost ($)
+                                        w/ 8 proposers            88.80       2.32
+                                        w/ 6 proposers            91.20       1.97
+                                        Ours (2 proposers)        95.20       1.29
+
+                                    Table 7. Effect of graph pool size K on MMLU-Redux.
+
+                                               Method               Acc (%)
+                                               w/ K = 50              93.60
+                                               w/ K = 500             94.40
+                                               Ours (K = 200)         95.60
+
+
+Graph Candidate Pool. We maintain a candidate pool of K = 200 randomly generated directed acyclic graphs (DAGs)
+for both training and inference. The graphs are generated with varying edge densities sampled uniformly from [0.3, 0.75] to
+ensure diversity, covering sparse, medium, and dense connectivity patterns.
+
+Sentence Encoder. For query and role encoding, we use the pre-trained all-MiniLM-L6-v2 sentence trans-
+former (Reimers & Gurevych, 2019) to compute embeddings hQ,r and hmℓ . The encoder produces 384-dimensional
+embeddings. The model is frozen without finetuning.
+
+Data Splits. For all benchmarks, we use an 80%/20% train/validation split. The training set is used for both Stage 1
+and Stage 2 optimization, while the validation set is used for model selection (dropout tuning) and early stopping. Final
+evaluation is performed on the official test sets of each benchmark.
+
+D.2. Effect of Proposers in Supernode
+We investigate the impact of the number of proposers per supernode on MMLU-Redux, as shown in Table 6. Increasing
+the number of proposers from 2 to 6 or 8 leads to significant performance degradation: accuracy drops from 95.20% (2
+proposers) to 91.20% (6 proposers) and 88.80% (8 proposers).
+Interestingly, the cost does not increase proportionally with the number of proposers. We observe that during training, the
+system increasingly selects the skip action for synthesizer positions as the number of proposers grows, effectively pruning
+some roles from the MAS. This adaptive behavior differs from the 2-proposer configuration where pruning is less frequent.
+The performance drop with more proposers can be attributed to two factors. First, when the system learns to handle the
+increased complexity of many proposers, some meaningful roles may be inadvertently pruned during the optimization process,
+reducing the diversity of perspectives available for synthesis. Second, when too many proposers are active, the synthesizer
+receives excessively long context from multiple proposer outputs, leading to the lost-in-the-middle phenomenon (Liu et al.,
+2024) where critical information is overlooked. These findings suggest that a moderate number of proposers (e.g., 2) strikes
+the optimal balance between diversity of perspectives and the synthesizer’s aggregation capacity.
+
+D.3. Effect of Graph Pool Size
+We investigate the impact of the graph candidate pool size K on MMLU-Redux, as shown in Table 7. The results demonstrate
+that HieraMAS is not sensitive to the choice of K: performance remains stable across different pool sizes, with accuracy
+ranging from 93.60% (K = 50) to 95.60% (K = 200).
+
+D.4. Case Studies
+We present qualitative case studies from each benchmark to illustrate how HieraMAS adaptively selects LLM configurations
+and communication topologies based on task characteristics.
+
+                                                             18
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+Table 8. Case studies on MMLU-Redux. The typical configuration assigns GPT-5-Mini or GPT-5-Nano as proposers and GPT-5-Nano as
+the aggregator, favoring cost-efficient models for knowledge-intensive QA tasks.
+
+                                                 MMLU-Redux Case Studies
+ Case 1: Nutrition Question                                         Case 2: Communication Theory
+ Query: Which of the following appears to lower bad cholesterol?    Query: According to “measurement,” what is the step that occurs
+ A. Vitamin D B. Niacin                                             between an individual gaining information and changing behavior?
+ C. Thiamine D. Riboflavin                                          A. coorientation B. opinion change
+                                                                    C. reaction formation D. semantic encoding
+
+
+
+
+D.5. Training Cost Analysis
+Table 11 presents the training cost comparison across different learning-based methods. AFlow incurs substantially higher
+training costs due to its Monte Carlo Tree Search optimization with Claude 3.5-Sonnet. Our method is more cost-efficient
+than GDesigner, which lacks LLM selection and defaults to using the strongest model (GPT-5-Mini) for all agents, whereas
+our approach incorporates LLM selection with cost-aware rewards that adaptively choose cheaper models when appropriate.
+Compared to MASRouter, our training cost is slightly higher due to two factors: (1) different LLM selection preferences
+during training, and (2) our two-stage algorithm requires additional sample collection in Stage 2 for graph classifier training,
+which incurs extra cost.
+
+                                 Table 11. Training cost comparison (in USD) across benchmarks.
+
+                              Dataset             GDesigner        AFlow     MASRouter        Ours
+                              MATH                   $1.22         $18.62        $1.97        $2.03
+                              HumanEval++            $1.95         $28.64        $0.54        $1.55
+                              MMLU-Redux             $3.51         $13.94        $0.46        $1.85
+
+
+D.6. Prompts
+We provide the text profiles used for embedding-based LLM selection and role assignment. These profiles are encoded
+using a sentence transformer to compute similarity scores during the selection process.
+
+LLM Profiles. Table 12 presents the text descriptions for each LLM option in our candidate pool. These profiles capture
+model capabilities, cost characteristics, and recommended use cases.
+
+                                                               19
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+Table 9. Case studies on HumanEval. The typical configuration assigns Qwen3-8B, Qwen3-80B, or LLaMA3.1-8B as proposers,
+leveraging diverse code-specialized models for programming tasks.
+
+                                                HumanEval Case Studies
+ Case 1: Sum and Product                                         Case 2: Filter by Substring
+ Query: def sum_product(numbers: List[int])                      Query:      def filter_by_substring(strings:
+-> Tuple[int, int]:                                              List[str], substring: str) -> List[str]:
+ """ For a given list of integers, return a                      """ Filter an input list of strings only
+ tuple consisting of a sum and a product of                      for ones that contain given substring..."""
+ all the integers in a list..."""
+
+
+
+
+Role Profiles. Table 13 presents the text descriptions for each agent role. These profiles define role responsibilities and
+specializations used in the supernode configuration.
+
+
+
+
+                                                            20
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+
+Table 10. Case studies on MATH. The typical configuration assigns Qwen3-8B combined with Qwen3-80B or DeepSeek-V3.2 as
+proposers, utilizing strong mathematical reasoning models.
+
+                                                        MATH Case Studies
+ Case 1: Geometry Reflection                                            Case 2: Cone Volume
+ Query: Triangle ABC with vertices A(−2, 0), B(1, 4) and                Query: The diameter of a cone is 30 decimeters. If the height
+ C(−3, 2) is reflected over the y-axis to form triangle A′ B ′ C ′ .    is two times the radius, what is the volume of the cone in cubic
+ What is the length of a segment drawn from C to C ′ ?                  decimeters?
+
+
+
+
+Table 12. LLM profiles used for embedding-based model selection. Each profile describes model strengths, cost tier, and recommended
+use cases.
+
+ Model                       Profile Description
+ qwen3-8b                    Fast and efficient 8B parameter model from Alibaba. Very fast inference, low latency, cost-effective. Good
+                             for basic text generation and simple Q&A. Very low cost.
+ qwen3-80b                   Powerful 80B mixture-of-experts model from Alibaba. Strong reasoning, excellent at complex tasks, good
+                             at math and coding. Good for complex reasoning and mathematical problem-solving. Medium-high cost.
+ deepseek-r1-14b             Math-focused 14B model optimized for reasoning. Excellent mathematical reasoning and step-by-step
+                             problem solving. Good for math problems and logical reasoning. Low-medium cost.
+ llama-8b                    General-purpose 8B model from Meta. Well-balanced capabilities with good instruction following. Good
+                             for general tasks, conversation, and basic reasoning. Very low cost.
+ deepseek-v3                 State-of-the-art reasoning model with excellent performance. Top-tier reasoning, excellent at complex
+                             problems, strong coding ability. Good for complex reasoning and advanced math. Medium cost.
+ gemma-3-27b                 Balanced 27B model from Google. Good balance of speed and capability with strong instruction following.
+                             Good for medium complexity tasks. Medium cost.
+ gpt-5-nano                  Extremely fast and cheap model from OpenAI. Very low latency and lowest cost. Good for simple text
+                             processing and basic Q&A. Lowest cost option.
+ GPT-5-Mini                  Capable model from OpenAI with strong reasoning. Strong reasoning and excellent at complex tasks. Good
+                             for complex reasoning and multi-step problems. Medium-high cost.
+ gpt-4o-mini                 Capable and reliable model from OpenAI. Strong reasoning, good at coding, reliable instruction following.
+                             Good for complex reasoning and code generation. Medium-high cost.
+ skip                        Special token: Do not assign any LLM to this position. Removes this agent from the pipeline entirely. No
+                             API call made, no cost incurred. Use when position is not needed for the current task.
+
+
+
+                                                                   21
+            HieraMAS: Optimizing Intra-Node LLM Mixtures and Inter-Node Topology for Multi-Agent Systems
+
+
+
+
+  Table 13. Role profiles used for embedding-based role assignment. Roles are categorized by their primary application domain.
+
+Role                         Profile Description
+                                       Mathematical Reasoning Roles (MATH benchmark)
+Mathematical Analyst         Specialized in breaking down complex math problems. Identifies mathematical structure, defines
+                             variables, and sets up equations. Best for initial problem understanding and mathematical modeling.
+Math Solver                  Specialized in executing mathematical computations. Solves equations, performs calculations, and
+                             verifies numerical results. Best for carrying out calculations and deriving numerical answers.
+Inspector                    Specialized in reviewing and validating solutions. Checks solution correctness, identifies errors, and
+                             verifies final answers. Best for final verification and error catching.
+                                          Programming Roles (HumanEval benchmark)
+Project Manager              Specialized in design patterns and code structure. Coordinates solution strategy and organizes workflow.
+                             Best for complex problems requiring structured multi-step approaches.
+Algorithm Designer           Specialized in algorithm design and pseudocode. Designs algorithms, creates pseudocode, and plans
+                             computational steps. Best for problems requiring novel algorithms or optimization.
+Test Analyst                 Specialized in test cases and edge conditions. Identifies edge cases, designs test scenarios, and validates
+                             solutions. Best for ensuring solution robustness across all inputs.
+Programming Expert           Specialized in writing executable code. Implements algorithms, writes clean code, and handles edge
+                             cases. Best for tasks requiring actual code implementation.
+Bug Fixer                    Specialized in debugging and code correction. Identifies bugs, fixes errors, and improves code robustness.
+                             Best for correcting issues in existing code.
+                                        Knowledge QA Roles (MMLU-Redux benchmark)
+Knowledgeable Expert         Specialized in domain knowledge and research. Provides domain expertise and searches for relevant
+                             information. Best for problems requiring specialized domain knowledge.
+Critic                       Specialized in critical analysis and feedback. Critiques solutions, identifies weaknesses, and suggests
+                             improvements. Best for improving solution quality through critical review.
+Mathematician                For STEM questions. Handles mathematical reasoning, calculations, and formal logic. Best for math,
+                             physics, and engineering questions.
+Psychologist                 For behavioral and social questions. Analyzes human behavior, cognitive processes, and social dynamics.
+                             Best for psychology and sociology questions.
+Historian                    For historical and cultural questions. Provides historical context, analyzes events, and identifies patterns.
+                             Best for history and political science questions.
+Doctor                       For health and biology questions. Covers medical knowledge, biological processes, and health advice.
+                             Best for medicine and biology questions.
+Lawyer                       For legal and ethical questions. Handles legal reasoning, case analysis, and ethical frameworks. Best for
+                             law and ethics questions.
+Economist                    For economic and business questions. Covers economic analysis, market dynamics, and financial
+                             reasoning. Best for economics, business, and finance questions.
+Programmer                   For computer science questions. Covers algorithm design, coding concepts, and system architecture.
+                             Best for computer science and technology questions.
+
+
+
+
+                                                                22
+

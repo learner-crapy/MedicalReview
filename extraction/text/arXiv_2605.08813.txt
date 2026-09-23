@@ -1,0 +1,1363 @@
+                                        AgentSlimming: Towards Efficient and Cost-Aware Multi-Agent Systems
+
+                                                           Yulang Chen1,2∗       Haoxuan Peng3∗ Jinyan Liu4∗              Zichen Wen1
+                                                                                Dongrui Liu5 Linfeng Zhang1†
+                                                 1
+                                                     Shanghai Jiao Tong University 2 Nanjing University 3 The University of Sydney
+                                                                   4
+                                                                     Nanjing University of Aeronautics and Astronautics
+                                                                                5
+                                                                                  Shanghai AI Laboratory
+
+
+
+
+                                                                 Abstract
+
+
+
+
+arXiv:2605.08813v1 [cs.LG] 9 May 2026
+                                            Large Language Model-based Multi-Agent Sys-
+                                            tems (MAS) have demonstrated remarkable ca-
+                                            pabilities in complex tasks. However, manually
+                                            designing optimal communication topologies
+                                            is labor-intensive, while automated expansion
+                                            methods often result in bloated structures with
+                                            redundant agents, leading to excessive token
+                                            consumption. To address this problem, we in-
+                                            troduce AgentSlimming, a plug-and-play com-
+                                            pression framework for graph-structured multi-
+                                            agent workflows. Motivated by pruning and
+                                            quantization in neural networks, AgentSlim-
+                                            ming compresses workflows by first estimat-
+                                            ing the importance score of each agent with a
+                                            hybrid mechanism, and then removes redun-
+                                            dant agents or replaces them with low-cost
+                                            ones, where each operation is validated using
+                                            a baseline-anchored acceptance rule to prevent
+                                            performance collapse. Experiments show that            Figure 1: Overview of the pruning and quantiza-
+                                            AgentSlimming reduces average token cost by            tion concepts in AgentSlimming. The process begins
+                                            up to 78.9% with negligible performance degra-         with a workflow that is initially high-performance but
+                                            dation, and sometimes even improves accu-              computationally expensive. Then, a hybrid importance
+                                            racy, achieving a strong Pareto-optimal trade-         evaluation mechanism is utilized to calculate each agent
+                                            off between cost and quality. Our code is              node’s importance score (i.e., the float value), which
+                                            publicly available at https://github.com/              guides pruning and quantization in AgentSlimming.
+                                            CitrusYL/AgentSlimming.
+                                                                                                   a search problem. By leveraging Monte Carlo Tree
+                                        1   Introduction                                           Search (MCTS), AFlow can automatically navi-
+                                                                                                   gate the vast space of agent interactions to discover
+                                        The paradigm of Multi-Agent Systems (MAS) has              highly effective reasoning topologies.
+                                        shifted from manually crafting static prompts to              However, this automated discovery process op-
+                                        orchestrating dynamic collaborations among spe-            erates under an "unconstrained resources" assump-
+                                        cialized agents. Frameworks such as AutoGen (Wu            tion. The resulting workflows, while accurate, tend
+                                        et al., 2023) and ADAS (Hu et al., 2025) have              to be computationally bloated. They often feature
+                                        shown that decomposing complex problems into               dense, redundant connectivity and uniformly em-
+                                        sub-tasks can improve performance. Recent inno-            ploy the most capable and expensive LLMs, e.g.,
+                                        vations, such as MetaGPT (Hong et al., 2024) and           GPT-4 (OpenAI, 2023), as agent nodes for every
+                                        AFlow (Zhang et al., 2025c), have revolutionized           sub-task (Li et al., 2023; Qian et al., 2024). This
+                                        this field by reformulating workflow generation as         leads to two critical bottlenecks: redundant com-
+                                            ∗
+                                                Equal contribution.
+                                                                                                   munication, where agents exchange repetitive or
+                                            †
+                                                Corresponding author (zhanglinfeng@sjtu.edu.cn).   low-value information, and excessive computa-
+tional cost, where simple sub-tasks consume high-       and quantize agent nodes starting from the least
+value resources. As the number of agents and in-        important ones. After each operation, we re-
+teraction turns grows, a quadratic increase in to-      evaluate the workflow against a performance thresh-
+ken consumption renders these systems difficult to      old and re-calculate the RRF scores, ensuring the
+scale.                                                  optimization dynamically adapts to the changing
+   To solve this problem, we propose AgentSlim-         graph structure until the efficiency limit is reached.
+ming, a framework that can be directly applied to       While the pruned and quantized workflows typi-
+any MAS and workflows to reduce their execution         cally achieve a superior Pareto frontier (Deb et al.,
+costs. Motivated by the concepts of pruning (Han        2002; Chen et al., 2024) between cost and accuracy,
+et al., 2015; Frankle and Carbin, 2019), quantiza-      AgentSlimming further incorporates a MCTS fine-
+tion (Jacob et al., 2018; Dettmers et al., 2022), and   tuning mechanism that optimizes the streamlined
+finetuning (Howard and Ruder, 2018) in traditional      graph rather than just accepting the compressed
+neural network compression, we define our prun-         policy. Empirically, the resulting workflows are
+ing as the removal of an agent node, and semantic       consistently more cost-efficient than AFlow, often
+quantization as replacing the LLM associated with       achieving strictly superior performance in both ac-
+an agent node with a lower-cost model. AgentSlim-       curacy and cost. In terms of average execution cost
+ming introduces AgentPruner, AgentQuant and             per problem (USD), AgentSlimming demonstrates
+AgentTuner as tools towards lightweight MAS.            significant gains across diverse benchmarks.
+As shown in Figure 1, AgentPruner identifies the           For instance, on GSM8K, AgentSlimming
+least important agent nodes in the MAS and re-          matches AFlow’s score (95.5) while reducing
+moves them, while AgentQuant replaces the un-           the cost by 78.8%. On code generation and
+derlying LLMs of the remaining lower-importance         complex reasoning tasks like MBPP and Live-
+nodes with more cost-effective alternatives. When       Code, AgentSlimming achieves a "dual victory":
+high-cost, high-precision models (e.g., GPT-4) are      it improves accuracy while reducing costs by
+considered unnecessary for a given role in MAS,         71.7% and 78.9%, respectively. Even in cases
+they are dynamically replaced by cost-effective,        where AFlow retains a marginal score advantage
+lightweight surrogates (e.g., GPT-4o-mini) to re-       (e.g., HotpotQA: 77.3 vs. 77.0), AgentSlimming
+duce the inference costs. After AgentPruner and         achieves this at a substantially lower cost (27.4%
+AgentQuant, AgentTuner is optionally employed           reduction), indicating that our pipeline reliably lo-
+to recover performance loss and further optimize.       cates the workflow at a more favorable operating
+   The proposition of AgentSlimming introduces a        point on the cost–quality Pareto frontier. Our con-
+crucial problem for MAS compression, i.e., how to       tributions can be summarized as follows:
+determine the importance of each node in MAS. To
+tackle this challenge, we introduce a hybrid impor-         • We introduce AgentSlimming, a training-free
+tance evaluation mechanism. Generally, a node’s               framework that integrates automated agentic
+value is determined by both its structural position           workflow exploration with a novel pruning
+and functional contribution. Based on this obser-             and semantic quantization pipeline.
+vation, we consider the following three indicators:
+                                                            • We propose a novel iterative multi-metric opti-
+Degree Centrality (Freeman, 1978) and Between-
+                                                              mization algorithm that integrates topological
+ness Centrality (Brandes, 2001) to capture the topo-
+                                                              and functional importance via RRF to accu-
+logical structure in the graph of MAS, and an Ap-
+                                                              rately identify redundant components.
+proximate Shapley value (Shapley, 1953; Lundberg
+and Lee, 2017) for functional contribution. Specifi-        • Extensive evaluations on eight benchmarks
+cally, we adopt a Leave-One-Out (LOO) estimation              show that AgentSlimming achieves a striking
+strategy to calculate the marginal contribution of            reduction in token costs of up to 78.9%.
+each node against the complete topology, serving
+as a computationally efficient proxy for the exact      2     Related Work
+Shapley value. These rankings are fused via Recip-
+rocal Rank Fusion (RRF) (Cormack et al., 2009) to       2.1    Agentic Workflows
+generate a robust importance score.                     LLM-based systems can be broadly character-
+   Guided by this score, AgentSlimming employs          ized into two paradigms: agentic workflows and
+an iterative greedy strategy: we progressively prune    autonomous agents. The former executes tasks
+through predefined multi-step pipelines with re-        2.3    Graph-Structured Orchestration,
+peated LLM invocations, whereas the latter em-                 Pruning, and Cost-Aware Compression
+phasizes dynamic decision-making and planning           Beyond prompt engineering, many agentic systems
+through interaction and feedback. Recent work           are best viewed as executable graphs, where nodes
+has made notable progress in language-driven            represent specialized modules and edges encode
+decomposition and collaboration (Zhuge et al.,          information flow. Recent studies focus on topol-
+2025), data-science agents (Hong et al., 2025), tool-   ogy learning and pruning for improved efficiency
+enabled mobile agent teams (Zhang et al., 2024),        and robustness (Zhang et al., 2025a,b; Boyi et al.,
+and open-ended embodied exploration (Wang et al.,       2025). These approaches also explore pruning
+2024a). Compared to autonomous agents that of-          at different granularities, including message-level
+ten require environment-specific action spaces and      pruning under bandwidth constraints (Mao et al.,
+decision patterns, workflows can more easily in-        2020), dynamic agent elimination for token effi-
+corporate human domain expertise and improve            ciency (Wang et al., 2025), and progressive prun-
+through iterative refinement, making them particu-      ing that blends heuristics with execution experi-
+larly amenable to automated construction and opti-      ence (Zhang et al., 2025d). Existing methods typi-
+mization.                                               cally start from (near) fully connected interactions
+2.2   Multi-Agent Evolving                              and primarily prune edges or communication chan-
+                                                        nels. Action selection for pruning and replacement
+Many effective workflows are still developed pri-       can draw on heuristic importance measures from
+marily through manual discovery and engineering         network analysis (Freeman, 1978) or contribution-
+practice. At the general level, common transfer-        based formulations such as Shapley values (Shap-
+able reasoning recipes include chain-of-thought,        ley, 1953), which usually require approximation
+self-consistency, self-refine and structured self-      for tractability. In addition, model compression
+collaboration (Wei et al., 2022; Wang et al., 2023;     and quantization reduce inference cost while pre-
+Madaan et al., 2023; Wang et al., 2024b). At the        serving quality (Frantar et al., 2022; Xiao et al.,
+domain level, multi-step procedures are organized       2023; Lin et al., 2024), complementing structural
+into reusable pipelines, such as code generation and    optimization at the workflow level.
+debugging (Hong et al., 2024; Ridnik et al., 2024;
+Zhong et al., 2024), data analysis and visualization    2.4 Search-Based Optimization for Workflows
+(Xie et al., 2024; Ye et al., 2024; Li et al., 2024a;
+                                                        Search provides a natural mechanism for exploring
+Zhou et al., 2023), mathematical reasoning (Xu
+                                                        large workflow design spaces. MCTS (Coulom,
+et al., 2024), and planning-style search for problem
+                                                        2006) and its variant UCT (Kocsis and Szepesvári,
+solving (Nori et al., 2023; Zhou et al., 2024).
+                                                        2006) enable effective exploration through sam-
+   However, manual design cannot cover the com-
+                                                        pled evaluation and progressive expansion, and has
+binatorial space across domains, which motivates
+                                                        been applied to planning and reasoning in language
+automated agentic optimization. One line of work
+                                                        agents (Zhou et al., 2024) as well as workflow struc-
+optimizes local instructions or components within
+                                                        ture optimization (Zhang et al., 2025c). Following
+a fixed backbone (Fernando et al., 2024; Yük-
+                                                        this trajectory, we focus on optimizing DAG work-
+sekgönül et al., 2024; Yang et al., 2024; Khat-
+                                                        flows under dependency constraints, integrating
+tab et al., 2024) or tunes inference-time strate-
+                                                        structure search with node-level pruning and cost-
+gies (Saad-Falcon et al., 2024). Another line goes
+                                                        driven node replacement (semantic quantization).
+further by optimizing the end-to-end workflow
+structure, including automatic generation of code-      3     Methodology
+represented workflows (Li et al., 2024b), viewing
+agent systems as optimizable graphs (Zhuge et al.,      3.1    Problem Formulation
+2024), and improving system designs in code space       We formulate the optimization of multi-agent sys-
+via meta-agents (Hu et al., 2025). Zhang et al.         tems as a discrete structural search problem over a
+(2025c) similarly adopts code-based representa-         directed graph, with an explicit trade-off between
+tions, combining finer-grained abstractions (named      task performance and execution cost.
+nodes/operators) with MCTS to leverage execu-
+tion feedback and tree-structured experience for        Workflow as a directed graph. A multi-agent
+efficient workflow structure search.                    workflow is represented as a directed graph G =
+Figure 2: Illustration of AgentSlimming. To identify redundancy, AgentSlimming computes four distinct rankings
+of each agent node: Degree Centrality, Betweenness Centrality, Cost Comparison and Approximate Shapley value.
+Both pruning and quantization select candidate nodes based on the computed importance scores, ranking nodes
+from least to most important and optimizing the lowest-ranked candidate first. After each operation, a re-evaluation
+is performed. If the score drops below an acceptable threshold, a rollback mechanism is triggered to revoke the
+current operation and immediately terminate this phase, thereby preserving superior performance.
+
+
+(V, E). Each node v ∈ V denotes an executable              v ∈ V, we compute four complementary signals
+operator (e.g., an LLM call), and each edge e ∈ E          using a small probe dataset Dprobe ⊂ Dval . To
+specifies an information dependency. Given a vali-         evaluate the sensitivity of our method to the probe
+dation set Dval , executing G yields an average task       dataset size, we further conduct additional experi-
+score S(G) and an average execution cost C(G):             ments on HotpotQA, with details provided in Ap-
+                                                           pendix F.
+                 1      X
+        S(G) =                score(G, x),                 1. Degree and Betweenness Centrality Signals
+               |Dval |
+                       x∈Dval
+                                                    (1)    (Topological Priors) We capture the structural
+                 1      X
+                                                           significance of a node using graph centrality met-
+        C(G) =                cost(G, x).
+               |Dval |                                     rics.
+                          x∈Dval
+
+Optimization Objective. Our goal is to maxi-                   • Degree Centrality Signal (sdeg ): It is derived
+mize performance under a cost budget B. When                     from the node’s local connectivity (in-degree
+multiple topologies achieve comparable perfor-                   and out-degree). Nodes with weaker struc-
+mance, we prioritize the one with the minimum                    tural connectivity are assigned larger pruning
+cost:                                                            likelihood.
+         max S(G) s.t. C(G) ≤ B.           (2)
+            G                                                  • Betweenness Centrality Signal (sbet ): Mea-
+                                                                 sures the node’s role as an information bridge.
+3.2   The AgentSlimming Pipeline
+                                                                 It is calculated as:
+As illustrated in Figure 2, our framework operates
+                                                                                           X σst (v)
+through a three-stage pipeline: AgentPruner (Struc-                          sbet (v) =                   ,     (3)
+tural Pruning), AgentQuant (Semantic Quantiza-                                                      σst
+                                                                                          s̸=v̸=t
+tion), and AgentTuner (MCTS Fine-tuning). This
+pipeline progressively compresses the workflow                   where σst is the total number of shortest paths
+while maintaining its reasoning capabilities.                    from s to t, and σst (v) is the number of those
+                                                                 paths passing through v.
+Hybrid Importance Evaluation To guide both
+pruning and quantization, we introduce a hybrid            2. Approximate Shapley value Signal (Func-
+importance evaluation mechanism. For any node              tional Contribution) To quantify the semantic
+contribution of node v, we adopt the Shapley value     where Gp is the pruned graph and τp ∈ (0, 1) is a
+concept from cooperative game theory. Since ex-        predefined threshold. We evaluate the Top-1 can-
+act computation is NP-hard, we employ an effi-         didate first and then the remaining candidates in
+cient Leave-One-Out (LOO) approximation. The           order if necessary. If neither candidate is accepted,
+marginal contribution ϕ̂(v) is estimated by the per-   the stage terminates and the workflow rolls back
+formance drop when v is removed (or replaced):         to the last accepted state. Graph Surgery: To
+                                                       preserve executability after removing node v, we
+        ϕ̂(v) ≈ ∆S (v) = S(G) − S(G \ {v}),     (4)    perform edge patching to maintain the graph’s con-
+                                                       nectivity. For every pair of predecessor s ∈ In(v)
+where G \ {v} denotes the workflow after removing      and successor t ∈ Out(v), we add a direct edge
+node v (and patching connections). A smaller ϕ̂(v)     (s → t) if one does not already exist, where self-
+indicates a lower contribution to task completion.     loops and duplicate edges are disallowed. Each
+                                                       accepted pruning step is logged with the probe
+3. Delta-Cost Signal (Economic Potential)
+                                                       signals, fused ranks, and the resulting workflow
+We estimate the potential cost saving ∆C (v) on
+                                                       artifact.
+Dprobe :
+                                                       Stage 2: AgentQuant (Semantic Quantization)
+           ∆C (v) = C(G) − C(G \ {v}),          (5)    Gp refers to the pruned workflow graph obtained
+                                                       from Stage 1. The quantization process operates
+where C(·) denotes the monetary API cost, mea-         on this sparse structure to further reduce compu-
+sured in USD per problem, incurred when execut-        tational costs. We define Semantic Quantization
+ing the workflow on Dprobe. Specifically, it is        as a model substitution strategy. For a selected
+computed based on the actual API billing rate and      node v, we replace its high-cost LLM with a cost-
+the total token usage (input and output tokens) of     effective surrogate π(v), yielding a quantized graph
+all model calls within the workflow. Nodes with        Gq . Candidate ranking follows the same RRF mech-
+higher ∆C (v) are prioritized for pruning or quanti-   anism, where the Shapley signal is instantiated by
+zation to maximize efficiency gains.                   evaluating the performance impact of the model
+Rank Fusion To robustly combine these hetero-          substitution. We also employ a greedy strategy to
+geneous signals, we employ Reciprocal Rank Fu-         quantize nodes. A quantization operation is ac-
+sion (RRF). Let rm (v) be the rank of node v un-       cepted if the performance degradation is within a
+der metric m ∈ {deg, bet, shap, ∆C}. The fused         tolerance threshold τq :
+score is calculated as:                                               S(Gq ) ≥ τq · S(Gp ),             (8)
+                        X     wm                       where Gq is the quantized graph and τq ∈ (0, 1) is a
+            RRF(v) =                 ,       (6)
+                        m
+                          κ + rm (v)                   predefined threshold. This step drastically reduces
+                                                       token costs for non-critical reasoning steps. We
+where κ is a smoothing constant (set to                employ a "greedy + rollback" optimization strategy,
+max{10, |V|}) and w controls the relative weight       as global combinatorial search on large graphs is
+of each metric. This fused score identifies nodes      computationally prohibitive. Although this risks
+that are simultaneously structurally peripheral,       missing complex multi-node synergies, we mitigate
+functionally redundant, and computationally ex-        this limitation by using approximate Shapley values
+pensive.                                               and relaxed thresholds to balance efficiency with
+3.2.1    Iterative Optimization Process                effective exploration.
+Stage 1: AgentPruner (Structural Pruning)              Stage 3: AgentTuner (Adaptive MCTS Fine-
+Let Gbase denote the initial high-performance work-    tuning) To address the variance in compression
+flow graph. We employ an iterative greedy strategy     sensitivity across different tasks, we adapt the
+to prune nodes. In each iteration, we rank nodes       MCTS exploration from AFlow (Zhang et al.,
+by RRF(v) and evaluate the top candidates. A           2025c) for our compressed workflow. This phase is
+pruning operation is accepted if the performance       selectively applied and focuses on localized refine-
+degradation is within a tolerance threshold τp :       ments, such as prompt adaptation and parameter
+                                                       tuning, to recover from potential degradation. Crit-
+               S(Gp ) ≥ τp · S(Gbase ),         (7)    ically, this fine-tuned configuration is adopted only
+if it improves upon the initial compressed version,     gate for quantization, both accessed via the Ope-
+thereby ensuring consistent and robust performance      nAI API. For workflow-based optimization, we use
+gains.                                                  GPT-4.1-mini to maintain computational efficiency.
+                                                        All models are accessed with temperature set to
+4     Experiments                                       0 to ensure reproducibility. Full hyperparameter
+                                                        configurations are provided in Appendix C. We
+4.1    Setup
+                                                        further extend our study with cross-architecture
+Overview. We evaluate our method on eight pub-          experiments on the Qwen3 series, cross-dataset
+lic benchmarks. To ensure a fair comparison, we         validation on GSM8K and MATH, and additional
+strictly adhere to AFlow’s configuration, adopting      experiments based on ADAS, which demonstrate
+its datasets, splits, and sampling methods. Addi-       that AgentSlimming is not tied to AFlow-specific
+tionally, we incorporate three challenging bench-       design choices; detailed results are provided in Ap-
+marks to test robustness.                               pendix G.
+
+Datasets. Our evaluation suite consists of two          4.2   Main Results
+categories: (1) Standard Benchmarks. We utilize         Superior Cost-Performance Efficiency. The
+the complete AFlow (Zhang et al., 2025c) suite,         main experimental results are summarized in Ta-
+including GSM8K (Cobbe et al., 2021), MBPP              ble 1 and Table 2. Overall, AgentSlimming con-
+(Austin et al., 2021) (full sets), as well as Hot-      sistently discovers workflows that are more cost-
+potQA (Yang et al., 2018) and DROP (Dua et al.,         efficient than AFlow. In many cases, our method
+2019) (randomly sampled 1,000-instance subsets).        achieves strict dominance, surpassing the baseline
+For MATH (Hendrycks et al., 2021), we follow            in both accuracy and execution cost. Here, we
+the specific subset of 617 Level-5 problems across      report the average cost in USD per problem.
+four categories. These datasets employ a 1:4 vali-         On standard benchmarks, AgentSlimming main-
+dation/test split. (2) High-difficulty Benchmarks.      tains competitive performance while significantly
+To assess performance on complex reasoning and          reducing computational overhead. For instance,
+coding tasks, we incorporate AIME (Mathemati-           on GSM8K, it matches AFlow’s accuracy (95.5)
+cal Association of America, 2025; Art of Problem        but reduces the average cost from 4.38×10−3 to
+Solving, 2025) , MuSiQueAns (Trivedi et al., 2022),     9.30×10−4 , a 78.8% cost reduction. On MBPP,
+and LiveCode (Jain et al., 2025). These datasets are    AgentSlimming improves the score from 73.3 to
+partitioned using a 3:7 validation/test split. Across   77.9 while simultaneously lowering the cost from
+both categories, our evaluation suite collectively      2.58×10−3 to 7.30×10−4 (71.7% reduction). On
+covers three core competencies: mathematical rea-       datasets where AFlow attains a slightly higher raw
+soning, coding, and question answering, ensuring        score, such as HotpotQA, AgentSlimming achieves
+a comprehensive assessment of agent system per-         comparable performance at a substantially lower
+formance.                                               cost, reducing the average cost by 27.4%.
+Baselines. We compare AgentSlimming against                The advantage of AgentSlimming is even more
+a diverse set of baselines: (I) Manual Prompting        pronounced on high-difficulty benchmarks. On
+Strategies: Standard Chain-of-Thought (CoT) (Wei        LiveCode, it increases the score from 55.3 to 61.7
+et al., 2022), Self-Consistency (SC-CoT) (Wang          while reducing cost by nearly an order of magni-
+et al., 2023), Self-Refine (Madaan et al., 2023),       tude (from 1.17×10−2 to 2.47×10−3 , a 78.9% re-
+and LLM-Debate (Du et al., 2023). (II) Automated        duction). Similarly, on MuSiQueAns, AgentSlim-
+Workflow Optimization: ADAS (Hu et al., 2025)           ming improves accuracy from 84.5 to 89.3 with
+and AFlow (Zhang et al., 2025c). (III) Cost-Aware       a 23.2% reduction. These results indicate that
+AFlow: We implement a modified AFlow variant            AgentSlimming reliably positions the discovered
+that explicitly integrates cost comparisons into its    workflows at more favorable operating points on
+selection mechanism during the search phase, di-        the cost–quality Pareto frontier, particularly for
+rectly competing on cost efficiency.                    complex reasoning and programming tasks.
+
+Details. We employ GPT-4.1-mini (OpenAI,                4.3   Analysis
+2025) as the high-precision model and GPT-4.1-          We conducted a comprehensive analysis to identify
+nano (OpenAI, 2025) as the cost-effective surro-        the sources of efficiency gains in AgentSlimming
+ Method             MATH                  GSM8K              HotpotQA                 MBPP                    DROP
+              Acc. Cost ($/prob.) Acc. Cost ($/prob.) Acc. Cost ($/prob.) Acc. Cost ($/prob.) Acc. Cost ($/prob.)
+ Ours        73.9 6.88e-3 ↓42.7% 95.5 9.30e-4 ↓78.8% 77.0 5.55e-3 ↓27.4% 77.9 7.30e-4 ↓71.7% 81.7 9.50e-4 ↓38.7%
+ AFlow       74.8    1.20e-2     95.5    4.38e-3     77.3    7.64e-3     73.3    2.58e-3     78.7    1.55e-3
+ LLM-Debate 74.5     1.47e-2     93.5    3.57e-3     73.4    9.47e-3     75.1    6.22e-3     75.6    2.94e-3
+ ADAS        69.0    1.15e-2     94.9    4.79e-3     65.4    4.72e-2     75.4    4.31e-3     78.6    3.07e-3
+ CoT         62.9    6.03e-4     90.5    2.48e-4     57.5    7.11e-4     73.6    2.80e-4     75.9    3.75e-4
+ SC-CoT      65.3    3.67e-3     90.2    1.71e-3     61.7    4.48e-3     75.6    2.12e-3     75.3    2.37e-3
+ Self-Refine 65.5    1.01e-3     89.8    5.60e-4     57.9    1.50e-3     74.5    5.56e-4     75.0    7.91e-4
+
+Table 1: Performance and inference cost comparison across standard benchmarks. Cost denotes the average
+API expense ($/prob.). Bold indicates the best results among workflow-based methods (excluding simple prompting
+baselines). Green percentages indicate the relative cost reduction compared to AFlow, highlighting how much
+inference budget is saved while maintaining competitive accuracy.
+
+              Method                        AIME                    LiveCode             MusiqueAns
+                                     Acc.   Cost ($/prob.)   Acc.    Cost ($/prob.)   Acc.   Cost ($/prob.)
+              Ours                   65.7 1.35e-2 ↓19.2%     61.7 2.47e-3 ↓78.9%      89.3 8.24e-3 ↓23.0%
+              AFlow                  67.1    1.67e-2         55.3    1.17e-2          84.5    1.07e-2
+              LLM-Debate             56.8    2.86e-2         67.8    1.67e-2          45.3    1.62e-2
+              Cost-aware AFlow       61.8    1.20e-2         57.9    8.41e-3          83.6    1.04e-2
+              ADAS                   62.3    1.42e-2         52.1    9.01e-3          77.2    1.62e-2
+              CoT                    53.4    2.99e-3         46.4    1.25e-3          73.9    1.11e-3
+              Self-Consistency CoT   59.7    1.41e-2         47.2    7.93e-3          74.9    6.89e-3
+              Self-Refine            54.1    4.08e-3         49.1    2.30e-3          72.8    2.30e-3
+
+Table 2: Performance and inference cost comparison across high-difficulty benchmarks. Cost denotes the
+average API cost ($/prob.). Bold indicates the best results among workflow-based methods (excluding simple
+prompting baselines). Green percentages indicate the relative cost reduction compared to AFlow.
+
+
+and validate its practical feasibility.                      frequently quantized, while Test nodes are con-
+                                                             sistently quantized. Although these nodes can be
+Denoising via Pruning In the initial heavy work-             topologically central, they mainly implement selec-
+flows, we observed redundant parallel generation             tion, consensus aggregation, and execution-based
+components, particularly multiple CodeGenerate               validation. By selectively quantizing them while
+nodes and AnswerGenerate nodes. Our method                   retaining high-capability generators, AgentSlim-
+consistently deprioritizes these redundant nodes             ming preserves accuracy and strategically directs
+due to their limited marginal benefit, pruning them          the computational budget toward core reasoning
+to yield a simplified graph structure.                       rather than auxiliary validation.
+Strategic Heterogeneity When parallel struc-
+tures remain after pruning, AgentSlimming ap-                Total Evaluation Budget Analysis. To translate
+plies non-uniform compression and retains a mixed-           the structural efficiency gains into tangible eco-
+precision configuration. Specifically, it preserves a        nomic implications, we estimate the total end-to-
+small number of high-capability AnswerGenerate               end evaluation budget for the test sets of each
+nodes at full precision and quantizes the remaining          benchmark by multiplying the optimized per-
+parallel auxiliary nodes to lower-cost models.               problem cost by the effective sample size. Re-
+                                                             markably, the computational burden is minimal:
+Cost-Effective Arbitration via Functional Align-             standard benchmarks like MBPP and GSM8K re-
+ment The quantization frequencies indicate                   quire less than $2.00 to evaluate the entire test set
+that AgentSlimming primarily compresses nodes                ($1.63 and $1.84, respectively). Even for computa-
+whose functionality is procedure-oriented rather             tionally intensive, high-difficulty benchmarks such
+than generation-intensive. ScEnsembler and                   as AIME and HotpotQA, the total costs remain
+Programmer nodes are infrequently pruned but are             strictly affordable at $26.06 and $14.76.
+   Method                                                     MATH                             MBPP                          LiveCode
+                                                     Acc.      Cost ($/prob.)        Acc.      Cost ($/prob.)        Acc.     Cost ($/prob.)
+   Baseline                                          74.8             1.20e-2        73.3             2.58e-3        55.3        1.17e-2
+   Quantization -> Pruning                           76.5             3.05e-3        75.6             6.30e-4        59.8        1.99e-3
+   Pruning -> Quantization (Original Method)         73.9             6.88e-3        77.9             7.30e-4        61.7        2.47e-3
+
+Table 3: Ablation of reversing the pipeline order. We compare the baseline, the reversed-order pipeline (Pruning
+after Quantization), and the final Quantization after Pruning results on MATH, MBPP, and LiveCode, which repre-
+sent mathematical reasoning, program synthesis, and execution-oriented code generation, respectively. Empirically,
+reversing the order produces a broadly similar final cost-accuracy trade-off, with only minor differences arising
+from slightly different search trajectories under the greedy rollback mechanism. We nevertheless adopt the Pruning
+→ Quantization design in our framework, because pruning removes redundant nodes early, shrinks the search
+space, and thus makes the subsequent quantization stage more efficient and reduces the overall search cost of the
+framework.
+
+                   Method                     AIME                  DROP              MATH                  MBPP
+                                       Acc.      Cost        Acc.        Cost     Acc.       Cost        Acc.      Cost
+
+                   Baseline            67.1     1.67e-2      78.7       1.55e-3    74.8     1.20e-2      73.3     2.58e-3
+                   Betweenness-only    63.0     1.15e-2      77.8       4.5e-4     74.0     4.17e-3      79.1      7.1e-4
+                   Degree-only         63.6     7.89e-3      66.5       3.2e-4     73.1     5.28e-3      73.3     1.56e-3
+                   Shapley-only        64.7     7.81e-3      65.7       3.1e-4     71.4     5.25e-3      74.4     1.50e-3
+                                        65.7     1.35e-2      78.4       4.5e-4    74.8      2.54e-3      80.2      7.1e-4
+                   RRF (ours)         (-2.1%)   (-19.2%)    (-0.4%)    (-71.0%)   (0.0%)    (-79.7%)    (+9.4%)   (-72.5%)
+
+
+Table 4: Ablation study of the importance ranking strategies. We compare topology-based signals (degree-only,
+betweenness-only) and a functional signal (Shapley-only), as well as their fusion via Reciprocal Rank Fusion (RRF),
+across four representative benchmarks: DROP for reading comprehension and discrete numerical reasoning, MATH
+and AIME for mathematical and symbolic reasoning (AIME further targeting competition-level problem solving),
+and MBPP for program synthesis. We report task accuracy (Acc.) and average inference cost per problem ($/prob.).
+The percentages in the RRF row indicate the relative change on each benchmark compared to the baseline.
+
+
+   Crucially, this cost-effectiveness also extends be-                   marginal changes in the final cost–accuracy trade-
+yond inference to the optimization process itself.                       off, indicating that the final Pareto frontier is driven
+As a fully training-free framework, AgentSlimming                        mainly by the joint effect of pruning and quanti-
+avoids the prohibitive overhead of gradient-based                        zation rather than by a specific execution order.
+updates and expensive parameter tuning. Further-                         The small differences mainly arise from slightly
+more, by leveraging topological priors (e.g., degree                     different search trajectories under the greedy roll-
+and betweenness centrality) for importance scor-                         back mechanism. We nevertheless adopt Prune →
+ing, we ensure that pruning and quantization re-                         Quantize in the main framework, because pruning
+main computationally efficient and lightweight. To                       first removes redundant nodes early, shrinks the
+further quantify the trade-off between the one-time                      workflow graph, and reduces the search cost of the
+optimization overhead and the recurring inference-                       subsequent quantization stage.
+time savings, we additionally analyze the time-to-
+break-even of our method, i.e., how many future                               We then investigate the impact of the node-
+executions are needed to amortize the search cost                          importance ranking strategy used in pruning and
+through reduced per-query inference cost. We re-                           quantization. Our full method employs a weighted
+port the detailed formulation and benchmark-wise                           Reciprocal Rank Fusion (RRF) scheme to synthe-
+optimization cost in Appendix E.                                           size multiple signals into a unified candidate rank-
+                                                                           ing, whereas the ablated variants rely on a single
+4.4   Ablation Study                                                       metric, namely Degree-only, Betweenness-only,
+We conduct two complementary ablation studies.                             and Shapley-only. To isolate the effect of ranking
+First, we examine the effect of pipeline order by                          quality from confounders such as search budget,
+comparing our default Prune → Quantize design                              initialization, and stopping criteria, we keep the
+with the reversed Quantize → Prune variant. As                             experimental protocol consistent across stages: for
+shown in Table 3, reversing the order leads to only                        pruning, all variants start from the original work-
+                         Cost-Accuracy Pareto Frontier on GSM8K                                        Problem Input                        Problem Input
+               97
+                                  Low Cost
+               96                  Region          AgentSlimming (Ours)         AFlow
+                                                                                   ADAS
+               95
+
+
+
+
+Accuracy (%)
+               94                                                             LLM-Debate
+               93
+               92
+               91       CoT                                          SC-CoT
+                                                                                                                        Programmer
+
+               90
+                                               Self-Refine                                                              GenerateSolution
+                     AgentSlimming (Ours)
+                     Other Iterations (Ours)                                  Pareto Frontier                           DetailedSolution
+               89    AFlow
+                     Baselines (Est. Cost)
+                                                                                                      AnswerFormatter   RefineWithCode     AnswerFormatter
+                                                        10 3
+                                       Average Cost per Problem ($) [Log Scale]                                         ScEnsembler
+                                                                                                      Before                                  After
+  Figure 3: Cost-Accuracy Pareto Frontier on the
+  GSM8K dataset. The x-axis represents the average                                              Figure 5: Visualizing the pruning process of MATH
+  inference cost per problem (USD), and the y-axis de-                                          workflow. (Before) The initial workflow features
+  notes accuracy. Data points for our method correspond                                         complex parallel reasoning paths and an ensemble
+  to varying iteration rounds. These configurations con-                                        mechanism. (After) The streamlined workflow after
+  sistently align with the Pareto frontier, demonstrating                                       AgentSlimming’s pruning stage. It effectively identifies
+  optimal cost-quality trade-offs compared to baselines.                                        the core reasoning backbone by pruning redundant par-
+                                                                                                allel paths and refinement steps, thereby reducing cost.
+                Pruning
+                Quantization            Pruning & Quantization frequency by node
+               100                           100%                  100%
+                90 80%                                                                          ing paths and refinement steps, AgentSlimming
+                80
+                70               57% 57% 50%                62%                                 identified redundancy in the dual AnswerGenerate
+ Rate           60                                44%
+                50                                                                              nodes and the marginal utility of the CodeRefine
+                40                                   24%
+                30
+                20                                       12%                                    node. Concretely, probe-based importance rank-
+                10           0%                                  0%
+                 0
+                     d e G en werGen     Te st Custom semble rogram                             ing suggested that one generator path consistently
+                  C o        Ans                      En       P
+                                                                                                dominates in contribution, while refinement rarely
+  Figure 4: Node-type specific compression rates. We                                            corrects errors relative to its token cost. Notably,
+  report the ratio of nodes processed by each compres-                                          pruning the parallel path diminished the utility of
+  sion strategy across six categories. Blue bars indicate                                       the downstream ScEnsemble node, leading to its
+  structural removal (Pruning), while red bars indicate                                         removal (as demonstrated in Figure 5). The result
+  model substitution (Quantization). The variation across                                       is a streamlined pipeline that preserves core rea-
+  categories highlights the adaptive nature of our hybrid                                       soning logic while achieving substantial cost reduc-
+  importance evaluation.
+                                                                                                tions, empirically validating our topo-functional
+                                                                                                optimization strategy. The complete details of this
+ flow; for quantization, each variant inherits the best                                         case study are provided in Appendix B.
+ pruned graph derived from its corresponding prun-
+ ing strategy and applies the same metric for node se-
+ lection. Both stages use identical validation subset                                           5   Conclusion
+ sizes and baseline-anchored acceptance thresholds.
+ Table 4 summarizes the resulting performance. We                                               We introduced AgentSlimming, a unified frame-
+ observe that single-metric strategies exhibit diver-                                           work that optimizes multi-agent workflows via
+ gent cost–quality trade-offs across tasks, highlight-                                          structural pruning and semantic quantization.
+ ing their complementary strengths and motivating                                               Guided by a novel hybrid metric combining topo-
+ multi-signal fusion. In contrast, RRF consistently                                             logical and functional signals, AgentSlimming
+ achieves a more robust balance between effective-                                              achieves up to 78.9% cost reduction across diverse
+ ness and efficiency. Detailed stage-wise ablation                                              benchmarks. Importantly, this efficiency is attained
+ results are provided in Appendix D.                                                            with negligible impact on reasoning quality, match-
+                                                                                                ing or even exceeding baseline performance. Our
+  4.5               Case Study                                                                  method shows that sparse, heterogeneous topolo-
+ We analyze the pruning process of the workflow on                                              gies can effectively replace computationally redun-
+ MATH to illustrate structural simplification. Start-                                           dant dense multi-agent systems, establishing a new
+ ing from a complex graph with parallel reason-                                                 Pareto frontier for scalable agentic collaboration.
+Limitations                                                 Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian,
+                                                              Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias
+We evaluate GPT-4.1-series and Qwen3-series mod-              Plappert, Jerry Tworek, Jacob Hilton, Reiichiro
+els, but do not benchmark newer frontier models.              Nakano, Christopher Hesse, and John Schulman.
+Like AFlow, our framework currently operates at               2021. Training verifiers to solve math word prob-
+                                                              lems. CoRR, abs/2110.14168.
+the task level to ensure fair baseline comparisons.
+For future work, we plan to explore instance-level          Gordon V. Cormack, Charles L. A. Clarke, and Stefan
+dynamic adaptation, utilizing multi-agent memory              Büttcher. 2009. Reciprocal rank fusion outperforms
+                                                              condorcet and individual rank learning methods. In
+to adjust workflows and compute based on query                Proceedings of the 32nd Annual International ACM
+difficulty.                                                   SIGIR Conference on Research and Development
+                                                              in Information Retrieval, SIGIR 2009, Boston, MA,
+Acknowledgements                                              USA, July 19-23, 2009.
+
+This work was supported by Alibaba Group                    Rémi Coulom. 2006. Efficient selectivity and backup
+                                                              operators in monte-carlo tree search. In Computers
+through Alibaba Innovative Research Program.                  and Games, 5th International Conference, CG 2006,
+                                                              Turin, Italy, May 29-31, 2006. Revised Papers, vol-
+Ethics Statement                                              ume 4630 of Lecture Notes in Computer Science,
+                                                              pages 72–83. Springer.
+We acknowledge that all authors are informed
+about and adhere to the ACL ARR Code of Ethics              Kalyanmoy Deb, Samir Agrawal, Amrit Pratap, and
+and the Code of Conduct.                                      T. Meyarivan. 2002. A fast and elitist multiobjec-
+                                                              tive genetic algorithm: NSGA-II. IEEE Trans. Evol.
+Risks Our benchmarks are sourced from publicly                Comput., 6(2):182–197.
+available datasets. We cannot guarantee that they           Tim Dettmers, Mike Lewis, Younes Belkada, and Luke
+are free of socially harmful, biased, or toxic con-           Zettlemoyer. 2022. Llm.int8(): 8-bit matrix multipli-
+tent. In addition, AgentSlimming optimizes cost by            cation for transformers at scale. In Proceedings of the
+                                                              36th International Conference on Neural Information
+pruning and replacing nodes, which may alter the              Processing Systems.
+behavior of the original workflow in unexpected
+ways; when applied to safety-critical domains, such         Yilun Du, Shuang Li, Antonio Torralba, Joshua B Tenen-
+                                                               baum, and Igor Mordatch. 2023. Improving factual-
+changes could amplify errors or reduce reliability.            ity and reasoning in language models through multia-
+We used LLM-based tools only for grammar and                   gent debate. arXiv preprint arXiv:2305.14325.
+language polishing; all technical content, experi-
+                                                            Dheeru Dua, Yizhong Wang, Pradeep Dasigi, Gabriel
+ments, and claims were written and verified by the            Stanovsky, Sameer Singh, and Matt Gardner. 2019.
+authors.                                                      DROP: A reading comprehension benchmark requir-
+                                                              ing discrete reasoning over paragraphs. In Proceed-
+                                                              ings of the 2019 Conference of the North American
+References                                                    Chapter of the Association for Computational Lin-
+                                                              guistics: Human Language Technologies, NAACL-
+Art of Problem Solving. 2025. Aime problems                   HLT 2019, Minneapolis, MN, USA, June 2-7, 2019,
+  and solutions. https://artofproblemsolving.                 Volume 1 (Long and Short Papers), pages 2368–2378.
+  com/wiki/index.php/AIME_Problems_and_                       Association for Computational Linguistics.
+  Solutions.
+                                                            Chrisantha Fernando, Dylan Banarse, Henryk
+Jacob Austin, Augustus Odena, Maxwell I. Nye,                 Michalewski, Simon Osindero, and Tim Rock-
+   Maarten Bosma, Henryk Michalewski, David Dohan,            täschel. 2024. Promptbreeder: Self-referential
+   Ellen Jiang, Carrie J. Cai, Michael Terry, Quoc V. Le,     self-improvement via prompt evolution. In Forty-
+   and Charles Sutton. 2021. Program synthesis with           first International Conference on Machine Learning,
+   large language models. CoRR, abs/2108.07732.               ICML 2024, Vienna, Austria, July 21-27, 2024.
+                                                              OpenReview.net.
+Li Boyi, Zhonghan Zhao, Der-Horng Lee, and Gaoang
+   Wang. 2025. Adaptive graph pruning for multi-agent       Jonathan Frankle and Michael Carbin. 2019. The lottery
+   communication. CoRR, abs/2506.02951.                       ticket hypothesis: Finding sparse, trainable neural
+                                                              networks. In 7th International Conference on Learn-
+Ulrik Brandes. 2001. A faster algorithm for between-          ing Representations, ICLR 2019, New Orleans, LA,
+  ness centrality. Journal of Mathematical Sociology.         USA, May 6-9, 2019. OpenReview.net.
+Lingjiao Chen, Matei Zaharia, and James Zou. 2024.          Elias Frantar, Saleh Ashkboos, Torsten Hoefler, and
+  Frugalgpt: How to use large language models while            Dan Alistarh. 2022. GPTQ: accurate post-training
+  reducing cost and improving performance. Trans.              quantization for generative pre-trained transformers.
+  Mach. Learn. Res.                                            CoRR, abs/2210.17323.
+Linton C. Freeman. 1978. Centrality in social networks        Representations, ICLR 2024, Vienna, Austria, May
+  conceptual clarification. Social Networks, 1.               7-11, 2024. OpenReview.net.
+Song Han, Jeff Pool, John Tran, and William J. Dally.       Levente Kocsis and Csaba Szepesvári. 2006. Bandit
+  2015. Learning both weights and connections for             based monte-carlo planning. In Machine Learning:
+  efficient neural networks. CoRR, abs/1506.02626.            ECML 2006, 17th European Conference on Machine
+                                                              Learning, Berlin, Germany, September 18-22, 2006,
+Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul            Proceedings, volume 4212 of Lecture Notes in Com-
+  Arora, Steven Basart, Eric Tang, Dawn Song, and Ja-         puter Science, pages 282–293. Springer.
+  cob Steinhardt. 2021. Measuring mathematical prob-
+  lem solving with the MATH dataset. In Proceedings         Boyan Li, Yuyu Luo, Chengliang Chai, Guoliang Li,
+  of the Neural Information Processing Systems Track          and Nan Tang. 2024a. The dawn of natural language
+  on Datasets and Benchmarks 1, NeurIPS Datasets              to SQL: are we fully ready? [experiment, analysis
+  and Benchmarks 2021, December 2021, virtual.                & benchmark ]. Proc. VLDB Endow., 17(11):3318–
+                                                              3331.
+Sirui Hong, Yizhang Lin, Bang Liu, and 1 others. 2025.
+   Data interpreter: An LLM agent for data science.         Guohao Li, Hasan Abed Al Kader Hammoud, Hani
+   In Findings of the Association for Computational           Itani, Dmitrii Khizbullin, and Bernard Ghanem. 2023.
+   Linguistics, ACL 2025, Vienna, Austria, July 27 -          CAMEL: Communicative agents for "mind" explo-
+   August 1, 2025, pages 19796–19821. Association for         ration of large language model society. In Advances
+   Computational Linguistics.                                 in Neural Information Processing Systems (NeurIPS).
+Sirui Hong, Mingchen Zhuge, Jonathan Chen, and 1
+                                                            Zelong Li, Shuyuan Xu, Kai Mei, and 1 others. 2024b.
+   others. 2024. Metagpt: Meta programming for A
+                                                              Autoflow: Automated workflow generation for large
+   multi-agent collaborative framework. In The Twelfth
+                                                              language model agents. CoRR, abs/2407.12821.
+   International Conference on Learning Representa-
+   tions, ICLR 2024, Vienna, Austria, May 7-11, 2024.       Ji Lin, Jiaming Tang, Haotian Tang, Shang Yang,
+   OpenReview.net.                                             Guangxuan Xiao, and Song Han. 2024. AWQ:
+Jeremy Howard and Sebastian Ruder. 2018. Universal             activation-aware weight quantization for on-device
+   language model fine-tuning for text classification. In      LLM compression and acceleration. GetMobile Mob.
+   Proceedings of the 56th Annual Meeting of the As-           Comput. Commun., 28(4):12–17.
+   sociation for Computational Linguistics, ACL 2018,
+                                                            Scott M Lundberg and Su-In Lee. 2017. A unified
+   Melbourne, Australia, July 15-20, 2018, Volume 1:
+                                                              approach to interpreting model predictions. In Ad-
+   Long Papers, pages 328–339. Association for Com-
+                                                              vances in Neural Information Processing Systems
+   putational Linguistics.
+                                                              (NeurIPS).
+Shengran Hu, Cong Lu, and Jeff Clune. 2025. Au-
+  tomated design of agentic systems. In The Thir-           Aman Madaan, Niket Tandon, Prakhar Gupta, and 1
+  teenth International Conference on Learning Repre-         others. 2023. Self-refine: Iterative refinement with
+  sentations, ICLR 2025, Singapore, April 24-28, 2025.       self-feedback. In Advances in Neural Information
+  OpenReview.net.                                            Processing Systems 36: Annual Conference on Neu-
+                                                             ral Information Processing Systems 2023, NeurIPS
+Benoit Jacob, Skirmantas Kligys, Bo Chen, Menglong           2023, New Orleans, LA, USA, December 10 - 16,
+  Zhu, Matthew Tang, Andrew G. Howard, Hartwig               2023.
+  Adam, and Dmitry Kalenichenko. 2018. Quanti-
+  zation and training of neural networks for efficient      Hangyu Mao, Zhengchao Zhang, Zhen Xiao, Zhibo
+  integer-arithmetic-only inference. In 2018 IEEE Con-        Gong, and Yan Ni. 2020. Learning agent communi-
+  ference on Computer Vision and Pattern Recognition,         cation under limited bandwidth by message pruning.
+  CVPR 2018, Salt Lake City, UT, USA, June 18-22,             In The Thirty-Fourth AAAI Conference on Artificial
+  2018, pages 2704–2713. Computer Vision Founda-              Intelligence, AAAI 2020, The Thirty-Second Innova-
+  tion / IEEE Computer Society.                               tive Applications of Artificial Intelligence Conference,
+                                                              IAAI 2020, The Tenth AAAI Symposium on Educa-
+Naman Jain, King Han, Alex Gu, Wen-Ding Li, Fanjia            tional Advances in Artificial Intelligence, EAAI 2020,
+  Yan, Tianjun Zhang, Sida Wang, Armando Solar-               New York, NY, USA, February 7-12, 2020, pages
+  Lezama, Koushik Sen, and Ion Stoica. 2025. Live-            5142–5149. AAAI Press.
+  codebench: Holistic and contamination free evalua-
+  tion of large language models for code. In The Thir-      Mathematical Association of America. 2025. Maa in-
+  teenth International Conference on Learning Repre-         vitational competitions: American invitational math-
+  sentations, ICLR 2025, Singapore, April 24-28, 2025.       ematics examination (aime). https://maa.org/
+  OpenReview.net.                                            maa-invitational-competitions/.
+
+Omar Khattab, Arnav Singhvi, Paridhi Maheshwari,            Harsha Nori, Yin Tat Lee, Sheng Zhang, and 1 others.
+ and 1 others. 2024. Dspy: Compiling declarative              2023. Can generalist foundation models outcom-
+ language model calls into state-of-the-art pipelines.        pete special-purpose tuning? case study in medicine.
+ In The Twelfth International Conference on Learning          CoRR, abs/2311.16452.
+OpenAI. 2023. Gpt-4 technical report. arXiv preprint      Jason Wei, Xuezhi Wang, Dale Schuurmans, and 1 oth-
+  arXiv:2303.08774.                                          ers. 2022. Chain-of-thought prompting elicits rea-
+                                                             soning in large language models. In Advances in
+OpenAI. 2025. Introducing gpt-4.1 in the api: A new se-      Neural Information Processing Systems 35: Annual
+  ries of gpt models featuring major improvements on         Conference on Neural Information Processing Sys-
+  coding, instruction following, and long context—plus       tems 2022, NeurIPS 2022, New Orleans, LA, USA,
+  our first-ever nano model.                                 November 28 - December 9, 2022.
+Chen Qian, Wei Liu, Hongzhang Liu, Nuo Chen, Yufan
+                                                          Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu,
+  Dang, Jiahao Li, Cheng Yang, Weize Chen, Yusheng
+                                                            Beibin Li, Erkang Peng, and 1 others. 2023. Autogen:
+  Su, Xin Cong, Juyuan Xu, Dahai Li, Zhiyuan Liu,
+                                                            Enabling next-gen LLM applications via multi-agent
+  and Maosong Sun. 2024. ChatDev: Communicative
+                                                            conversation framework. CoRR, abs/2308.08155.
+  agents for software development. In Proceedings
+  of the 62nd Annual Meeting of the Association for       Guangxuan Xiao, Ji Lin, Mickaël Seznec, Hao Wu,
+  Computational Linguistics (Volume 1: Long Papers).        Julien Demouth, and Song Han. 2023. Smoothquant:
+Tal Ridnik, Dedy Kredo, and Itamar Friedman.                Accurate and efficient post-training quantization for
+  2024. Code generation with alphacodium: From              large language models. In International Conference
+  prompt engineering to flow engineering. CoRR,             on Machine Learning, ICML 2023, 23-29 July 2023,
+  abs/2401.08500.                                           Honolulu, Hawaii, USA, volume 202 of Proceedings
+                                                            of Machine Learning Research, pages 38087–38099.
+Jon Saad-Falcon and 1 others. 2024. Archon: An ar-          PMLR.
+  chitecture search framework for inference-time tech-
+  niques. CoRR, abs/2409.15254.                           Yupeng Xie, Yuyu Luo, Guoliang Li, and Nan Tang.
+                                                            2024. Haichart: Human and AI paired visualization
+Lloyd S. Shapley. 1953. A value for n-person games.         system. Proc. VLDB Endow., 17(11):3178–3191.
+  In Contributions to the Theory of Games II, pages
+  307–317. Princeton University Press.                    Yiheng Xu and 1 others. 2024. Lemur: Harmonizing
+                                                            natural language and code for language agents. In
+Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot,       The Twelfth International Conference on Learning
+  and Ashish Sabharwal. 2022. Musique: Multi-               Representations, ICLR 2024, Vienna, Austria, May
+  hop questions via single-hop question composition.        7-11, 2024. OpenReview.net.
+  Trans. Assoc. Comput. Linguistics, 10:539–554.
+                                                          Chengrun Yang, Xuezhi Wang, Yifeng Lu, Hanxiao
+Guanzhi Wang, Yuqi Xie, Yunfan Jiang, Ajay Man-
+                                                            Liu, Quoc V. Le, Denny Zhou, and Xinyun Chen.
+  dlekar, Chaowei Xiao, Yuke Zhu, Linxi Fan, and An-
+                                                            2024. Large language models as optimizers. In
+  ima Anandkumar. 2024a. Voyager: An open-ended
+                                                            The Twelfth International Conference on Learning
+  embodied agent with large language models. Trans.
+                                                            Representations, ICLR 2024, Vienna, Austria, May
+  Mach. Learn. Res., 2024.
+                                                            7-11, 2024. OpenReview.net.
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V.
+  Le, Ed H. Chi, Sharan Narang, Aakanksha Chowd-          Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Ben-
+  hery, and Denny Zhou. 2023. Self-consistency              gio, William W. Cohen, Ruslan Salakhutdinov, and
+  improves chain of thought reasoning in language           Christopher D. Manning. 2018. Hotpotqa: A dataset
+  models. In The Eleventh International Conference          for diverse, explainable multi-hop question answer-
+  on Learning Representations, ICLR 2023, Kigali,           ing. In Proceedings of the 2018 Conference on Em-
+  Rwanda, May 1-5, 2023. OpenReview.net.                    pirical Methods in Natural Language Processing,
+                                                            Brussels, Belgium, October 31 - November 4, 2018,
+Zhenhailong Wang, Shaoguang Mao, Wenshan Wu, Tao            pages 2369–2380. Association for Computational
+  Ge, Furu Wei, and Heng Ji. 2024b. Unleashing the          Linguistics.
+  emergent cognitive synergy in large language mod-
+  els: A task-solving agent through multi-persona self-   Yilin Ye, Jianing Hao, Yihan Hou, Zhan Wang, Shishi
+  collaboration. In Proceedings of the 2024 Conference      Xiao, Yuyu Luo, and Wei Zeng. 2024. Generative AI
+  of the North American Chapter of the Association for      for visualization: State of the art and future directions.
+  Computational Linguistics: Human Language Tech-           Vis. Informatics, 8(1):43–66.
+  nologies (Volume 1: Long Papers), NAACL 2024,
+  Mexico City, Mexico, June 16-21, 2024, pages 257–       Mert Yüksekgönül, Federico Bianchi, Joseph Boen,
+  279. Association for Computational Linguistics.          Sheng Liu, Zhi Huang, Carlos Guestrin, and James
+                                                           Zou. 2024. Textgrad: Automatic "differentiation" via
+Zhexuan Wang, Yutong Wang, Xuebo Liu, Liang                text. CoRR, abs/2406.07496.
+  Ding, Miao Zhang, Jie Liu, and Min Zhang. 2025.
+  Agentdropout: Dynamic agent elimination for token-      Guibin Zhang, Yanwei Yue, Zhixun Li, and 1 others.
+  efficient and high-performance LLM-based multi-           2025a. Cut the crap: An economical communica-
+  agent collaboration. In Proceedings of the 63rd An-       tion pipeline for llm-based multi-agent systems. In
+  nual Meeting of the Association for Computational         The Thirteenth International Conference on Learning
+  Linguistics (Volume 1: Long Papers), pages 24013–         Representations, ICLR 2025, Singapore, April 24-28,
+  24035. Association for Computational Linguistics.         2025. OpenReview.net.
+Guibin Zhang, Yanwei Yue, Xiangguo Sun, and 1 others.
+  2025b. G-designer: Architecting multi-agent com-
+  munication topologies via graph neural networks. In
+  Forty-second International Conference on Machine
+  Learning, ICML 2025, Vancouver, BC, Canada, July
+  13-19, 2025. OpenReview.net.
+Jiayi Zhang, Jinyu Xiang, Zhaoyang Yu, Fengwei Teng,
+   Xionghui Chen, Jiaqi Chen, Mingchen Zhuge, Xin
+   Cheng, Sirui Hong, Jinlin Wang, Bingnan Zheng,
+   Bang Liu, Yuyu Luo, and Chenglin Wu. 2025c.
+   Aflow: Automating agentic workflow generation. In
+   The Thirteenth International Conference on Learning
+   Representations, ICLR 2025, Singapore, April 24-28,
+   2025.
+
+Jiayi Zhang, Chuang Zhao, Yihan Zhao, Zhaoyang Yu,
+   Ming He, and Jianping Fan. 2024. Mobileexperts: A
+   dynamic tool-enabled agent team in mobile devices.
+   CoRR, abs/2407.03913.
+
+Ruijia Zhang, Xinyan Zhao, Ruixiang Wang, Sigen
+  Chen, Guibin Zhang, An Zhang, Kun Wang, and
+  Qingsong Wen. 2025d. Safesieve: From heuristics
+  to experience in progressive pruning for llm-based
+  multi-agent communication. CoRR, abs/2508.11733.
+
+Li Zhong, Zilong Wang, and Jingbo Shang. 2024. De-
+   bug like a human: A large language model debugger
+   via verifying runtime execution step by step. In Find-
+   ings of the Association for Computational Linguistics,
+   ACL 2024, Bangkok, Thailand and virtual meeting,
+   August 11-16, 2024, pages 851–870. Association for
+   Computational Linguistics.
+Andy Zhou, Kai Yan, Michal Shlapentokh-Rothman,
+  Haohan Wang, and Yu-Xiong Wang. 2024. Lan-
+  guage agent tree search unifies reasoning, acting, and
+  planning in language models. In Forty-first Interna-
+  tional Conference on Machine Learning, ICML 2024,
+  Vienna, Austria, July 21-27, 2024. OpenReview.net.
+Xuanhe Zhou, Guoliang Li, and Zhiyuan Liu. 2023.
+  LLM as DBA. CoRR, abs/2308.05481.
+Mingchen Zhuge, Haozhe Liu, Francesco Faccio, and 1
+  others. 2025. Mindstorms in natural language-based
+  societies of mind. Comput. Vis. Media, 11(1):29–81.
+Mingchen Zhuge, Wenyi Wang, Louis Kirsch,
+  Francesco Faccio, Dmitrii Khizbullin, and Jürgen
+  Schmidhuber. 2024. Gptswarm: Language agents as
+  optimizable graphs. In Forty-first International Con-
+  ference on Machine Learning, ICML 2024, Vienna,
+ Austria, July 21-27, 2024. OpenReview.net.
+Appendix                                                 node IDs to the paper terms as follows: (1)
+                                                         GenerateSolutionA / GenerateSolutionB
+A     Algorithm                                          correspond to dual AnswerGenerate nodes.
+                                                         (2) RefineWithCode corresponds to the
+Algorithm 1 Prune–Quantize–Fine-tune Pipeline            CodeRefine node.       (3) ScEnsembler corre-
+ 1: Input: initial graph Gbase , validation set Dval ,   sponds to the ScEnsemble node for aggregation.
+    probe size m, budget B.                              (4) AnswerFormatter formats the final output to
+ 2:     Top-k size k, thresholds τp , τq .               satisfy benchmark constraints.
+ 3:     RRF weights w, low-cost mapping π.
+ 4: Output: optimized graph G ⋆ .                        B.2   Pruning Rationale and Structural
+ 5: Initialize G ← Gbase .                                     Simplification
+ 6: Step 1: AgentPruner.                                 The original workflow (Figure 5, left) contains mul-
+ 7: Set baseline S0 ← S(G).                              tiple parallel reasoning paths: a program-execution
+ 8: while pruning budget remains do                      path (Programmer → RefineWithCode), a de-
+ 9:    Rank nodes by probe signals; fuse by              tailed chain-of-thought path (DetailedSolution),
+      weighted RRF; get Top-k {v1 , v2 , . . . , vk }.   and two additional solution generation paths
+10:    for v ∈ {v1 , v2 , . . . , vk } do                (GenerateSolutionA and GenerateSolutionB).
+11:       Gp ← Surgery(G, v); compute S(Gp ).            All candidate answers are routed into ScEnsembler
+12:       if S(Gp ) ≥ τp · S0 then                       for self-consistency selection before being format-
+13:          G ← Gp ; break                              ted by AnswerFormatter. AgentSlimming identi-
+14:       end if                                         fies two main sources of redundancy: (1) The two
+15:    end for                                           AnswerGenerate branches are highly overlapping;
+16:    Stop if no candidate is accepted.                 keeping one branch provides most of the diversity
+17: end while                                            gain. (2) The marginal utility of the CodeRefine
+18: Step 2: AgentQuant.                                  step is limited for this workflow; its benefits do not
+19: Set baseline S0 ← S(G).                              justify the additional token cost.
+20: while quantization budget remains do
+21:    Rank LLM nodes by probe replacement               C     Experiment
+       signals; fuse by weighted RRF; get Top-k
+       {v1 , v2 , . . . , vk }.                          C.1    Baselines
+22:    for v ∈ {v1 , v2 , . . . , vk } do
+                                                         To ensure a fair and rigorous comparison that
+23:       Gq ← Replace(G, v, π(v)); compute
+                                                         matches the scale of our optimized workflows, we
+          S(Gq ).
+                                                         configured the LLM-Debate baseline with 4 agents
+24:       if S(Gq ) ≥ τq · S0 then
+                                                         and 2 debate rounds. This specific hyperparame-
+25:          G ← Gq ; break
+                                                         ter setting aligns the computational complexity and
+26:       end if
+                                                         graph scale of the baseline with our method.
+27:    end for
+28:    Stop if no candidate is accepted.                 C.2    Hyperparameters
+29: end while
+30: Step 3: AgentTuner.                                  We report the key hyperparameters used across
+31: Run MCTS on G with atomic edits; update G.           all experiments. The acceptance thresholds are
+32: return G ⋆ ← arg maxH∈K (S(H), −C(H)).               set to τp = τq = 0.95, where higher values en-
+             s.t. C(G ⋆ ) ≤ B.                           force more conservative selection and typically
+                                                         yield faster convergence, while lower values per-
+                                                         mit broader exploration. The top-k candidate pool
+B     Case Study                                         size is set to k = 3 for both pruning and quanti-
+                                                         zation evaluation. The RRF smoothing constant
+B.1 Workflow Overview and Legend Mapping                 is set to κ = max(10, |V |). For the RRF impor-
+Figure 5 visualizes the pruning process on the           tance weights, we set wdegree = 1, wbetweenness = 1,
+redundant workflow graph generated on MATH               wshapley = 2, and w∆cost = 1, where the Shap-
+(Hendrycks et al., 2021). To match the legend            ley weight is assigned a higher value to emphasize
+used in the figure, we map the implementation            cooperative contribution signals.
+C.3     Nodes                                                the average validation score:
+Following AFlow, we treat an operator as a node in                      r(W ) = avgScore(W ; DV )           (10)
+the DAG: each node corresponds to an executable
+operator (typically an LLM call) with fixed I/O              The search is equipped with an early stopping rule:
+constraints, including its own prompt, available             the procedure terminates when the top-k candidates
+resources/tools, and input–output schema. We pro-            remain unchanged for n consecutive rounds, or
+vide complete per-node definitions and the default           equivalently when the mean score of the top-k set
+prompts for standard nodes in Section H.                     no longer improves. The full hyperparameter con-
+                                                             figurations are as follows: λ = 0.3, α = 0.2, k = 3,
+C.4     Source Code                                          stopping patience = 5, and the number of repeated
+                                                             evaluations = 1.
+We provide the executable code for the initial work-
+                                                                It is important to clarify the role of AgentTuner
+flow graphs of MATH, MBPP, and HotpotQA in
+                                                             in our framework. The core contribution of this
+Section I to ensure reproducibility.
+                                                             work lies in the structural optimization pipeline—
+                                                             namely, pruning and quantization—together with
+D     Stage-wise Contribution Details
+                                                             the RRF-based fusion of node-importance signals.
+In the AgentTuner stage, we adopt an offline work-           AgentTuner is an optional offline enhancement
+flow search procedure inspired by Monte Carlo                module that can be applied when additional search
+Tree Search (MCTS). Each node in the search space            budget is available, with the goal of further ex-
+corresponds to a complete workflow W , i.e., a full          ploring the accuracy–cost Pareto frontier. It is not
+multi-agent system. At each iteration, the algo-             required for the validity of the proposed method,
+rithm first selects a parent workflow from the his-          nor is it specifically designed to compensate for
+torical candidate pool, and then invokes the LLM             possible performance loss introduced by pruning
+optimizer to generate a local modification based on          or quantization.
+both prior search experience and the operator set               The stage-wise results in Table 5 further support
+O. Such modifications may include prompt refine-             this interpretation. The pruning stage alone already
+ment, rewiring node connections, or recomposing              delivers substantial cost reduction, and even im-
+operators, each yielding a new workflow candidate.           proving accuracy on several datasets, indicating
+   Different from classical UCT-style tree policies,         that structural simplification does not inherently
+our parent selection does not follow an explicit
+upper-confidence bound. Instead, we employ a                 rely on sacrificing task performance. The quantiza-
+soft mixed probability mechanism that interpolates           tion stage yields additional cost savings, although
+between uniform exploration and score-based ex-              it may incur moderate accuracy degradation on
+ploitation. Concretely, for n candidate parent work-
+flows, the probability of selecting the i-th candidate       some tasks, which is consistent with the standard
+is defined as:                                               compression trade-off. Importantly, even without
+                                                             AgentTuner, the workflow obtained after pruning
+                       1
+    Pmixed (i) = λ ·                                         and quantization already achieves strong cost effi-
+                       n
+                              exp α(si − smax )
+                                                      (9)   ciency with acceptable performance, demonstrating
+                + (1 − λ) · Pn
+                                                             that AgentTuner is not a mandatory recovery step
+                                                   
+                             j=1 exp α(sj − smax )
+                                                             for restoring model quality.
+where si denotes the average validation score of                Moreover, AgentTuner does not always provide
+workflow i on the validation set Dval , smax is the          the best overall utility. On some datasets, it im-
+maximum score among the current candidates, λ                proves accuracy but also introduces a noticeable
+controls the exploration strength, and α controls            increase in inference cost. This observation fur-
+the preference toward high-performing candidates.            ther confirms that AgentTuner should be viewed
+This design encourages broad exploration in the              as an optional module rather than a necessary cor-
+early stage while gradually biasing the search to-           rective component of the system. In practice, it is
+ward stronger workflows.                                     most beneficial in scenarios where high accuracy
+   For each newly generated workflow, we evalu-              is prioritized over cost, where compression causes
+ate its (score, cost) on Dval . To reduce evaluation         a non-trivial accuracy drop and partial recovery is
+noise, the workflow can be executed multiple times           desired, or where sufficient budget is available to
+and the average performance is recorded. The re-             search for solutions closer to the Pareto-optimal
+ward fed back to the search process is defined as            frontier.
+     Method                       MATH                       AIME                            GSM8K                              HotpotQA
+                          Score    Cost ($/prob.)   Score     Cost ($/prob.)      Score         Cost ($/prob.)      Score          Cost ($/prob.)
+
+     Original             73.1        1.03e-2       66.4           1.55e-2         96.6            4.34e-3              77.0           7.65e-3
+     After pruning        75.6        3.30e-3       67.1           1.19e-2         95.8            2.18e-3              76.7           5.55e-3
+     After quantization   74.8        2.54e-3       67.1           1.19e-2         93.9            5.70e-4              72.8           2.90e-3
+     After tuning         75.6        1.04e-2       69.6           1.28e-1         95.1            6.10e-4              71.9           4.20e-3
+
+     Method                       MBPP                       DROP                           LiveCode                           MusiqueAns
+                          Score    Cost ($/prob.)   Score     Cost ($/prob.)      Score         Cost ($/prob.)      Score          Cost ($/prob.)
+
+     Original             69.8        2.57e-3       77.9           1.55e-3         60.2            1.09e-2              85.3           1.07e-2
+     After pruning        79.7        1.63e-3       77.7           6.40e-4         59.8            4.55e-3              86.4           3.51e-3
+     After quantization   79.2        7.10e-4       78.4           4.50e-4         61.4            3.20e-3              85.3           9.90e-4
+     After tuning         80.2        7.10e-4       83.3           9.50e-4         61.7            2.59e-3              85.8           9.90e-4
+
+
+Table 5: Stage-wise contribution analysis of pruning, quantization, and AgentTuner. We report the score
+and average inference cost per problem at different stages of the optimization pipeline across eight representative
+benchmarks. The results show that pruning alone already yields substantial cost reduction and can even improve
+task performance on several datasets. Quantization further reduces cost, while sometimes introducing a moderate
+accuracy drop, reflecting the standard compression trade-off. AgentTuner serves as an optional offline enhancement
+step that may further improve performance on some tasks, but it is not required for obtaining strong cost efficiency,
+nor does it always provide the best overall cost–accuracy trade-off.
+
+
+E    Break-even Analysis of Optimization                               Datasets           Total optimization cost ($)      Break-even inference calls
+
+     Cost                                                              AIME                         43.07                              13459
+                                                                       MATH                         14.04                               2742
+                                                                       DROP                          2.26                               3767
+To quantify the trade-off between the one-time opti-                   MBPP                          2.26                               1222
+mization overhead and the recurring inference-time                     GSM8K                         5.70                               1652
+                                                                       HotpotQA                     18.57                               8889
+savings, we provide a time-to-break-even analysis.                     LiveCode                     26.52                               2873
+Let Coptimize denote the total cost incurred during                    MusiqueAns                   25.85                              10508
+
+the structural optimization/search stage. Let Cbase
+                                                                       Table 6: Break-even analysis of optimization cost. We
+and Cours denote the average API cost per inference
+                                                                       report the total one-time optimization cost Coptimize and
+before optimization (the baseline method) and after                    the corresponding number of future executions required
+optimization (our method), respectively. Then, the                     to amortize this cost relative to AFlow.
+per-inference cost saving is defined as:
+                                                                                   Probe Size                    HotpotQA
+                    ∆C = Cbase − Cours                      (11)
+                                                                                                         Acc.           Cost ($/prob.)
+Accordingly, the break-even point is defined as the                                10                    75.6                  5.89e-3
+number of future executions required to amortize                                   50                    77.0                  5.55e-3
+the one-time optimization cost:                                                    100                   75.3                  3.79e-3
+
+                                   Coptimize                           Table 7: Sensitivity analysis of probe dataset size
+                   Nbreak-even =                            (12)       on HotpotQA. We vary the probe size used for node-
+                                    ∆C
+                                                                       importance evaluation and report the resulting task ac-
+                                                                       curacy and average inference cost per problem.
+   Here, Coptimize is paid only once during the opti-
+mization stage, whereas ∆C yields recurring sav-                               Method                        MATH                 HotpotQA
+ings in every subsequent deployment. Therefore,                                                        Acc.       Cost          Acc.       Cost
+as the optimized workflow is executed repeatedly,
+                                                                               Baseline (ADAS) 69.0 1.15e-2 81.6 5.89e-3
+the upfront search cost is gradually amortized over                            Ours            70.4 9.67e-3 79.4 2.75e-3
+time.
+   Table 6 reports the benchmark-wise Coptimize and                    Table 8: Experiments on ADAS-based workflows. We
+the resulting Nbreak-even values relative to AFlow,                    apply AgentSlimming to workflows derived from ADAS
+providing a more complete view of the trade-off                        without changing the core optimization algorithm or
+between search overhead and inference-time sav-                        hyperparameter settings.
+ings.
+      Method                   AIME                  HotpotQA                  MBPP                     GSM8K
+                        Acc. Cost ($/prob.) Acc. Cost ($/prob.) Acc. Cost ($/prob.) Acc. Cost ($/prob.)
+      Baseline (AFlow) 87.1       1.19e-2     81.6       5.89e-3        73.3      2.84e-3        96.6     3.04e-3
+      Ours             87.9       6.59e-3     79.4       2.76e-3        75.6      1.06e-3        97.9     5.57e-4
+
+Table 9: Cross-architecture validation on the Qwen3 series. We replace the high-/low-cost nodes with
+qwen3-235b-a22b-instruct-2507 and qwen3-30b-a3b-instruct-2507, respectively, while keeping all other
+algorithms and hyperparameters unchanged. Across AIME, HotpotQA, MBPP, and GSM8K, AgentSlimming
+consistently achieves substantial cost reductions while maintaining competitive overall performance.
+
+                      Method                          MATH                        GSM8K
+                                              Acc.     Cost ($/prob.)      Acc.     Cost ($/prob.)
+                      AFlow                   74.8        1.20e-2          95.5        4.38e-3
+                      Ours                    73.9        6.88e-3          95.5        9.30e-4
+                      Cross-dataset results   77.3        6.63e-3          96.6        2.63e-3
+
+Table 10: Cross-dataset validation between GSM8K and MATH. We optimize the workflow structure on one
+dataset and directly evaluate the resulting structure on the other, without changing the optimization algorithm
+or hyperparameter settings. The transferred structures remain competitive in both accuracy and cost efficiency,
+suggesting that AgentSlimming exhibits non-trivial cross-dataset generalization across same-type reasoning tasks.
+
+
+F     Probe Dataset Size Sensitivity                         cover both high- and low-difficulty settings as well
+                                                             as diverse task types.
+To evaluate the sensitivity of our method to the
+probe dataset size, we conduct additional exper-                The results are summarized in Table 9. We ob-
+iments on HotpotQA with probe sizes of 10, 50,               serve that AgentSlimming still delivers substantial
+and 100. The results are summarized in Table 7.              cost reductions under this cross-architecture set-
+We observe that even a moderate probe size of 50             ting, while preserving competitive overall accuracy.
+is sufficient to produce a stable node-importance            In particular, our method improves accuracy on
+ranking and achieves the best accuracy among the             AIME, MBPP, and GSM8K, while incurring only a
+three settings. Further increasing the probe size to         moderate drop on HotpotQA. These results suggest
+100 reduces inference cost, but also leads to a drop         that the effectiveness of AgentSlimming is not tied
+in accuracy. Empirically, a probe size in the range          to a specific model family, and that its cost-saving
+of 30–60 already provides strong performance, and            benefits transfer well to the Qwen3 series.
+the importance scores stabilize with as few as 50
+probe samples. This suggests that our optimiza-              G.2    Cross-Dataset Validation between
+tion process does not require a large probe dataset                 GSM8K and MATH
+to obtain consistent pruning decisions, which fur-
+                                                             To further address concerns about generalization to
+ther improves the practicality and efficiency of the
+                                                             unseen data, we conduct additional cross-dataset
+overall framework.
+                                                             validation between GSM8K and MATH. Specifi-
+G     Additional Generalization Studies                      cally, we optimize the workflow structure on one
+                                                             dataset and then directly evaluate the resulting
+G.1    Experiments on the Qwen3 Series                       structure on the other dataset. No additional struc-
+To evaluate whether our method generalizes                   tural search is performed on the target dataset, and
+across model families, we further conduct                    all optimization algorithms and hyperparameter set-
+cross-architecture validation on the Qwen3 series.           tings are kept unchanged.
+Specifically, we replace the high-/low-cost nodes               Table 10 presents the cross-dataset results. These
+with qwen3-235b-a22b-instruct-2507 and                       results suggest that the optimized structures discov-
+qwen3-30b-a3b-instruct-2507, respectively,                   ered by AgentSlimming are not overly specialized
+while keeping all other algorithms and hyperpa-              to a single dataset. Instead, they transfer reasonably
+rameters unchanged. We evaluate on four datasets:            well across same-type reasoning datasets, indicat-
+AIME, HotpotQA, MBPP, and GSM8K, which                       ing non-trivial cross-dataset generalization ability.
+G.3   Experiments on ADAS-Based Workflows
+To further verify that AgentSlimming does not rely
+on AFlow-specific implementations, we conduct
+an additional cross-framework transfer study by
+applying the same slimming pipeline to ADAS, an
+MAS framework that differs from AFlow in both
+its optimization mechanism and overall system or-
+ganization, under the same tasks and evaluation
+protocol. We keep the core optimization algorithm
+and hyperparameter settings unchanged, and evalu-
+ate the resulting compressed workflows on MATH
+and HotpotQA.
+   The results are summarized in Table 8. We ob-
+serve that AgentSlimming remains effective on
+ADAS-based workflows, achieving substantial cost
+reduction while keeping performance degradation
+within an acceptable range, consistent with the
+trend observed on AFlow. These results support the
+robustness and transferability of AgentSlimming
+beyond a single workflow family.
+   More broadly, AgentSlimming only assumes that
+the underlying multi-agent workflow can be mod-
+eled as a DAG. Under this abstraction, we estimate
+an importance score for each agent node and iter-
+atively perform removal or low-cost replacement,
+with a baseline-anchored acceptance rule to pre-
+vent performance collapse. Therefore, AgentSlim-
+ming can be used as a plug-and-play module for
+a broad range of graph-structured MAS, as long
+as the workflow can be abstracted into nodes and
+dependencies and the system provides a stable task-
+level evaluation signal. We also note that systems
+that cannot be reasonably expressed as a DAG, or
+that lack a stable evaluation signal, may require ad-
+ditional graph transformation or evaluation design.
+H     Nodes
+H.1    Definitions of Standard Nodes
+
+      Node name         Role               Functionality                 Applicable datasets
+      AnswerGenerate    Answer Generator   Directly generates an         General QA, Reasoning
+      Node                                 answer to the input           (e.g., GSM8K, MATH,
+                                           question using an LLM.        HotpotQA)
+                                           It is the standard node for
+                                           direct question
+                                           answering.
+      Programmer        Program Executor   Generates Python code         Math & Logic tasks
+      Node                                 (PoT/PAL style) to solve      requiring calculation
+                                           the problem and executes      (e.g., MATH, GSM8K)
+                                           it in a local sandbox. It
+                                           includes a retry
+                                           mechanism for execution
+                                           failures.
+      CustomCode-       Code Generator     Focuses solely on             Code Generation (e.g.,
+      Generate Node                        generating executable         LiveCode, MBPP)
+                                           Python code (e.g., a
+                                           solve() function) based
+                                           on the problem, without
+                                           executing the code
+                                           immediately.
+      Test Node         Self-Corrector     Executes generated code       Complex Reasoning &
+                                           and iteratively               Coding (e.g., LiveCode,
+                                           refines/fixes it based on     MBPP)
+                                           execution feedback
+                                           (runtime errors or
+                                           incorrect outputs).
+      ScEnsemble        Ensemble           Aggregates multiple           General Reasoning (e.g.,
+      Node              Selector           candidate solutions from      GSM8K, MATH)
+                                           upstream nodes and
+                                           selects the best one using
+                                           Self-Consistency or
+                                           majority voting logic.
+      CodeRefine Node   Code Refiner       Refines and improves an       Math & Multi-step
+                                           existing draft solution by    Reasoning with
+                                           leveraging programmatic       program-aided
+                                           reasoning or code-based       refinement (e.g.,
+                                           feedback before final         GSM8K, MATH, AIME)
+                                           aggregation/formatting.
+      Custom Node       Custom Operator    Executes a user-defined       Any / Agnostic
+                                           prompt or custom logic,
+                                           providing flexibility for
+                                           specific sub-tasks not
+                                           covered by standard
+                                           nodes.
+H.2   Default Prompts for Standard Nodes
+
+  Prompt of Standard Nodes
+
+
+            PROMPT_ANSWERGENERATOR = """
+                Think step by step and solve the problem.
+                1. In the "thought" field, explain your thinking process in detail
+                    .
+                2. In the "answer" field, provide the final answer concisely and
+                    clearly. The answer should be a direct response to the
+                    question, without including explanations or reasoning.
+
+                  Your task: {input}
+            """
+
+
+            PROMPT_CUSTOMCODEGENERATE = """
+                You are a professional Python programmer. Your task is to write
+                    complete, self−contained code based on a given problem and
+                    output the answer. The code should include all necessary
+                    imports and dependencies, and be ready to run without
+                    additional setup or environment configuration.
+
+                  Problem: {problem}
+                  Resources: {input}
+
+                  Your code should:
+                  1. Implement the calculation steps described in the problem.
+                  2. Define a function named ‘{function_name}‘ that performs the
+                      calculation and returns the result.
+                  3. Return only runnable Python code without explanations.
+            """
+
+
+            PROMPT_SCENSEMBLE = """
+                Given the problem described as follows: {problem}
+                Several candidate solutions have been generated to address the
+                    given problem. They are as follows:
+                {solutions}
+
+                  Your task is to act as an expert evaluator. Carefully evaluate
+                      these solutions and identify the definitive answer that
+                      appears most frequently across them (Majority Consensus).
+                  Analyze the solutions to determine the most consistent and
+                      reliable outcome.
+            """
+
+
+            PROMPT_PROGRAMMER = """
+                You are a professional Python programmer. Your task is to write
+                    complete, self−contained code based on a given problem and
+                    output the answer. The code should include all necessary
+                    imports and dependencies, and be ready to run without
+                    additional setup or environment configuration.
+
+                  Problem: {problem}
+                  Resources: {input}
+
+                  Your code should:
+                  1. Implement the calculation steps described in the problem.
+                  2. Define a function named ‘solve‘ that performs the calculation
+                      and returns the result. The ‘solve‘ function should not
+                      require any input parameters; instead, it should obtain all
+                      necessary inputs from within the function or from globally
+                      defined variables.
+                  3. ‘solve‘ function return the final calculation result.
+                    Please ensure your code is efficient, well−commented, and follows
+                        Python best practices. The output should be limited to basic
+                        data types such as strings, integers, and floats. It is
+                        prohibited to transmit images or other file formats. The code
+                        output is intended for a text−based language model.
+              """
+
+              PROMPT_TEST = """
+                  Given a problem and a python code solution which failed to pass
+                      test or execute, you need to analyze the reason for the
+                      failure and propose a better code solution.
+
+                    Problem: {problem}
+
+                    Failure details:
+                    {error_info}
+
+                    Please provide a "reflection" field explaining the failed test
+                        cases and code solution, and a "solution" field containing a
+                        better code solution without any additional text or test cases
+                        .
+              """
+
+
+              PROMPT_ANSWERFORMAT = """
+                  You are an answer formatter for the {dataset_name} dataset.
+
+                    Task Context:
+                    {task_context}
+
+                    Format Requirements:
+                    {format_requirements}
+
+                    Original Answer:
+                    {original_answer}
+
+                    Return only the final formatted answer according to the
+                        requirements.
+              """
+
+
+
+I     Examples of Initial Workflow Graphs
+I.1    Minimal initial workflow graph on MATH dataset
+
+              from src.core.edge import Edge
+              from src.core.graphflow import GraphFlow
+              from src.core.nodes.answer_format_node import AnswerFormatNode
+              from src.core.nodes.custom_node import CustomNode
+              from src.core.nodes.input_node import InputNode
+              from src.core.workflow import BaseWorkflow
+              from . import prompt as prompt_custom
+
+              class Workflow(BaseWorkflow):
+                  def _build_graph(self) −> GraphFlow:
+                      Input = InputNode(
+                          node_id="Input",
+                          node_llm_config=self.llm_config,
+                          description="Graph input entry.",
+                      )
+                      Reasoner = CustomNode(
+                          node_id="Reasoner",
+                          node_prompt=prompt_custom.PROMPT_REASONING,
+                          node_llm_config=self.llm_config,
+                          description="Reason over the problem and produce a concise
+                               answer.",
+                       )
+                       AnswerFormatter = AnswerFormatNode(
+                           node_id="AnswerFormatter",
+                           dataset_name=self.dataset,
+                           node_llm_config=self.llm_config,
+                           description="Format the final answer for the target
+                               dataset.",
+                       )
+                       return GraphFlow(
+                           nodes=[Input, Reasoner, AnswerFormatter],
+                           edges=[
+                               Edge(source="Input", target="Reasoner"),
+                               Edge(source="Reasoner", target="AnswerFormatter"),
+                           ],
+                           entry_node_ids=["Input"],
+                           final_node_id="AnswerFormatter",
+                           description="Minimal MATH round_1 workflow.",
+                       )
+
+
+
+      Prompt of a Reasoner Custom Node
+
+              PROMPT_REASONING = (
+                  "Solve the problem carefully. Identify the key facts, reason step
+                      by step, and return a concise answer."
+              )
+
+
+
+I.2    Minimal initial workflow graph on MBPP dataset
+
+              from src.core.edge import Edge
+              from src.core.graphflow import GraphFlow
+              from src.core.nodes.answer_format_node import AnswerFormatNode
+              from src.core.nodes.custom_code_generate_node import
+                  CustomCodeGenerateNode
+              from src.core.nodes.input_node import InputNode
+              from src.core.workflow import BaseWorkflow
+
+              class Workflow(BaseWorkflow):
+                  def _build_graph(self) −> GraphFlow:
+                      Input = InputNode(
+                          node_id="Input",
+                          node_llm_config=self.llm_config,
+                          description="Graph input entry.",
+                      )
+                      CustomCodeGenerator = CustomCodeGenerateNode(
+                          node_id="CustomCodeGenerator",
+                          node_llm_config=self.llm_config,
+                          description="Generates Python code for code−generation
+                              benchmarks and preserves the entry point.",
+                      )
+                      AnswerFormatter = AnswerFormatNode(
+                          node_id="AnswerFormatter",
+                          dataset_name=self.dataset,
+                          node_llm_config=self.llm_config,
+                          description="Format the final answer for the target
+                              dataset.",
+                      )
+                      return GraphFlow(
+                          nodes=[Input, CustomCodeGenerator, AnswerFormatter],
+                          edges=[
+                              Edge(source="Input", target="CustomCodeGenerator"),
+                              Edge(source="CustomCodeGenerator", target="
+                                  AnswerFormatter"),
+                          ],
+                          entry_node_ids=["Input"],
+                          final_node_id="AnswerFormatter",
+                          description="Minimal MBPP round_1 workflow.",
+                     )
+
+
+
+I.3   Minimal initial workflow graph on HotpotQA dataset
+
+             from src.core.edge import Edge
+             from src.core.graphflow import GraphFlow
+             from src.core.nodes.answer_format_node import AnswerFormatNode
+             from src.core.nodes.answer_generate_node import AnswerGenerateNode
+             from src.core.nodes.input_node import InputNode
+             from src.core.workflow import BaseWorkflow
+
+             class Workflow(BaseWorkflow):
+                 def _build_graph(self) −> GraphFlow:
+                     Input = InputNode(
+                         node_id="Input",
+                         node_llm_config=self.llm_config,
+                         description="Graph input entry.",
+                     )
+                     AnswerGenerator = AnswerGenerateNode(
+                         node_id="AnswerGenerator",
+                         node_llm_config=self.llm_config,
+                         description="Built−in answer generation node for direct
+                             step−by−step solving.",
+                     )
+                     AnswerFormatter = AnswerFormatNode(
+                         node_id="AnswerFormatter",
+                         dataset_name=self.dataset,
+                         node_llm_config=self.llm_config,
+                         description="Format the final answer for the target
+                             dataset.",
+                     )
+                     return GraphFlow(
+                         nodes=[Input, AnswerGenerator, AnswerFormatter],
+                         edges=[
+                             Edge(source="Input", target="AnswerGenerator"),
+                             Edge(source="AnswerGenerator", target="AnswerFormatter
+                                 "),
+                         ],
+                         entry_node_ids=["Input"],
+                         final_node_id="AnswerFormatter",
+                         description="Minimal HotpotQA round_1 workflow.",
+                     )
+

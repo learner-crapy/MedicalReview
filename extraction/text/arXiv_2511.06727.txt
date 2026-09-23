@@ -1,0 +1,811 @@
+                                         S-DAG: A Subject-Based Directed Acyclic Graph for Multi-Agent Heterogeneous
+                                                                         Reasoning
+                                                                     Jiangwen Dong* 1 , Zehui Lin* 1 , Wanyu Lin†1, 2 , Mingjin Zhang2
+                                           1
+                                               Department of Data Science and Artificial Intelligence, The Hong Kong Polytechnic University, Hong Kong SAR, China
+                                                           2
+                                                             Department of Computing, The Hong Kong Polytechnic University, Hong Kong SAR, China
+
+
+
+
+arXiv:2511.06727v2 [cs.MA] 19 Nov 2025
+                                                                        Abstract                              development of a general-purpose LLM is promising (Mu-
+                                           Large Language Models (LLMs) have achieved impressive              muni and Mumuni 2025; Kojima et al. 2022), it becomes
+                                           performance in complex reasoning problems. Their effective-        evident that a single LLM often struggles to handle complex
+                                           ness highly depends on the specific nature of the task, espe-      reasoning tasks, especially when these problems span mul-
+                                           cially the required domain knowledge. Existing approaches,         tiple disciplines (Feng et al. 2025a). This limitation raises
+                                           such as mixture-of-experts, typically operate at the task level;   higher demands for model training and fine-tuning (Hoff-
+                                           they are too coarse to effectively solve the heterogeneous         mann et al. 2022). In this context, multi-agent systems based
+                                           problems involving multiple subjects. This work proposes a         on LLMs have emerged, aiming to leverage the collective
+                                           novel framework that performs fine-grained analysis at the         intelligence and specialized expertise of multiple agents to
+                                           subject level equipped with a designated multi-agent collab-       tackle complex and multidisciplinary problems (Guo et al.
+                                           oration strategy for addressing heterogeneous problem rea-
+                                                                                                              2024; Du et al. 2023; Talebirad and Nadiri 2023; Han et al.
+                                           soning. Specifically, given an input query, we first employ a
+                                           Graph Neural Network to identify the relevant subjects and         2024; Gu et al. 2025; Liang et al. 2024; Yao et al. 2025)1 .
+                                           infer their interdependencies to generate an Subject-based Di-        Existing research has explored the mixture-of-experts
+                                           rected Acyclic Graph (S-DAG), where nodes represent sub-           (MoE) framework that dynamically selects the most suitable
+                                           jects and edges encode information flow. Then, we profile the      LLMs for a given problem (Masoudnia and Ebrahimpour
+                                           LLM models by assigning each model a subject-specific ex-          2014; Zhou et al. 2022; Cai et al. 2024). Subsequently, the
+                                           pertise score, and select the top-performing one for match-        mixture-of-agents (MoA) paradigm leveraging multi-agent
+                                           ing the corresponding subject of the S-DAG. Such subject-          collaboration is proposed to deal with more complex prob-
+                                           model matching enables graph-structured multi-agent collab-        lems by combining the strengths of diverse LLMs (Du et al.
+                                           oration where information flows from the starting model to
+                                           the ending model over S-DAG. We curate and release multi-
+                                                                                                              2023; Zhang et al. 2024c; Wang et al. 2024; Li et al. 2024a).
+                                           subject subsets of standard benchmarks (MMLU-Pro, GPQA,            The most relevant to us is Symbolic-MoE, which analyzes
+                                           MedMCQA) to better reflect complex, real-world reason-             the required subject knowledge for a task and then utilizes
+                                           ing tasks. Extensive experiments show that our approach            a set of top-k expert/subject models to solve the heteroge-
+                                           significantly outperforms existing task-level model selection      neous problem (Chen et al. 2025). For clarity, we organize
+                                           and multi-agent collaboration baselines in accuracy and ef-        the existing heterogeneous reasoning paradigms in Table 1.
+                                           ficiency. These results highlight the effectiveness of subject-    These prior works often assume queries belong to a single
+                                           aware reasoning and structured collaboration in addressing         knowledge domain or simply rely on a single “best” model
+                                           complex and multi-subject problems.                                or agent for reasoning (Chen et al. 2025; Feng et al. 2024,
+                                         Code —                                                               2025b; Feng, Shen, and You 2025). Very rare work consid-
+                                           https://github.com/WanyuGroup/AAAI2026 S-DAG                       ers the fine-grained subject-specific information of the prob-
+                                                                                                              lem, not to mention multi-agent collaboration at the subject
+                                         Extended version — https://arxiv.org/abs/2511.06727                  level, as shown in Figure 1. Such limitation hinders their ap-
+                                                                                                              plicability of prior works in heterogeneous reasoning tasks,
+                                                                 1    Introduction                            where seamless integration of cross-domain knowledge is
+                                         In recent years, intelligent agents based on large language          critical. Therefore, this paper aims to address the following
+                                         models (LLMs) have developed rapidly and achieved signif-            research problem: How can we optimally select and coordi-
+                                         icant advancements across various fields, ranging from ques-         nate expert LLMs at subject level for complex, multi-subject
+                                         tion answering (Yue 2025; Zhuang et al. 2023) to text gener-         problems to achieve both high accuracy and efficiency?
+                                         ation (Huang et al. 2023; Wu et al. 2024) and complex rea-              In this work, we propose Subject-based Directed Acyclic
+                                         soning tasks (Ke et al. 2025; Zhang et al. 2024b). While the         Graph (S-DAG), as shown in Figure 2, a novel framework
+                                               * These authors contributed equally.                           for addressing heterogeneous reasoning problems that re-
+                                               †
+                                              Corresponding Author: Wanyu Lin, wan-yu.lin@polyu.edu.hk
+                                                                                                                 1
+                                         Copyright © 2026, Association for the Advancement of Artificial           For simplicity, agents, LLMs, and models are used inter-
+                                         Intelligence (www.aaai.org). All rights reserved.                    changeably.
+           Category                            Example Work                   Subject-Level Analysis   MAS Collaboration   Subject-Specific Collaboration
+                                  GraphRouter (Feng, Shen, and You 2025)               %                      %                         %
+             Routing
+                                     SymbolicMoE (Chen et al. 2025)                    !                      %                         %
+                                  Heterogeneous Swarm (Feng et al. 2025b)              %                      !                         %
+   Multi-Agent System (MAS)
+                                     Knowledge Card (Feng et al. 2024)                 !                      %                         %
+       Routing for MAS                         S-DAG (Ours)                            !                      !                         !
+
+Table 1: Comparison of our proposed S-DAG and prior methods for heterogeneous reasoning. Unlike prior methods that either
+perform single-domain routing or lack fine-grained problem understanding, S-DAG supports detailed subject-level analysis and
+enables dynamic, subject-specific multi-agent collaboration for more effective reasoning.
+
+
+                                                                                      decomposition and graph-structured multi-agent collabo-
+      A Single Question that Encompasses Multiple Subjects                            ration mechanism for the multi-subject problem.
+                                                                                    • We develop a fine-grained subject–LLM matching strat-
+    Router                        Multi-Expert Router      Subject Analysis           egy by profiling LLMs according to subject-specific ca-
+                                                                                      pabilities, enabling precise assignment of expert agents
+                                                                                      and efficient coordination via the S-DAG.
+   Chemistry           Math 0.3      Chemistry 0.6        Biology 0.1               • We curate multi-subject evaluation datasets by manu-
+                                                                                      ally selecting samples that require multi-subject knowl-
+                        Math           Chemistry            Biology                   edge from three challenging benchmarks—MMLU-Pro,
+   Chemistry
+    Agent
+                        Agent           Agent               Agent                     GPQA, and MedMCQA. Extensive experiments demon-
+                          Multi-Agent Subject-Specific Collaboration                  strate that our approach substantially outperforms both
+                                                                                      single-model and multi-model baselines in terms of ac-
+  Prior Method                        Our Method                                      curacy and computational efficiency.
+Figure 1: Comparison of the prior method with single agent
+and the proposed S-DAG approach with multi-agent col-                                                     2    Related Work
+laboration. The prior method routes the problem to a sin-                          Multi-Agent Systems. Recent advances in Multi-Agent
+gle agent based on a coarse domain label, while our S-DAG                          Systems (MAS) have introduced diverse collaboration
+approach conducts fine-grained subject analysis, identifying                       mechanisms to tackle complex tasks (Guo et al. 2024;
+multiple relevant domains with associated relevant weights.                        Talebirad and Nadiri 2023; Han et al. 2024), broadly cate-
+                                                                                   gorized into fixed and dynamic paradigms. (1) Fixed Multi-
+                                                                                   Agent Systems rely on manually designed architectures, such
+quire knowledge across multiple subject domains. The S-                            as LLM debates (Du et al. 2023; Liang et al. 2024), chain-
+DAG identifies the relevant subjects for a given problem                           of-agents (Gu et al. 2025; Zhang et al. 2024c; Tao, Zhao,
+and defines the graph-structured information flow for multi-                       and Feng 2025), and graph-based systems (Yin et al. 2023;
+agent collaboration. We begin by modeling the complete                             Li et al. 2024b; Lin et al. 2025). These approaches en-
+set of subjects as a fully connected graph. To extract fine-                       able collaboration among agents with predefined roles and
+grained subject-level structure, we introduce a specialized                        structures, making them effective for well-structured prob-
+graph neural network that learns node embeddings to cap-                           lems, but often lacking adaptability to dynamic tasks. (2)
+ture the relevant subjects and their interdependencies with                        Dynamic Multi-Agent Systems adapt their structure in re-
+respect to a given problem. From this, we derive a subject-                        sponse to real-time task demands. Notable examples in-
+based directed acyclic graph that reflects the essential sub-                      clude GPTSwarm (Zhuge et al. 2024), GHG (Li et al. 2025)
+jects and reasoning flow for the problem. Based on the                             and Heterogeneous Swarms (Feng et al. 2025b), which
+constructed S-DAG, we perform subject–LLM matching by                              optimize collaboration through dynamic graph structures.
+profiling LLMs according to their subject-specific capabili-                       AgentPrune (Zhang et al. 2024a) improves communication
+ties. The constructed S-DAG and LLM profile guide a struc-                         efficiency by pruning redundant links, while DyLAN (Liu
+tured multi-agent collaboration mechanism, where domain-                           et al. 2024) dynamically selects agents and communication
+specialized LLMs are assigned to subject nodes and commu-                          paths based on task context. MasRouter (Yue et al. 2025)
+nicate according to the DAG topology. Through this design,                         introduces a cascaded controller for mode selection, role as-
+our S-DAG enables efficient and subject-level multi-agent                          signment, and LLM routing, enabling efficient and adaptive
+reasoning. In summary, the main contributions of this work                         MAS construction.
+are as follows:                                                                       Heterogeneous Reasoning. Heterogeneous reasoning fo-
+ • To the best of our knowledge, we are the first to study the                     cuses on solving problems that require knowledge across
+   heterogeneous reasoning problem that a single complex                           multiple domains (Xin et al. 2024; Chen et al. 2025; Feng
+   problem covers multiple subject knowledge. Our novel                            et al. 2024). Existing approaches can be grouped by the
+   framework, S-DAG, enables fine-grained subject-specific                         number of models involved: (1) Single-Model Approaches
+         Question: Say the pupil of your eye has a
+         diameter of 5 mm and you have a telescope
+                                                                                               Agent
+         with an aperture of 50 cm. How much more
+                                                                                              Selection
+         light can the telescope gather than your eye?
+                                                                                                              LLM Profile
+
+                                                                           S-DAG
+            BERT
+           Encoder
+                                                                                     Multi-Subject Question
+
+           Embedding                              Initial Graph                                      Physics Agent
+
+                          Graph Decoder                                 Math Agent
+
+
+                     Math, 0.4                  Physics, 0.35                                 Information
+                                                                                                  Flow
+                                                                        Unselected
+            Delete
+
+
+           Engineering, 0.05                                            Engineering Agent
+                                              Biology, 0.2                                        Biology Agent
+
+
+       Stage 1: Question Analysis and DAG Generation                 Stage 2: DAG for Multi-Agent Collaboration
+
+Figure 2: The Overview of the S-DAG Framework. The framework operates in two stages. In Stage 1, the input question
+is encoded using a BERT encoder, and a Graph Decoder generates the S-DAG, capturing subject dependencies and pruning
+irrelevant subjects. In Stage 2, expert LLMs are selected based on their subject-specific expertise and organized according to
+the S-DAG, with directed edges defining the information flow for multi-subject collaborative reasoning.
+
+
+select one expert model per query, often using routing            a BERT encoder, and a Graph Neural Network predicts rele-
+mechanisms. MoE techniques (Masoudnia and Ebrahimpour             vant subjects and their dependencies to construct a Subject-
+2014; Zhou et al. 2022; Cai et al. 2024) specialize models        based Directed Acyclic Graph (S-DAG), filtering out irrele-
+over input space, while FrugalGPT (Chen, Zaharia, and Zou         vant domains. In Stage 2, expert LLMs are selected based
+2024) uses a reliability predictor, and GraphRouter (Feng,        on subject-specific capability profiles and assigned to the
+Shen, and You 2025) employs a graph neural network                S-DAG nodes. These agents collaborate according to the
+to frame selection as edge prediction. Though effective,          graph’s structure, with directed edges guiding information
+these methods fall short when queries require multi-domain        flow from supporting to dominant subjects, enabling effi-
+expertise. (2) Multi-Model Approaches enable collabo-             cient and accurate multi-subject reasoning.
+ration across multiple expert models. Mixture-of-Agents
+(MoA)(Wang et al. 2024; Li et al. 2024a) allows coordinated       3.1     Problem Setup
+reasoning, while SymbolicMoE(Chen et al. 2025) aggre-
+gates top-k responses based on skill relevance. Knowledge-        Let Q denotes a natural language question that spans mul-
+Card (Feng et al. 2024) dynamically selects smaller fine-         tiple subject areas S = {s1 , s2 , ..., sK }, and let M =
+tuned agents, and Heterogeneous Swarm (Feng et al. 2025b)         {M1 , M2 , ..., Mn } represent a pool of domain-specific ex-
+optimizes reasoning via a DAG structure. In contrast to prior     pert LLMs. The objective is to solve Q by determining a
+work focused on dataset-level heterogeneity, our method tar-      small set of relevant subject domains SQ ⊆ S (typically
+gets a more granular challenge: each individual question re-      |SQ | ≤ 5), identifying the interdependencies among them,
+quires reasoning across multiple subject domains.                 and assigning each subject si ∈ SQ to a corresponding ex-
+                                                                  pert model Mj ∈ M that is most proficient in that domain.
+                                                                  More specifically, we model the relationships between the
+                     3   Methodology                              selected subjects by constructing a DAG over SQ , i.e., S-
+Method Overview. As illustrated in Figure 2, our proposed         DAG, where a directed edge si → sj indicates that sub-
+S-DAG framework enables subject-aware multi-agent rea-            ject si provides auxiliary support for reasoning in subject
+soning for complex, multi-subject questions through a two-        sj in solving Q. This structure reflects the compositional
+stage process. In Stage 1, the input question is encoded using    nature of multi-domain reasoning and determines how dif-
+ferent experts should collaborate. To obtain the S-DAG, we        The final node representations are used for joint node and
+define a fully connected directed graph G = {V, E}, where         edge prediction, yielding a predicted subject graph GQ =
+each node vi ∈ V corresponds to a subject si ∈ S, and             {ŜQ , ÂQ }, where ŝiQ ∈ ŜQ is the predicted relevance score
+each directed edge (vi , vj ) ∈ E encodes a potential depen-      for subject si , and âij
+                                                                                         Q is the predicted edge score for the de-
+dency between subject pairs. From G, we derive the pruned         pendency from si to sj . Formally, the model is trained to
+S-DAG GQ = {SQ , AQ }, which serves as a high-level rea-          minimize a multi-task binary cross-entropy loss between the
+soning blueprint. It guides the selection of a subset of expert   predicted and ground-truth node and edge labels:
+LLMs, MQ ⊆ M, and defines the collaboration topology
+among them, enabling effective multi-agent reasoning over
+complex, interdisciplinary queries.                                             K
+                                                                                X                                  X
+                                                                  L = λnode ·         BCE(ŝiQ , siQ ) + λedge ·          BCE(âij   ij
+                                                                                                                                Q , aQ ),
+3.2   Preprocessing                                                             i=1                                i̸=j
+                                                                                                                             (2)
+GNN Training. To effectively solve the multi-subject
+                                                                  where λnode and λedge control the weighting between node-
+questions, we employ a set of expert agents, each special-
+                                                                  level and edge-level supervision. To avoid penalizing irrele-
+izing in a distinct domain. While LLMs are capable of iden-
+                                                                  vant subjects, edge loss terms are masked when both si = 0
+tifying relevant subjects via prompting, they often strug-
+                                                                  and sj = 0. This objective encourages the model to learn
+gle to capture fine-grained inter-subject dependencies and
+                                                                  subjects and their interaction patterns reflecting the reason-
+may produce outputs that are noisy, inconsistent, or lack-
+                                                                  ing dependencies in multi-domain tasks. Once trained, the
+ing in structural coherence. To address this limitation, we
+                                                                  GNN is used at inference time to construct a S-DAG for any
+introduce a trainable GNN module that learns to model sub-
+                                                                  new question, guiding the structure and flow of LLM-based
+ject dependencies through iterative message-passing over a
+                                                                  agent collaboration tailored to the problem’s subject compo-
+subject-level graph. The resulting subject graph, or S-DAG,
+                                                                  sition.
+serves as a robust structural prior that guides information
+flow across agents.                                               LLMs Subject Capability Profile. To optimize multi-
+   Before training the GNN for S-DAG generation, we               agent collaboration, we construct a capability profile for
+preprocess the dataset to construct ground-truth subject          each LLM based on its performance across various subject
+graphs for supervision. Given a question Q, we prompt a           domains. This profile captures the subject-specific strengths
+LLM to extract a set of relevant subject domains SQ =             of each model and serves as the foundation for expert selec-
+{s1 , s2 , ..., sk }. Each subject si is assigned a relevance     tion within the heterogeneous multi-agent system. By lever-
+weight {wi }ki=1 ∈ [0, 1], indicating its relative importance     aging these profiles, we ensure that queries are routed to the
+for solving Q. Using these subjects and weights, we can           most competent models, improving both accuracy and effi-
+construct a ground-truth subject graph GQ = {SQ , AQ } for        ciency in multi-domain reasoning.
+question Q, where AQ ∈ {0, 1}k×k is the adjacency ma-                Unlike prior work (Chen et al. 2025), which assigns
+trix. Specifically, a directed edge aij
+                                      Q = 1 indicates that sub-   a single subject label to each question, our approach
+ject si (with lower weights) supports subject sj (with higher     captures the multi-domain nature by assigning weights
+weight), reflecting the support-to-dominant subject relation-     to all relevant subjects. These weights reflect the rel-
+ship essential for multi-agent subject-specific reasoning. To     ative importance of each subject in solving the ques-
+ensure consistency, we use qwen-turbo-0919 (Yang                  tion, enabling a more fine-grained and accurate assess-
+et al. 2024) as the Subject LLM and perform three rounds          ment of each LLM’s performance across different do-
+of processing for each question, only retaining subjects that     mains. For instance, if model Mi answers a ques-
+appear consistently. Further details on dataset preprocessing     tion spanning math, physics, and biology with weights
+and subject graph construction are provided in appendix. To       {′ math′ : 0.5,′ physics′ : 0.3,′ biology′ : 0.2} correctly, it
+ensure comprehensive modeling of potential subject inter-         would accordingly obtain the performance score ScoreMi =
+actions, we define a static, fully connected directed graph       {′ math′ : +0.5,′ physics′ : +0.3,′ biology′ : +0.2}. By ag-
+G = {V, E}, where each node corresponds to a candidate            gregating such weighted scores across a diverse set of ques-
+subject and each edge represents a possible dependency.           tions, each model builds a subject capability profile that ac-
+This graph serves as the structural input for the GNN dur-        curately reflects its domain expertise.
+ing S-DAG generation.                                                To construct these profiles, we randomly select 200 ques-
+   Given a question Q, a pretrained transformer encoder,          tions from the test set to assess LLM performance across
+BERT (Devlin et al. 2019), encodes it into a dense vector         each subject domain. The performance scores are then nor-
+hQ ∈ Rd , capturing the semantic intent of the input. Each        malized to ensure comparability across domains and mod-
+subject node representation v ∈ V is initialized with a fused     els. The normalized capability scores Cij for model Mi and
+features of its subject embedding and question embedding          subject sj are given by:
+via an MLP:
+                                                                                                 ScoreMi ,sj
+                   (0)                                                                Cij = P                     ,                   (3)
+                 xi      = MLPinit ([hi ; hQ ]).           (1)                                  sk ∈S ScoreMi ,sk
+   The initialized node features are then updated through         where S is the set of all subject domains. Normalization
+layers of directional message passing within the GNN.             ensures that the sum of scores across all domains for each
+Algorithm 1: S-DAG Generation                                              Dataset        Train Set   Test Set   Avg. Subject/Q
+Input: Input question Q. Randomly initialized node embedding               MMLU-Pro           1173      503              4.4
+    {hi }i∈V . An initial fully connected graph G = {V, E}.                GPQA                302      129              3.8
+Output: Generated S-DAG GQ .                                               MedMCQA             396      169              3.5
+ 1: for each question Q do
+ 2:    Step 1: Question Embedding                                    Table 2: Overview of the curated multi-subject datasets used
+ 3:    Embed the question: hQ ← BERT(Q).
+ 4:    Initialize node features: xi ← MLPinit ([hi ; hQ ]), i ∈ V.
+                                                                     in our experiments. We manually select questions that span
+ 5:    Step 2: S-DAG Generation                                      multiple subject areas to better evaluate heterogeneous rea-
+ 6:
+                                                (0)
+       Update the node features: xi = fθ (G, xi ), i ∈ V.
+                                                                     soning capabilities. “Avg. Subject/Q” denotes the average
+ 7:    Node prediction: si,i∈V ← MLPnode (xi ).                      number of distinct subjects involved per question, reflect-
+                           ij,(i,j)∈E                                ing the interdisciplinary complexity of each dataset.
+ 8:    Edge prediction: aQ            ← MLPnode (xi ; xj ; hQ ).
+ 9:    S-DAG Construction: GQ = {siQ , aij     K
+                                            Q }i=1 .
+10: end for
+                                                                     guiding how the associated LLM agents should collaborate.
+                                                                     Specifically, if a query involves subjects s1 and s2 with a
+                                                                     directed edge from s1 to s2 , the output of the agent corre-
+model equals 1, preventing skewed evaluations and enabling
+                                                                     sponding to s1 and the original query jointly serve as the
+fair comparisons. This profiling system enables dynamic,
+                                                                     prompt input for the agent corresponding to s2 , thereby
+context-aware model selection based on the subject compo-
+                                                                     forming a collaborative reasoning pipeline. The prompting
+sition of each query, ensuring that the most suitable expert
+                                                                     strategy that enables this information flow is detailed in ap-
+LLM is invoked during inference.
+                                                                     pendix. This process can be formalized as:
+3.3   Multi-Agent Collaboration
+                                                                                     yjout = Mj ({yiout |aij = 1}, Q),            (5)
+S-DAG Generation. During inference, given an input
+question, we employ the trained GNN model to refine both             where yiout denotes the output of agent Mi associated with
+the question embedding and subject node features. The node           subject si , aij = 1 indicates subject si has a directed edge
+and edge classifiers (MLP modules) simultaneously predict            to sj in the S-DAG, and Q represents the original question,
+relevant subject nodes and their dependencies. This infer-           which is included as a shared input to all agents. This dy-
+ence procedure mirrors the training phase described in Sec-          namic and dependency-driven collaboration enables the sys-
+tion 3.2. The resulting S-DAG GQ is a pruned subgraph of             tem to aggregate reasoning results and progressively refine
+the fully connected subject graph G, retaining only the most         the final answer through multi-agent cooperation.
+relevant subjects and directed relationships. The complete
+S-DAG generation process is presented in Alg. 1.                                          4     Experiments
+   Why is S-DAG suitable for guiding multi-agent subject-            4.1   Experiment Setup
+specific reasoning? The S-DAG captures both hierarchical
+and interdependent relationships among subjects. Dominant            Datasets. We evaluate our proposed method on three
+subjects represent the central focus of reasoning, while sup-        benchmarks. MMLU-Pro (Wang et al. 2025) is a challenging
+porting subjects—linked via directed edges—provide com-              extension of the MMLU benchmark, covering 14 college-
+plementary knowledge. This structured representation nat-            level subjects. GPQA (Rein et al. 2024) is a dataset of
+urally defines a collaboration mechanism among expert                graduate-level science questions designed to be difficult.
+agents: support agents supply contextual input that enriches         MedMCQA (Pal, Umapathi, and Sankarasubbu 2022) is a
+the reasoning of dominant agents. Further discussion of the          collection of medical entrance exam questions across 21
+theoretical motivation and construction principles is pro-           subdomains. To better reflect real-world heterogeneous rea-
+vided in appendix.                                                   soning scenarios, we preprocess each dataset to select sam-
+                                                                     ples involve multiple subject areas. We construct a dedicated
+Multi-Agent Information Flow over S-DAG. Given the                   dataset, as shown in Table 2. We also construct a profiling set
+S-DAG generated in the previous step, the next is to select          with 200 samples used to evaluate the subject-specific capa-
+the appropriate expert LLMs based on their subject profi-            bilities of LLMs. This dataset preprocessing ensures that our
+ciency. Based on the LLM subject capability profile pro-             evaluation aligns with the core challenge addressed in this
+cess, we match each subject node in the S-DAG to an expert           paper: selecting and coordinating multiple expert agents to
+LLM specializing in that domain. If Cij represents the per-          solve complex, multi-subject reasoning problems. The de-
+formance score of LLM Mi on subject sj , the LLM selection           tails of the dataset curation are shown in appendix.
+for a particular subject sj could be expressed as:
+                                                                     LLM Pool with Various Experts. To enable subject-
+                     Mj = arg max Cij .                       (4)    aware reasoning and fine-grained agent specialization, we
+                                  Mi                                 construct a pool of domain-specific expert LLMs. Each
+   The multi-agent collaboration mechanism is defined by             model is either pretrained or fine-tuned on data aligned with
+the directed relationships encoded in the S-DAG, as illus-           a specific academic or professional domain, such as math-
+trated in Figure 2. Each edge in the graph represents an in-         ematics, medicine, law, or economics. These models, typi-
+formation flow dependency between two subject domains,               cally ranging from 7B to 13B parameters, are computation-
+  Category                     Method                             Model           MMLU-Pro         GPQA         MedMCQA        Avg.
+  Closed-Source Single Model   CoT (Wei et al. 2022)              GPT4o-mini      49.42 ± 0.27   47.31 ± 0.52   78.82 ± 0.35   58.52
+  Open-Source                  CoT                                Qwen2.5 72b     50.81 ± 0.46   48.98 ± 0.35   80.44 ± 0.47   60.08
+  Single Model                 CoT                                Llama3.3 70b    51.92 ± 0.39   48.83 ± 0.41   79.36 ± 0.61   60.04
+                               CoT                                Qwen2.5 7b      41.86 ± 0.29   44.51 ± 0.58   72.07 ± 0.39   52.81
+  Single-Model                 Self-Refine (Madaan et al. 2023)   Qwen2.5 7b      44.92 ± 0.34   43.83 ± 0.12   74.58 ± 0.28   54.44
+                               MoE (Zhou et al. 2022)             LLM Pool        42.57 ± 0.55   45.67 ± 0.34   75.45 ± 0.49   54.56
+                               GraphRouter (Feng et al. 2025)     LLM Pool        44.94 ± 0.94   46.23 ± 0.82   76.92 ± 0.72   56.03
+                               MAD (Du et al. 2023)               Qwen2.5 7b      45.82 ± 0.13   46.81 ± 0.21   76.55 ± 0.15   56.39
+  Multi-Model                  Symbolic-MoE (Chen et al. 2025)    LLM Pool        48.13 ± 0.62   45.92 ± 0.51   78.55 ± 0.61   57.53
+                               S-DAG (Ours)                       LLM Pool        50.98 ± 0.19   49.82 ± 0.24   78.38 ± 0.35   59.73
+
+Table 3: Performance comparison of single-model and multi-model approaches on MMLU-Pro, GPQA, and MedMCQA. We
+compare various baselines across closed-source, open-source, single-agent and multi-agent settings. We bold the best results
+and underline the second-best (excluding methods using bigger or proprietary models).
+
+
+ally efficient and well-suited for multi-agent composition. In        averaged across three trials, and we compute the standard
+total, we select 14 expert LLMs spanning a broad range of             deviations as the statistical indicator. Details on model
+disciplines. Appendix provides details on the expert models,          selection and the LLM pool are provided in appendix.
+corresponding subject domains, and Hugging Face links. For
+instance, DeepseekMath is used for mathematics, while                 4.2      Results
+BioMistral is assigned to biology. These expert LLMs
+form the foundation of our multi-agent system, where each             The main empirical findings are shown in Table 3. We evalu-
+agent is instantiated from the most suitable LLM based on             ate the performance of various reasoning frameworks across
+the subject assignments derived from the S-DAG and LLM                selected samples from MMLU-Pro, GPQA, and MedM-
+identification process.                                               CQA, including both single-model and multi-model set-
+                                                                      tings, as well as open-source and closed-source configura-
+Baselines. Our selection of baselines is guided by the                tions. The average accuracy is acquired by averaging results
+goal of evaluating the challenge of heterogeneous reasoning,          across the three benchmarks. Below, we highlight key in-
+where a single complex question spans multiple subject do-            sights derived from this comparative analysis.
+mains. We consider two primary categories. First, we eval-            Superior Accuracy of S-DAG. Our S-DAG framework
+uate single-model methods to test whether a single, high-             achieves the highest average accuracy (59.73%). It consis-
+performance, general-purpose LLM can effectively han-                 tently outperforms both single-model and multi-model base-
+dle multi-subject reasoning. Specifically, we include mod-            lines. In particular, compared to single-model approaches
+els such as closed-source GPT4o-mini (Hurst et al. 2024),             that rely on expert selection—such as MoE (54.56%) and
+open-source Qwen2.5-72B (Yang et al. 2024) and Llama3.3-              GraphRouter (56.03%)—S-DAG demonstrates a significant
+70B (Grattafiori et al. 2024). Then, the Mixture-of-Experts           improvement. This result underscores the benefit of explic-
+(MoE) approaches that dynamically select one expert model;            itly modeling inter-subject dependencies, rather than relying
+GraphRouter that utilize a GNN to select expert model based           solely on selection-based mechanisms.
+on contextual information given a problem. Second, we ex-
+plore multi-model methods, which leverage specialized ex-             Robustness over Multi-Model Baselines. Our S-DAG
+pertise through collaborative or modular strategies. These            also outperforms several competitive multi-agent systems.
+include Multi-Agent Debate (MAD), where multiple agents               It exceeds the performance of Symbolic-MoE (57.53%) and
+reason through dialogue (Liang et al. 2024); and Symbolic-            MAD (56.39%) in average accuracy. Although Symbolic-
+MoE (Chen et al. 2025), which conducts skill-level expert             MoE shows strong performance on MedMCQA (78.55%),
+selection. These baselines provide a comprehensive frame-             its effectiveness does not consistently translate across other
+work to assess both generalist and specialist strategies for          benchmarks. In contrast, S-DAG maintains a well-balanced
+tackling complex, interdisciplinary reasoning tasks.                  performance across all three tasks, demonstrating its ro-
+                                                                      bustness and adaptability in coordinating specialized agents
+Implementation Details. All experiments, including                    across diverse reasoning scenarios.
+baselines and our proposed method, are conducted using
+A100 GPUs with 40 GB memory. For large models such                    Competitiveness with Large LLMs. Despite being com-
+as the 70B open-source LLMs and Qwen variants, we use                 posed of smaller, domain-specific expert models, S-DAG
+API-based inference, while smaller expert models in the               achieves performance competitive with large-scale, mono-
+LLM pool are deployed locally. The decoding temperature               lithic LLMs. It surpasses the closed-source GPT-4o-mini
+is set to 0.7, and the maximum output length is fixed at 4096         (58.52%) and closely matches the performance of open-
+tokens across all LLMs. Adam optimizer is used to train               source leaders such as Qwen2.5 72B (60.08%) and Llama3.3
+GNN and MLP models, and the seed is fixed. Results are                70B (60.04%). This indicates that structured coordination
+   Variant                   GNN Coord.     Model Selection   Graph Structure      Avg. Accuracy (%)   Inf. Time (s)   # LLM Calls
+   w/o GNN, random model         %                %                  S-DAG               41.12            14.21            5.1
+   w/ GNN, random model          !                %                  S-DAG               42.19            14.82            4.1
+   w/o GNN, profiled model       %                !                  S-DAG               53.51            14.53            5.1
+   Fully Connected Graph         !                !              Fully-connected         57.29            38.45            8.2
+   S-DAG (Ours)                  !                !                  S-DAG               59.73            15.02            4.1
+
+Table 4: Ablation study on the effects of coordination (GNN), model selection (LLM profiling), and graph structure. Accuracy
+is averaged across MMLU-Pro, GPQA, and MedMCQA. Inference efficiency is measured via average inference time and the
+number of LLM calls per instance.
+
+
+             Equivalent                                                lights the limitations of relying solely on LLM outputs,
+                                   Dominant Agent
+               Agent                                                   which can be noisy and inconsistent. In contrast, our GNN
+                                                                       module leverages training data to learn robust and context-
+                                                                       sensitive subject relationships, resulting in more accurate
+                                                                       and concise graph structures for multi-agent reasoning.
+                                                    Support
+                                  Subject            Agent             Effectiveness of LLM Profile. To assess the benefit of
+                                   Agent                               our LLM profiling strategy, we compare our subject-aware
+                                                                       model selection approach against a baseline that randomly
+ Fully Connected Subject Graph     Directed Subject Graph              selects expert models for each subject node in the S-
+                                                                       DAG. The results demonstrate that using our profiled sub-
+Figure 3: Comparison between the Fully Connected Graph                 ject–model matching significantly improves performance
+and our S-DAG.                                                         across all benchmarks. This highlights the importance of
+                                                                       aligning subject-specific tasks with LLMs that exhibit strong
+                                                                       domain expertise. Without profiling, the system risks assign-
+among lightweight experts can rival or exceed the capabili-            ing questions to suboptimal models, which can lead to de-
+ties of significantly larger models, offering a more efficient         graded reasoning quality and inconsistent outputs.
+and cost-effective solution for complex reasoning tasks.               Effectiveness of Directed Acyclic Graph Structure. To
+                                                                       evaluate the impact of graph topology, we compare our S-
+4.3   Ablation Study                                                   DAG with a fully connected graph (FCG) variant. As il-
+To quantify the contribution of individual components in               lustrated in Figure 3, the FCG allows unrestricted bidirec-
+our S-DAG framework, we conduct a structured ablation                  tional communication among all subject nodes, which leads
+study, as presented in Table 4. This analysis isolates three           to over-communication and redundant information flow. In
+key design factors: (1) the presence or absence of GNN-                contrast, our S-DAG enforces a sparse, hierarchical structure
+based coordination, (2) the use of subject-aware model se-             that streamlines reasoning. Empirically, S-DAG achieves
+lection via LLM profiling versus random assignment, and                higher accuracy (59.73%) while significantly reducing infer-
+(3) the impact of graph topology, comparing our sparse S-              ence time (15.02s) and the number of LLM calls (4.1 per in-
+DAG structure to a fully connected alternative. We evaluate            stance). These results demonstrate that fully connected com-
+each configuration across two core dimensions: task perfor-            munication is suboptimal for multi-agent reasoning, and that
+mance and computational efficiency. Inference time denotes             structured, directional coordination leads to more efficient
+the average wall-clock latency required to process a single            and effective performance.
+multi-subject question, encompassing decomposition, agent
+invocation, message passing, and response synthesis. LLM                                    5    Conclusion
+call count indicates the average number of distinct language
+                                                                       We present S-DAG, a novel framework for heterogeneous
+model calls per instance, serving as a proxy for computa-
+                                                                       reasoning that leverages fine-grained subject-level analy-
+tional and monetary cost.
+                                                                       sis to guide multi-agent collaboration. By constructing a
+Effectiveness of GNN Module. Rather than directly                      subject-based directed acyclic graph via a GNN, our method
+prompting the LLM and construct the S-DAG manually, we                 captures subject interdependencies, enabling targeted co-
+introduce a GNN module that learns subject interdependen-              ordination among specialized LLMs. This structured ap-
+cies from data and automatically produces the S-DAG. To                proach yields efficient, subject-level reasoning. Experiments
+evaluate the effectiveness of this design choice, we conduct           on three challenging benchmarks show that S-DAG con-
+an ablation study comparing our learned S-DAG with one                 sistently outperforms both single-model and multi-model
+derived purely from LLM-generated subject weights. The                 baselines, achieving competitive accuracy with large-scale
+results show that using the LLM-generated S-DAG yields a               LLMs at significantly lower computational cost. Ablation
+significantly lower accuracy compared to 59.73% achieved               studies further highlight the benefits of the DAG structure
+by our GNN-based approach. This performance gap high-                  in enhancing performance and efficiency.
+                6    Acknowledgments                             Guo, T.; Chen, X.; Wang, Y.; Chang, R.; Pei, S.; Chawla,
+This research was supported by Project P0049179 under the        N. V.; Wiest, O.; and Zhang, X. 2024. Large Language
+Innovation and Technology Fund – Guangdong–Hong Kong             Model Based Multi-agents: A Survey of Progress And Chal-
+Technology Cooperation Funding Scheme (ITF-TCFS),                lenges. arXiv preprint arXiv:2402.01680.
+funded by the Innovation and Technology Commission               Han, S.; Zhang, Q.; Yao, Y.; Jin, W.; Xu, Z.; and He, C.
+(Funding Body Ref. No. GHP/386/23SZ).                            2024. LLM Multi-agent Systems: Challenges And Open
+                                                                 Problems. arXiv preprint arXiv:2402.03578.
+                       References                                Hoffmann, J.; Borgeaud, S.; Mensch, A.; Buchatskaya, E.;
+                                                                 Cai, T.; Rutherford, E.; de Las Casas, D.; Hendricks, L. A.;
+Cai, W.; Jiang, J.; Wang, F.; Tang, J.; Kim, S.; and Huang,      Welbl, J.; Clark, A.; et al. 2022. Training Compute-optimal
+J. 2024. A Survey on Mixture of Experts. arXiv preprint          Large Language Models. In Proceedings of the 36th Inter-
+arXiv:2407.06204.                                                national Conference on Neural Information Processing Sys-
+Chen, J. C.-Y.; Yun, S.; Stengel-Eskin, E.; Chen, T.; and        tems, 30016–30030.
+Bansal, M. 2025. Symbolic Mixture-of-Experts: Adaptive           Huang, W.; Xia, F.; Shah, D.; Driess, D.; Zeng, A.; Lu, Y.;
+Skill-based Routing for Heterogeneous Reasoning. arXiv           Florence, P.; Mordatch, I.; Levine, S.; Hausman, K.; et al.
+preprint arXiv:2503.05641.                                       2023. Grounded Decoding: Guiding Text Generation With
+Chen, L.; Zaharia, M.; and Zou, J. 2024. FrugalGPT: How          Grounded Models for Embodied Agents. Advances in Neu-
+to Use Large Language Models While Reducing Cost and             ral Information Processing Systems, 36: 59636–59661.
+Improving Performance. Transactions on Machine Learning          Hurst, A.; Lerer, A.; Goucher, A. P.; Perelman, A.; Ramesh,
+Research.                                                        A.; Clark, A.; Ostrow, A.; Welihinda, A.; Hayes, A.; Rad-
+Devlin, J.; Chang, M.-W.; Lee, K.; and Toutanova, K. 2019.       ford, A.; et al. 2024. Gpt-4o System Card. arXiv preprint
+Bert: Pre-training of Deep Bidirectional Transformers for        arXiv:2410.21276.
+Language Understanding. In Proceedings of the 2019 Con-          Ke, Z.; Jiao, F.; Ming, Y.; Nguyen, X.-P.; Xu, A.; Long,
+ference of the North American Chapter of the Association         D. X.; Li, M.; Qin, C.; Wang, P.; Savarese, S.; et al. 2025. A
+for Computational Linguistics: Human Language Technolo-          Survey of Frontiers in LLM Reasoning: Inference Scaling,
+gies, Volume 1 (long And Short Papers), 4171–4186.               Learning To Reason, And Agentic Systems. arXiv preprint
+Du, Y.; Li, S.; Torralba, A.; Tenenbaum, J. B.; and Mordatch,    arXiv:2504.09037.
+I. 2023. Improving Factuality And Reasoning in Language          Kojima, T.; Gu, S. S.; Reid, M.; Matsuo, Y.; and Iwasawa,
+Models Through Multiagent Debate. In Forty-first Interna-        Y. 2022. Large Language Models Are Zero-shot Reason-
+tional Conference on Machine Learning.                           ers. Advances in Neural Information Processing Systems,
+                                                                 35: 22199–22213.
+Feng, S.; Ding, W.; Liu, A.; Wang, Z.; Shi, W.; Wang, Y.;
+Shen, Z.; Han, X.; Lang, H.; Lee, C.-Y.; et al. 2025a. When      Li, D.; Tan, Z.; Qian, P.; Li, Y.; Chaudhary, K. S.; Hu, L.;
+One LLM Drools, Multi-LLM Collaboration Rules. arXiv             and Shen, J. 2024a. Smoa: Improving Multi-agent Large
+preprint arXiv:2502.04506.                                       Language Models With Sparse Mixture-of-agents. arXiv
+                                                                 preprint arXiv:2411.03284.
+Feng, S.; Shi, W.; Bai, Y.; Balachandran, V.; He, T.; and
+                                                                 Li, J.; Wang, Y.; Zhu, P.; Lin, W.; Yao, X.; and Hu, Q. 2025.
+Tsvetkov, Y. 2024. Knowledge Card: Filling LLMs’ Knowl-
+                                                                 Graphs Help Graphs: Multi-Agent Graph Socialized Learn-
+edge Gaps with Plug-in Specialized Language Models. In
+                                                                 ing. In The Thirty-ninth Annual Conference on Neural In-
+The Twelfth International Conference on Learning Repre-
+                                                                 formation Processing Systems.
+sentations.
+                                                                 Li, Y.; Du, Y.; Zhang, J.; Hou, L.; Grabowski, P.; Li, Y.; and
+Feng, S.; Wang, Z.; Goyal, P.; Wang, Y.; Shi, W.; Xia, H.;       Ie, E. 2024b. Improving Multi-Agent Debate With Sparse
+Palangi, H.; Zettlemoyer, L.; Tsvetkov, Y.; Lee, C.-Y.; et al.   Communication Topology. In Findings of the Association
+2025b. Heterogeneous Swarms: Jointly Optimizing Model            for Computational Linguistics: EMNLP 2024, 7281–7294.
+Roles And Weights for Multi-LLM Systems. arXiv preprint
+arXiv:2502.04510.                                                Liang, T.; He, Z.; Jiao, W.; Wang, X.; Wang, Y.; Wang, R.;
+                                                                 Yang, Y.; Shi, S.; and Tu, Z. 2024. Encouraging Divergent
+Feng, T.; Shen, Y.; and You, J. 2025. GraphRouter: A Graph-      Thinking in Large Language Models Through Multi-Agent
+based Router for LLM Selections. In The Thirteenth Inter-        Debate. In Proceedings of the 2024 Conference on Em-
+national Conference on Learning Representations.                 pirical Methods in Natural Language Processing, 17889–
+Grattafiori, A.; Dubey, A.; Jauhri, A.; Pandey, A.; Kadian,      17904.
+A.; Al-Dahle, A.; Letman, A.; Mathur, A.; Schelten, A.;          Lin, W.; Lan, H.; He, H.; and Li, B. 2025. Graph-Relational
+Vaughan, A.; et al. 2024. The Llama 3 Herd of Models.            Federated Learning: Enhanced Personalization and Robust-
+arXiv preprint arXiv:2407.21783.                                 ness. IEEE Transactions on Dependable and Secure Com-
+Gu, W.; Han, J.; Wang, H.; Li, X.; and Cheng, B. 2025.           puting.
+Explain-Analyze-Generate: A Sequential Multi-Agent Col-          Liu, Z.; Zhang, Y.; Li, P.; Liu, Y.; and Yang, D. 2024. A
+laboration Method for Complex Reasoning. In Proceedings          Dynamic LLM-powered Agent Network for Task-oriented
+of the 31st International Conference on Computational Lin-       Agent Collaboration. In First Conference on Language
+guistics, 7127–7140.                                             Modeling.
+Madaan, A.; Tandon, N.; Gupta, P.; Hallinan, S.; Gao, L.;         a Better World through Cross-Task Collaboration. In Forty-
+Wiegreffe, S.; Alon, U.; Dziri, N.; Prabhumoye, S.; Yang,         second International Conference on Machine Learning.
+Y.; et al. 2023. Self-refine: Iterative Refinement With Self-     Yin, Z.; Sun, Q.; Chang, C.; Guo, Q.; Dai, J.; Huang, X.-J.;
+feedback. Advances in Neural Information Processing Sys-          and Qiu, X. 2023. Exchange-of-Thought: Enhancing Large
+tems, 36: 46534–46594.                                            Language Model Capabilities Through Cross-Model Com-
+Masoudnia, S.; and Ebrahimpour, R. 2014. Mixture of Ex-           munication. In Proceedings of the 2023 Conference on Em-
+perts: A Literature Survey. Artificial Intelligence Review,       pirical Methods in Natural Language Processing, 15135–
+42: 275–293.                                                      15153.
+Mumuni, A.; and Mumuni, F. 2025. Large Language Mod-              Yue, M. 2025. A Survey of Large Language Model Agents
+els for Artificial General Intelligence (AGI): A Survey of        for Question Answering. arXiv preprint arXiv:2503.19213.
+Foundational Principles And Approaches. arXiv preprint            Yue, Y.; Zhang, G.; Liu, B.; Wan, G.; Wang, K.; Cheng, D.;
+arXiv:2501.03151.                                                 and Qi, Y. 2025. Masrouter: Learning To Route Llms for
+Pal, A.; Umapathi, L. K.; and Sankarasubbu, M. 2022.              Multi-agent Systems. arXiv preprint arXiv:2502.11133.
+Medmcqa: A Large-scale Multi-subject Multi-choice                 Zhang, G.; Yue, Y.; Li, Z.; Yun, S.; Wan, G.; Wang, K.;
+Dataset for Medical Domain Question Answering. In                 Cheng, D.; Yu, J. X.; and Chen, T. 2024a. Cut the Crap: An
+Conference on Health, Inference, And Learning, 248–260.           Economical Communication Pipeline for Llm-based Multi-
+PMLR.                                                             agent Systems. arXiv preprint arXiv:2410.02506.
+Rein, D.; Hou, B. L.; Stickland, A. C.; Petty, J.; Pang, R. Y.;   Zhang, Y.; Mao, S.; Ge, T.; Wang, X.; de Wynter, A.; Xia,
+Dirani, J.; Michael, J.; and Bowman, S. R. 2024. Gpqa:            Y.; Wu, W.; Song, T.; Lan, M.; and Wei, F. 2024b. Llm As
+A Graduate-level Google-proof Q&a Benchmark. In First             A Mastermind: A Survey of Strategic Reasoning With Large
+Conference on Language Modeling.                                  Language Models. arXiv preprint arXiv:2404.01230.
+Talebirad, Y.; and Nadiri, A. 2023. Multi-agent Collabora-        Zhang, Y.; Sun, R.; Chen, Y.; Pfister, T.; Zhang, R.; and Arik,
+tion: Harnessing the Power of Intelligent Llm Agents. arXiv       S. 2024c. Chain of Agents: Large Language Models Collab-
+preprint arXiv:2306.03314.                                        orating on Long-context Tasks. Advances in Neural Infor-
+Tao, M.; Zhao, D.; and Feng, Y. 2025. Chain-of-Discussion:        mation Processing Systems, 37: 132208–132237.
+A Multi-Model Framework for Complex Evidence-Based                Zhou, Y.; Lei, T.; Liu, H.; Du, N.; Huang, Y.; Zhao, V.; Dai,
+Question Answering. In Proceedings of the 31st Interna-           A. M.; Le, Q. V.; Laudon, J.; et al. 2022. Mixture-of-experts
+tional Conference on Computational Linguistics, 11070–            With Expert Choice Routing. Advances in Neural Informa-
+11085.                                                            tion Processing Systems, 35: 7103–7114.
+Wang, J.; Wang, J.; Athiwaratkun, B.; Zhang, C.; and Zou, J.      Zhuang, Y.; Yu, Y.; Wang, K.; Sun, H.; and Zhang, C. 2023.
+2024. Mixture-of-agents Enhances Large Language Model             Toolqa: A Dataset for Llm Question Answering With Ex-
+Capabilities. arXiv preprint arXiv:2406.04692.                    ternal Tools. Advances in Neural Information Processing
+Wang, Y.; Ma, X.; Zhang, G.; Ni, Y.; Chandra, A.; Guo, S.;        Systems, 36: 50117–50143.
+Ren, W.; Arulraj, A.; He, X.; Jiang, Z.; et al. 2025. MMLU-       Zhuge, M.; Wang, W.; Kirsch, L.; Faccio, F.; Khizbullin, D.;
+Pro: A More Robust And Challenging Multi-Task Language            and Schmidhuber, J. 2024. Gptswarm: Language Agents As
+Understanding Benchmark. Advances in Neural Information           Optimizable Graphs. In Forty-first International Conference
+Processing Systems, 37: 95266–95290.                              on Machine Learning.
+Wei, J.; Wang, X.; Schuurmans, D.; Bosma, M.; Xia, F.;
+Chi, E.; Le, Q. V.; Zhou, D.; et al. 2022. Chain-of-thought
+Prompting Elicits Reasoning in Large Language Models.
+Advances in Neural Information Processing Systems, 35:
+24824–24837.
+Wu, Q.; Bansal, G.; Zhang, J.; Wu, Y.; Li, B.; Zhu, E.;
+Jiang, L.; Zhang, X.; Zhang, S.; Liu, J.; Awadallah, A. H.;
+White, R. W.; Burger, D.; and Wang, C. 2024. AutoGen: En-
+abling Next-Gen LLM Applications via Multi-Agent Con-
+versations. In First Conference on Language Modeling.
+Xin, A.; Liu, J.; Yao, Z.; Lee, Z.; Cao, S.; Hou, L.; and
+Li, J. 2024. AtomR: Atomic Operator-Empowered Large
+Language Models for Heterogeneous Knowledge Reason-
+ing. arXiv preprint arXiv:2411.16495.
+Yang, A.; Yang, B.; Zhang, B.; Hui, B.; Zheng, B.; Yu, B.;
+Li, C.; Liu, D.; Huang, F.; Wei, H.; et al. 2024. Qwen2. 5
+Technical Report. arXiv preprint arXiv:2412.15115.
+Yao, X.; Wang, Y.; Zhu, P.; Lin, W.; Zhao, R.; Guo, Z.; Li,
+W.; and Hu, Q. 2025. Socialized Coevolution: Advancing
+                                          A     Multi-Subject Dataset Curation
+A.1    Question Analysis
+While benchmark datasets like MMLU-Pro offer broad subject coverage, individual questions within these datasets often pertain
+to a single domain, limiting their utility for evaluating complex, interdisciplinary reasoning. In contrast, our work targets multi-
+subject reasoning, where answering a question requires synthesizing knowledge across multiple subject areas. This distinction
+is critical for advancing generalist models that more closely resemble human cognitive abilities.
+   To construct a dataset that captures this complexity, we introduce a rigorous preprocessing pipeline aimed at filtering and
+enhancing questions that truly require interdisciplinary reasoning. For each dataset, we employ the large language model
+qwen-turbo-0919 (Yang et al. 2024) to analyze the subject composition of every question. The model identifies rele-
+vant subject domains and assigns a relevance weight to each, reflecting its importance to the question. To ensure robustness and
+mitigate the variability of model outputs, each question is analyzed three independent times. We then retain only the subjects
+that consistently appear in all three runs, thereby filtering out spurious or weak associations. This consensus-based filtering
+increases the precision of subject attribution. The resulting subject weights are normalized across the retained set to maintain
+comparability and interpretability.
+
+  Table 5: Prompt for dataset preprocessing. LLM analyzes the question and outputs the relevant subjects and their weights.
+
+                  Prompt
+                  Question: {Q} What are the core knowledge, subjects or skills needed to solve this problem?
+                  List 2-5 keywords separated in comma, with the weights (0∼1.0). These weights represent the
+                  proportion of these skills are needed in the question. And the proportion of all keywords sum
+                  to 1. Candidate keywords: Math, Physics, Chemistry, Law, Engineering, Economics, Health, Psy-
+                  chology, Business, Biology, Philosophy, Computer Science, History, Medicine, Other. Give ONLY
+                  the keywords with weights, no other words or explanation. Please follow this format: Keywords:
+                  < Math0.6 >, < Physics0.3 >, < Chemistry0.1 > ...
+
+   Overall, this subject attribution framework allows us to curate a high-quality dataset that better reflects real-world, cross-
+disciplinary reasoning tasks. The prompt template used for subject decomposition and analysis is detailed in Table 5.
+   We partition the curated dataset into a training set and a test set for model development and evaluation, respectively. Addi-
+tionally, we reserve a separate set of 200 samples as the profiling set, which is specifically used to assess the subject-specific
+capabilities of each LLM. This profiling process enables accurate subject–model matching during multi-agent inference.
+
+
+                                    Average Weight=1/4=0.25 Dominant Subject
+                                              Math, 0.4                        Physics, 0.35
+
+                                       Delete
+
+
+                                                                            Biology, 0.2
+                                    Engineering, 0.05
+
+                                     Thredshold=0.1                     Support Subject
+
+                       Figure 4: The DAG construction given subjects and their corresponding weights.
+
+
+A.2    S-DAG Construction
+Once a question is analyzed, we construct a Subject Dependency Acyclic Graph (S-DAG) to represent its ground-truth label.
+How is the S-DAG constructed based on the subjects and their associated weights? A single question may involve multiple
+subjects, although it typically centers on a dominant domain. For example, a complex chemistry problem may also require
+mathematical and biological knowledge. In such cases, chemistry is considered the dominant subject, while mathematics and
+biology serve as supporting subjects.
+  To model the flow of knowledge among these subjects, we define directed edges in the S-DAG from supporting subjects to the
+dominant subject. This directionality reflects the information flow from subjects with lower weights (indicating less emphasis)
+Algorithm 2: GNN Training for S-DAG Generation
+                                        i
+Input: Training dataset D = {(Qi , GQ     )}N                                 i      i     i
+                                            i=1 , where Qi is a question and GQ = {SQ , AQ } is the ground truth S-DAG. Randomly initialized
+    node embedding {hi }i∈V . An initial fully connected graph G = {V, E}.
+Output: Trained GNN generator module fθ
+ 1: for each sample (Q, GQ ) ∈ D do
+ 2:    Step 1: Question Embedding
+ 3:    Embed the question: hQ ← BERT(Q)
+                                              (0)
+ 4:    Initialize features of subject nodes: xi ← MLPinit ([hi ; hQ ]) for i ∈ V
+ 5:    Step 2: S-DAG Generation
+                                                  (0)
+ 6:    Update the node features: xi = fθ (G, xi )
+                            i
+ 7:    Node prediction: ŝQ ← MLPnode (xi ) for each i ∈ V
+ 8:    Edge prediction: âij
+                           Q ← MLPnode (xi ; xj ; hQi ) for each (i, j) ∈ E
+ 9:    Step 3: Compute Loss and Gradient Update
+10:    Loss for node and edge prediction: L = λnode · BCE(ŝiQ , siQ ) + λedge · BCE(âij    ij
+                                                                                       Q , aQ ) for each i ∈ V and each (i, j) ∈ E
+11:    Backpropagate the loss L and update the model parameters fθ , MLPinit , MLPnode , MLPedge
+12: end for
+
+
+                                   Table 6: Subject-specific base models with hugging face links.
+
+  Subject            Base Model                     Link
+  Chemistry          Llama2-13B-Chat                https://huggingface.co/juntaoyuan/chemistry-assistant-13b
+  Math               Deepseek-7B                    https://huggingface.co/deepseek-ai/deepseek-math-7b-instruct
+  Biomedical         Llama-3-8B                     https://huggingface.co/ContactDoctor/Bio-Medical-Llama-3-8B
+  Biology            BioMistral-7B                  https://huggingface.co/BioMistral/BioMistral-7B
+  Computer Science   Qwen2.5-7B                     https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct
+  Physician          Llama-3-8B                     https://huggingface.co/YiDuo1999/Llama-3-Physician-8B-Instruct
+  Law                Llama3-8B                      https://huggingface.co/ricdomolm/lawma-8b
+  Economics          Mistral-7B                     https://huggingface.co/tim9510019/Mistral-7B-Economic zephyr 231023
+  Business           Llama-3.1-8B                   https://huggingface.co/warrencain/Business Consulting Finetune Llama 3.1 8b
+  History            Deepseek-R1-distill-Qwen-7B    https://huggingface.co/Doppelfelix/Deepseek-r1-history-expert
+  Engineering        Llama2-7B-Chat                 https://huggingface.co/Frrrrrrrrank/Llama-2-7b-chat-hf-process engineering one firsttwokap v3
+  Psychology         Llama-3.1-8B                   https://huggingface.co/dentist9111/Llama-3.1-8B-bnb-4bit-samhog psychology
+  Philosophy         Mistral-12B                    https://huggingface.co/EpistemeAI/Mistral-Nemo-Instruct-12B-Philosophy-Math
+  Health             Llama3-8B                      https://huggingface.co/m42-health/Llama3-Med42-8B
+
+
+
+to those with higher weights (indicating greater emphasis). Consequently, the S-DAG captures the hierarchical and integrative
+structure of subject dependencies within the question.
+   In practice, subjects with weights below a predefined threshold (e.g., 0.1) are considered negligible and are discarded. Among
+the remaining subjects, those with weights exceeding the average (e.g., 1/4 = 0.25 for four subjects) are designated as dominant
+subjects. The rest are treated as supporting subjects and are connected to the dominant nodes via directed edges, reflecting their
+auxiliary role in the reasoning process. An example of S-DAG construction is illustrated in Figure 4.
+   The constructed S-DAGs serve as supervision signals for training the GNN module. This enables the model to learn to predict
+relevant subjects and their dependencies during inference. The full training procedure is detailed in Alg. 2.
+
+                                         B    Multi-Agent Collaborative Inference
+B.1    Model Pool
+Given the subject decomposition provided by the constructed S-DAG, we are able to precisely identify the domain expertise
+required to solve each question. This enables targeted selection of specialized expert agents—language models fine-tuned for
+specific subjects.
+   To support this, we curate a Model Pool consisting of small yet high-performing subject-specialized LLMs, sourced primarily
+from the Hugging Face model repository. Each model is carefully chosen based on its training corpus, fine-tuning objectives,
+and performance within its respective domain. Through the LLM subject capability profiling process, we can conduct precise
+subject-LLM matching, ensuring that each subject node in the S-DAG is handled by an appropriately skilled agent.
+   The full list of expert models, along with their associated subjects and Hugging Face links, is presented in Table 6. These
+models collectively enable a modular, scalable approach to complex multi-subject reasoning, offering both computational effi-
+ciency and domain fidelity.
+                                   Information Flow Dominant Agent
+
+
+
+                                            Unselected
+                                                                                       Support
+                                                            Subject                     Agent
+                                                             Agent
+
+                                Figure 5: The S-DAG structured multi-agent information flow.
+
+                             Table 7: Prompts for S-DAG structured multi-agent information flow.
+
+ Agent                               Prompt
+                                     You are an expert in [Subject]. Your task is to analyze the following question based on your domain
+ Subject Expert Agent                knowledge. Question: {Q} Please provide a clear and concise explanation or answer strictly from
+                                     the perspective of [Subject].
+                                     You are an expert in [Subject]. Another agent has provided information from [Supporting Subject],
+                                     which may be relevant to your reasoning. Question: {Q} Supporting Information from [Support-
+ Supporting Agent                    ing Subject]: {Support Content} Please incorporate the above supporting information into your
+                                     domain-specific reasoning, and produce a coherent, informed response from the perspective of
+                                     [Subject].
+                                     You are the lead [Subject] expert responsible for integrating multi-disciplinary information to an-
+                                     swer the following complex question. Question: {Q} You have received input from other experts:
+ Dominant Agent
+                                     - [Subject A]: {Content A} - [Subject B]: {Content B} . . . Please synthesize the provided informa-
+                                     tion and generate a comprehensive final answer that reflects the reasoning across these domains.
+
+
+B.2   Multi-Agent Information Flow
+Once the subject-directed acyclic graph is constructed from a heterogeneous question, we can proceed to the subject–LLM
+pairing phase based on the LLM subject capability profiles. In this step, each node in the S-DAG—representing a specific
+subject—is assigned to a domain-specialized expert LLM, enabling targeted reasoning within that domain.
+  We define three types of agents based on their structural position in the S-DAG:
+ • Subject Expert Agents: These are agents corresponding to the starting nodes, which initiate the reasoning process. They
+   do not receive input from other agents but process the raw question directly within their area of expertise.
+ • Supporting Agents: Associated with intermediate nodes, these agents integrate information received from upstream agents
+   and generate enriched outputs. They act as conduits, facilitating inter-subject reasoning and knowledge flow across the
+   S-DAG.
+ • Dominant Agent: This agent corresponds to the final node in the graph. It receives input from multiple supporting agents
+   but does not transmit information further. The Main Agent is responsible for producing the final answer, synthesizing inter-
+   disciplinary insights gathered throughout the reasoning chain.
+   All agents receive the original question and operate collaboratively within the information flow defined by the S-DAG. Their
+internal processing and response strategies are guided by the structural role they play—whether initiating, transforming, or
+concluding the reasoning. This multi-agent orchestration enables both modular specialization and coherent integration across
+subject domains, reflecting the layered nature of complex human reasoning. Figure 5 shows the multi-agent information flow
+under S-DAG. Table 7 shows the prompts for different types of agents.
+
+                                                     C     Ablation Study
+To better understand the contribution of each component in our framework, we conduct a series of ablation experiments on the
+MMLU-Pro, GPQA, and MedMCQA benchmarks. Specifically, we evaluate the effectiveness of the GNN module for S-DAG
+generation, the LLM subject capability profiling for model selection, and the directed acyclic graph topology itself. Results are
+summarized in Table 4.
+                              Table 8: Prompts for baselines. List of prompts used in experiment.
+
+ Baseline                            Prompt
+                                     Can you solve the problem? {Q} Explain your reasoning. Your final answer should be with the
+ Single-Model Method
+                                     format: <<answer>>, at the end of your response.
+                                     1. Initial Answer: Can you solve the problem? {Q} Explain your reasoning. Your final answer
+                                     should be with the format: <<answer>>, at the end of your response. 2. Feedback: The ques-
+                                     tion is: {Q} Please identify issues or limitations in the following answer and suggest improve-
+ Self-Refine
+                                     ments: {answer} 3. Refine: The problem is: {Q} The original answer was: {answer} The feedback
+                                     is:\n{feedback content}\n\nNow give an improved correct answer based on this feedback. Your
+                                     final answer should be with the format: <<answer>>, at the end of your response.
+                                     1. Statement: You are Agent [A]. Can you solve the problem? Q Explain your reasoning. 2. Rebut-
+                                     tal: You are Agent [A]. Rebut Agent [B]’s argument below: Agent [B] said: {response} 3. Judge:
+ Multi-Agent Debate
+                                     You are the Judge. Based on both arguments and rebuttals, decide which Agent has a stronger case.
+                                     Agent [A] said: {response} Agent [B] said: {response}
+
+
+  To evaluate efficiency, we report the average inference time and number of LLM calls per instance across the test set.
+For each sample, inference time is measured from the moment the question is input into the system until the final answer is
+generated, including all model invocation, data routing, and inter-agent communication. The number of LLM calls is computed
+by counting each individual model invocation used to process subject nodes within the S-DAG. For example, if three subject
+nodes are activated and each requires a single forward pass through its assigned expert model, this counts as three LLM calls.
+The final reported values are averaged over all test questions to reflect overall system efficiency. All experiments are conducted
+under controlled conditions on the same hardware to ensure fair comparison.
+
+C.1   GNN Module
+The GNN module plays a central role in generating the S-DAG, which guides multi-agent collaboration. While it is possible to
+rely solely on LLMs to extract subject annotations and manually construct a DAG, this approach is inefficient and error-prone.
+LLM outputs tend to be noisy, inconsistent across runs, and may lack a coherent structure.
+   In contrast, our trained GNN is able to learn subject relevance and interdependencies across a large number of annotated
+samples, yielding robust and repeatable DAGs. To evaluate the GNN’s contribution, we replace it with an LLM-based rule
+system that directly constructs the S-DAG using raw subject weights from the LLM.
+
+C.2   LLM Profile
+The LLM profile component enables accurate subject–model matching by assigning each expert model a capability score for
+each subject domain. Without this profiling mechanism, subject nodes in the S-DAG are matched to expert LLMs randomly,
+ignoring domain expertise.
+  To measure the impact of profiling, we compare our system against a variant where expert agents are selected uniformly at
+random for each subject. This leads to inconsistent or suboptimal assignments, resulting in a noticeable performance drop. The
+ablation confirms that subject-aware model selection is critical for effective multi-agent collaboration, as it ensures that each
+subtask is handled by the most capable model based on prior subject-specific evaluations.
+
+C.3   Graph Topology
+Our framework relies on a directed acyclic graph (DAG) structure to represent the subject-level reasoning flow, enabling in-
+formation to propagate from supporting subjects to dominant ones in a structured manner. To assess the importance of this
+topology, we compare the directed S-DAG against a fully connected subject graph, where all subject nodes can freely exchange
+information without structural constraints.
+   Although the fully connected variant allows maximum communication among agents, it introduces redundant interactions
+and potential reasoning loops, increasing inference cost and ambiguity. The directed version not only improves accuracy but
+also reduces inference time and LLM calls. These results highlight the importance of enforcing a sparse and efficient graph
+structure.
+
+                                                   D     Broader Impacts
+Our work introduces S-DAG, a modular framework for multi-subject reasoning that leverages lightweight, domain-specific
+language models. By enabling more efficient and scalable deployment compared to large monolithic LLMs, S-DAG holds
+promise for democratizing access to advanced AI systems, particularly in education, healthcare, and scientific research. Its
+graph-structured design promotes transparency and modularity, supporting safer and more controllable reasoning pipelines.
+However, potential risks must also be acknowledged. The framework relies on subject-specific models that may vary in quality
+or harbor domain-specific biases, which could propagate through the reasoning process. Furthermore, improper deployment in
+high-stakes applications without adequate validation may lead to unintended consequences. Future work should explore robust
+evaluation standards, fairness auditing, and safeguards to ensure responsible use of S-DAG in real-world scenarios.
+

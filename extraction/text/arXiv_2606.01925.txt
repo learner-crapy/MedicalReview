@@ -1,0 +1,1240 @@
+                                         QoEReasoner: An Agentic Reasoning Framework for
+                                         Automated and Explainable QoE Diagnosis in RANs
+                                                           Qizhe Li∗                                  Haolong Chen∗                                 Shan Dai
+                                               qizheli@link.cuhk.edu.cn                         haolongchen1@link.cuhk.edu.cn               daishan@cuhk.edu.cn
+                                            The Chinese University of Hong                      The Chinese University of Hong         Shenzhen Research Institute of Big
+                                                   Kong, Shenzhen                                      Kong, Shenzhen                               Data
+                                                   Shenzhen, China                                     Shenzhen, China                        Shenzhen, China
+                                           Shenzhen Research Institute of Big                  Shenzhen Research Institute of Big
+                                                         Data                                               Data
+
+
+
+
+arXiv:2606.01925v2 [cs.MA] 2 Jun 2026
+                                                   Shenzhen, China                                     Shenzhen, China
+
+                                                            Zhuo Li                                     Zhiwei Hu                                   Xuan Li
+                                              zhuoli3@link.cuhk.edu.cn                            zhiweihu@link.cuhk.edu.cn                 lixuan69@huawei.com
+                                            The Chinese University of Hong                      The Chinese University of Hong           Huawei Technologies Co., Ltd.
+                                                   Kong, Shenzhen                                      Kong, Shenzhen                          Shenzhen, China
+                                                   Shenzhen, China                                     Shenzhen, China
+                                           Shenzhen Research Institute of Big                  Shenzhen Research Institute of Big
+                                                        Data                                                Data
+                                                   Shenzhen, China                                     Shenzhen, China
+
+                                                                               Guangxu Zhu†                                Qingjiang Shi
+                                                                             gxzhu@sribd.cn                              shiqj@tongji.edu.cn
+                                                                     Shenzhen Research Institute of Big            Shenzhen Research Institute of Big
+                                                                                  Data                                          Data
+                                                                            Shenzhen, China                               Shenzhen, China
+                                                                                                                          Tongji University
+                                                                                                                           Shanghai, China
+                                        Abstract                                                                    the physical realities of the network. It employs determin-
+                                        Diagnosing Quality-of-Experience (QoE) degradations in op-                  istic tools to reliably translate raw numeric KPIs into struc-
+                                        erational Radio Access Networks (RANs) is a critical but noto-              tured evidence, enforces protocol-consistent fault propaga-
+                                        riously complex task, traditionally requiring labor-intensive               tion through a domain-specific Knowledge Base, and lever-
+                                        expert analysis over high-dimensional, cross-layer telemetry.               ages a Historical Bank of expert-validated cases to guide
+                                        While Large Language Models (LLMs) offer unprecedented                      hypothesis generation. A stateful central planner orches-
+                                        reasoning capabilities, they are fundamentally unsuited for                 trates this closed-loop process across anomaly detection,
+                                        raw RANs troubleshooting: they fail at numeric time-series                  causal tracing, and root-cause localization. Evaluations on
+                                        analysis, hallucinate protocol-violating causal links, and lack             real-world operational RANs datasets demonstrate that Qo-
+                                        the stateful rigor required for multi-step fault localization.              EReasoner outperforms strong baselines by 18%–40% in accu-
+                                        To bridge this gap, we present QoEReasoner, an end-to-end,                  racy across multiple diagnostic tasks. Furthermore, it reduces
+                                        LLM-driven agentic system designed for automated and ex-                    diagnostic time from approximately 30 minutes of manual ex-
+                                        plainable QoE diagnosis. QoEReasoner tames the inherent                     pert analysis to just 3 minutes per session, delivering highly
+                                        unpredictability of LLMs by grounding their reasoning in                    interpretable, expert-grade reports while remaining robust
+                                                                                                                    across diverse LLM backbones.
+
+
+
+                                        ∗ Both authors contributed equally to this research.                        Keywords
+                                        † Corresponding author.                                                     RANs, QoE Diagnosis, Agentic AI, Network Management
+                                                                                                               1
+Conference’17, July 2017, Washington, DC, USA                                                                                                              Li et al.
+
+
+                                                                                              Table 1: Capability comparison of QoE diagnosis
+                                                                                              paradigms (✓: supported; △: partial; ✗: not supported).
+                                                                                               Requirement                          Heuristic DL LLM QoEReasoner
+                                                       PDCP-Layer KPIs   RLC-Layer KPIs
+
+                           The session exhibits                                                (R1) Reliable numeric perception        △     ✓   ✗        ✓
+                           reduced user throughput.
+                           Weak uplink coverage                                                (R2) Causally grounded explanation      ✗     ✗   △        ✓
+                           reduces uplink spectral
+                           efficiency, leading to...                                           (R3) Coherent cross-task reasoning      ✗     ✗   △        ✓
+                                                        PHY-Layer KPIs   MAC-Layer KPIs
+
+    User QoE Degradation                               Diagnosis                              which provide basic interpretability for degraded-session
+Figure 1: Illustration of QoE diagnosis in operational                                        identification, partially addressing R1. However, rule-based
+RANs.                                                                                         workflows remain brittle to context variation and incom-
+                                                                                              plete observations, due to the heavy dependent on manual
+1      Introduction                                                                           rule engineering and domain expertise [53]. Such limita-
+Maintaining a high user Quality-of-Experience (QoE) is the                                    tions make heuristic methods insufficient for deeper causal
+fundamental objective of modern Radio Access Networks                                         diagnosis tasks, especially causally grounded cross-layer ex-
+(RANs) [2, 3, 15]. With the rapid scaling of mobile networks,                                 planations (R2) and coherent cross-task reasoning (R3). Al-
+the explosive growth in user sessions has made it impossible                                  though DL-based approaches successfully address QoE anom-
+to manually track network health, elevating the automated                                     aly detection and root-cause classification by mapping net-
+detection of QoE degradations to a critical priority. Yet, sim-                               work observations with user experience (R1) in a data-driven
+ply flagging a degraded session is insufficient for network op-                               way [4, 14, 26, 42], most of DL predictions remain Black-Box,
+timization. To actually fix the network, operators must diag-                                 without the protocol-aware transparency required for causal
+nose why the degradation occurred. As shown in Fig. 1, this                                   explanations (R2). Moreover, most DL solutions treat each
+requires working backward from user-perceived symptoms                                        task in QoE diagnosis as independent task, which cannot
+through a maze of high dimentional, time-varying, cross-                                      maintain the logical continuity necessary to resolve the com-
+layer Key Performance Indicators (KPIs) to infer root causes                                  plex, multi-stage reasoning demanded by R3.
+such as interference, weak coverage, or cell overload [21, 35].                                  Large Language Models (LLMs) have recently shown
+Since this troubleshooting process is so labor-intensive that                                 promise for wireless-network intelligence [7, 28, 40, 48, 51],
+practical QoE management in operational RANs demands                                          including network-management tasks such as network
+a framework that is both automated in its execution and                                       slicing [45, 46]. However, their direct application to QoE
+explainable in its reasoning.                                                                 diagnosis remains challenging despite the ability to syn-
+   In order to realize such a holistic QoE diagnosis pipeline,                                thesize scattered evidence, articulate causal hypotheses,
+an effective candidate system should satisfy the following                                    and generate human-interpretable reasoning through
+three key non-negotiable requirements. First, to interpret                                    natural-language interaction. Specifically, LLMs struggle
+massive and heterogeneous KPI telemetry, the system needs                                     with numeric-intensive, high-dimensional RANs data due
+(R1) reliable numeric perception to transform raw mea-                                        to unreliable numerical understanding and prompt sensi-
+surements into trustworthy representations of network state,                                  tivity [36, 55], failing to reliably satisfy R1.1 Furthermore,
+in order to achieve effective detection of QoE-degraded ses-                                  without expert constraints, inherent hallucinations may
+sions. Second, beyond mere detection, the system should pro-                                  contradict domain knowledge[5, 24], leading to violation of
+vide (R2) causally grounded cross-layer explanations,                                         R2 and R3. Consequently, as Table 1 summarizes, existing
+which trace how impairments propagate across protocol                                         paradigms fail to jointly satisfy R1–R3.
+layers and thus connect observed symptoms to root causes                                         Motivated by this gap, we present QoEReasoner, the first
+through protocol-consistent causal paths. Third, since QoE                                    LLM-based agentic diagnostic framework designed for auto-
+diagnosis inherently spans fragmented yet interdependent                                      mated and explainable QoE analysis that addresses R1—R3
+tasks from anomaly detection and causal tracing to root-                                      simultaneously. By orchestrating external tools invocation
+cause localization, the system demands (R3) coherent cross-                                   with closed-loop observation, decisions making and actions
+task reasoning to enforce logical consistency across the                                      taking, QoEReasoner seamlessly integrates the golden expert
+entire diagnostic context. The three requirements capture                                     priors from heuristic methods, stable predictive power from
+the essential properties of a practical QoE diagnosis system.                                 deep learning, and interpretable reasoning abilities from
+   However, existing approaches still fail to jointly satisfy                                 LLMs.
+R1–R3. Prior QoE diagnosis in RANs has been primarily stud-                                      Specifically, for an input KPI session, an LLM-based Plan-
+ied through heuristic and deep learning (DL) approaches.                                      ner invokes KPI Perception to characterize the QoE state
+Specifically, the former relies on expert-defined rules and
+transparent threshold-based diagnosis workflows [8, 33, 53],                                  1We discuss this limitation in 2.2.
+
+                                                                                          2
+QoEReasoner: An Agentic Reasoning Framework for Automated and Explainable QoE Diagnosis in RANs Conference’17, July 2017, Washington, DC, USA
+
+
+through trend analysis and degradation recognition (R1).                                          Inputs                                       Outputs
+
+Upon confirming reliable degradation, the Planner advances                                                                              QoE Degradation Label
+                                                                                                                                               Abnormal
+to Fault Causal Chain Reasoning to infer plausible root causes
+                                                                                                                                          Fault Causal Chain
+via tracing protocol-consistent fault propagation paths (R2).                                                                            uplink_weak_coverage
+The verified diagnostic findings are then forwarded to the                                                                                         ↓
+                                                                                                                                     uplink_low_spectral_efficiency​
+Reporter for diagnosis report generation (R3). To support this                                                                                     ↓
+                                                                                                                                     uplink_rlc_fragmentation_high
+                                                                                                                                                   ↓
+diagnostic process, QoEReasoner also incorporates several                                                                                  uplink_delay_high
+auxiliary components: (1) a Tool Pool that provides functional                                                                                Root Cause
+interfaces for tasks (e.g., KPI preprocess and inference with                        Network Multi-layer KPI Time Series
+                                                                                                                                         uplink weak coverage
+
+pre-trained anomaly classification models); (2) a Knowledge
+                                                                                   Figure 2: Illustration of the QoE diagnosis tasks.
+Base that contains domain knowledge (e.g., heuristic rules
+and causal constraints), offering guidance and constraints; (3)                 packet data convergence protocol (PDCP) layers, called KPI
+a Historical Bank supplies expert-validated reference cases to                  telemetry, formulated as
+inform prior-guided fault diagnosis. Comprehensive experi-
+ments on real-world mobile network datasets show that Qo-                                                            X ∈ R𝑇 ×𝑀 ,                                       (1)
+EReasoner outperforms strong baselines by 18%–40% across
+multiple diagnostic tasks, significantly reduces diagnosis                      where 𝑇 denotes the number of timestamps and 𝑀 denotes
+time from about 30 minutes of manual expert analysis to                         the number of KPI dimensions. We define the diagnostic
+around 3 minutes per session, stably produces protocol-                         tasks (illustrated in Fig. 2) as follows:
+consistent and evidence-grounded explanations, and con-                            Anomaly Detection (AD). that aims to determine whether a
+sistently remains robust across diverse LLM backbones from                      session exhibits user-perceived QoE degradation. Let 𝑦 deg ∈
+different model families and parameter scales. We summarize                     {0, 1} denote the degradation label, where 𝑦 deg = 1 indicates
+our contributions as follows:                                                   that the session is annotated as degraded. Given session mea-
+• To the best of our knowledge, QoEReasoner is the first                        surements X, the task is formulated as a binary classification
+   agentic framework for automated multi-task QoE diagno-                       problem:
+   sis in mobile networks, unifying anomaly detection, causal
+   tracing, and root-cause localization.                                                            𝑓AD : X ↦→ 𝑦ˆdeg,        𝑦ˆdeg ∈ {0, 1}.                           (2)
+• We design and implement several novel modules, includ-
+                                                                                  Fault Chain Reasoning (FCR) . that aims to infer a struc-
+   ing KPI Perception, Fault Causal Chain Reasoning, and the
+                                                                                tured, directed causal chain that captures the propagation of
+   Historical Bank, to enable explainable diagnosis through
+                                                                                anomalies across protocol layers toward the observed QoE
+   evidence-grounded causal reasoning.2
+                                                                                degradation, as illustrated in Fig. 2.
+• We conduct comprehensive evaluations on real-world mo-
+   bile network datasets, showing that QoEReasoner consis-                                                c : 𝑐1 → 𝑐2 → · · · → 𝑐𝐿,                                    (3)
+   tently outperforms prior approaches across multiple di-
+   agnostic tasks and remains robust across diverse LLM                         where each node 𝑐𝑖 ∈ C denotes an anomaly phenomenon
+   backbones.                                                                   from a global vocabulary C, and each edge 𝑐𝑖 → 𝑐𝑖+1 de-
+                                                                                notes a protocol-consistent causal dependency. Given X, we
+2     Problem Formulation and Preliminary                                       formulate FCR task as:
+      Analysis
+                                                                                               𝑓FCR : X ↦→ ĉ = (𝑐ˆ1, . . . , 𝑐ˆ𝐿ˆ ),     𝑐ˆ𝑖 ∈ C,                     (4)
+We first formalize the QoE diagnosis task researched in this
+paper, and provide a preliminary discussion about why naive                     where ĉ is the inferred causal path linking lower-layer ab-
+LLM reasoning struggles in achieving reliable RANs diag-                        normalities to the final QoE degradation.
+noses, which directly motivates the design principles behind
+our proposed QoEReasoner.                                                          Root-Cause Categorization (RCC). aims to identify the cat-
+                                                                                egory of the root cause responsible for the observed QoE
+2.1     Task Formulation                                                        degradation. Let 𝑦 rc ∈ {1, . . . , 𝐾 } denote the root-cause cat-
+The input of the QoE diagnostic tasks is a session-level mul-                   egory label, where each class corresponds to a predefined
+tivariate time-series data collected from the physical (PHY),                   category of degradation factors, such as interference and
+medium access control (MAC), radio link control (RLC), and                      weak coverage. Given session measurements X, the task is
+                                                                                formulated as a 𝐾-class classification problem:
+2 To support reproducibility, we will release the implementation code and
+
+accompanying documentation upon publication.                                                     𝑓RCC : X ↦→ 𝑦ˆrc,         𝑦ˆrc ∈ {1, . . . , 𝐾 }.                     (5)
+                                                                            3
+Conference’17, July 2017, Washington, DC, USA                                                                               Li et al.
+
+
+                                                                     subtle and distributed across both temporal and feature di-
+                                                                     mensions, further making prompt-only inference unreliable.
+                                                                        Conservative Bias and Decision Instability. Empirically, we
+                                                                     observe that LLMs often achieve high recall at the cost of
+                                                                     excessive false alarms, aligning with the conservative bias
+                                                                     phenomenon [1, 41]. In our AD task setting, this bias mani-
+                                                                     fests as a tendency to label cases as anomalous once the de-
+                                                                     tection task is posed, even when the evidence is ambiguous.
+                                                                     This reflects that LLMs lack explicit distributional ground-
+                                                                     ing and calibrated uncertainty estimation [38], producing
+                                                                     semantically plausible predictions rather than conservative
+                                                                     null decisions. We also observe pronounced prompt sensi-
+                                                                     tivity where minor wording variations lead to substantially
+                                                                     different predictions, further undermining reliability.
+                                                                        We argue that the limitations of directly applying pre-
+                                                                     trained LLMs will extend to other diagnosis-related tasks in
+                                                                     RANs, thereby motivating us to adopt an LLM-based agentic
+                                                                     paradigm for automatic and explainable QoE diagnosis, in
+                                                                     which the LLM is augmented with external modules.
+Figure 3: Prompt-based anomaly detection with LLMs:
+(top) example prompt for KPI anomaly detection; (bot-                3   Overview of Key Ideas
+tom) performance comparison across LLMs measured
+                                                                     In this paper, we develop an agentic system called QoERea-
+by precision, false alarm rate (FAR), and F1 score.
+                                                                     soner for QoE diagnosis in RANs. Built upon several key
+2.2     Preliminary Experiments                                      design ideas, the system integrates multiple novel modules
+Although LLMs are effective for reasoning [22, 29, 31, 49], it       with the reasoning and orchestration capabilities of the LLM,
+remains unclear whether they can reliably interpret RANs             enabling the agent to satisfy R1–R3.
+KPIs time-series while producing stable judgments. To probe             Overcoming Numeric Weakness via External Tools → (R1):
+this capability gap, we conduct a preliminary study on               We perform network KPI awareness by introducing external
+prompt-based KPI anomaly detection.3                                 tools, such as data preprocessing modules, that convert raw
+   As illustrated in Fig. 3, prompt-based anomaly detection          numerical metrics into text-friendly evidence for the LLM.
+exhibits substantial performance variance across models.             This tool-grounded design alleviates the limitations of LLMs
+More importantly, none of the evaluated LLMs provides both           in numerical understanding, as shown in §2.2. Compared
+accurate and stable predictions, indicating inherent limita-         with fine-tuning the LLM for task-specific adaptation, we
+tions in directly applying general-purpose LLMs to numeric           leverage external tools as a more practical alternative to
+RANs diagnosis tasks.                                                produce reliable and reproducible outputs.
+   Limitations in Understanding Numeric KPI Telemetry. QoE              Preventing Hallucinations via Knowledge Constraints →
+diagnosis in RANs relies on high-dimensional multivariate            (R2): Diagnostic reasoning is restricted to a constrained hy-
+time series spanning multiple protocol layers, involving over        pothesis space defined by protocol semantics and fault causal
+ninety correlated KPIs [26, 42, 53]. Such inputs require fine-       chains are retrieved and verified link-by-link against Knowl-
+grained temporal pattern recognition and cross-layer seman-          edge Base (KB) constraints. The KB organizes valid cross-
+tic grounding, yet general-purpose LLMs are primarily opti-          layer propagation patterns as a global causal graph, thereby
+mized for textual and symbolic reasoning and remain weak at          substantially narrowing the effective hypothesis space and
+structured time-series understanding [55]. Moreover, many            limiting unsupported or protocol-inconsistent causal reason-
+degradation scenarios in operational RANs are unlikely to            ing during diagnosis.
+be well covered in LLM pretraining corpora, which further
+limits generalization in this task. Additionally, the cues for          Guiding Diagnosis via Verified Historical Cases → (R2):
+anomaly detection and root-cause identification are often            Cases in Historical Bank (HB) serve as soft priors for hy-
+                                                                     pothesis prioritization, but all retrieved hypotheses must
+                                                                     pass evidence-based re-validation before acceptance. The HB
+3 Detailed settings are provided in Appendix A.                      transforms fault causal chain construction from open-ended
+                                                                 4
+QoEReasoner: An Agentic Reasoning Framework for Automated and Explainable QoE Diagnosis in RANs Conference’17, July 2017, Washington, DC, USA
+
+
+combinatorial search into constrained hypothesis verifica-               an LLM-driven controller over an explicit workflow state,
+tion.                                                                    enabling adaptive multi-step reasoning while keeping the
+                                                                         overall diagnostic procedure interpretable and controllable.
+   Ensuring Logical Consistency via a Stateful Planner → (R3):
+The planner maintains an explicit diagnostic state and itera-            4.1.2 KPI Perception: Network State Awareness. This module
+tively decides what to inspect next, terminating only when               provides the planner (§4.1.1) with structured observations of
+the accumulated evidence is sufficiently consistent. Such de-            network KPI conditions for diagnosis. Given a KPI segment,
+sign enables evidence-consistent coordination across multi-              it gathers evidence under the planner’s coordination by in-
+ple diagnosis-related tasks, so that intermediate information            voking deterministic tools, consulting the Knowledge Base
+between modules can be mutually informed and progres-                    (§4.2.2), or using auxiliary classifiers when needed. In paral-
+sively refined. On top of this process, the reporter generates           lel, it summarizes protocol-layer time series using the tools in
+a concise summary report by consolidating the verified diag-             §4.2.1, extracting compact descriptors such as distributional
+nosis evidence.                                                          statistics, directional trends, and fluctuation indicators over
+   Together, these designs fundamentally distinguish our                 normalized KPI windows. The resulting typed state objects
+framework from prior approaches and reshape QoE diagnosis                encode the observed KPI conditions in a structured form, and
+as a structured, evidence-driven decision process.                       are propagated through the QoEReasoner pipeline to support
+                                                                         downstream reasoning and report generation (§4.1.4).
+4     System Design                                                      4.1.3 Fault Causal Chain Reasoning: Explainable QoE Degra-
+As shown in Fig. 4, QoEReasoner adopts a modular architec-               dations. The Fault Causal Chain Reasoning (FCR) module is
+ture organized into two complementary groups. The core                   designed to explain, in an evidence-grounded manner, how
+diagnostic modules implement the main reasoning loop:                    an underlying root cause propagates across protocol layers
+the planner (§4.1.1) drives the stateful closed loop by main-            and eventually gives rise to the observed QoE degradation. It
+taining a shared diagnostic state; KPI Perception (§4.1.2) per-          casts fault-chain construction as a structured reasoning pro-
+ceives network KPI status and converts raw telemetry into                cess that combines feature-based retrieval of historical cases
+structured evidence; Fault Causal Chain Reasoning (FCR)                  with evidence-based verification of downstream symptoms
+(§4.1.3) performs evidence-grounded fault propagation anal-              along the propagation path. The final output is an ordered
+ysis on abnormal sessions; and the reporter (§4.1.4) produces            cause-to-effect sequence, where the first fault atom denotes
+human-readable diagnostic reports. The supporting com-                   the inferred root cause and each subsequent atom reflects a
+ponents provide shared resources consumed by the core                    downstream manifestation of fault propagation.
+modules: the Tool Pool (§4.2.1) supplies deterministic analyt-
+ical capabilities, the Knowledge Base (KB) (§4.2.2) enforces                Retrieval: Direct causal reasoning over high-dimensional
+protocol-consistent structural constraints and provides do-              KPI time series is both statistically fragile and difficult to
+main knowledge required for diagnosis, and the Historical                control, especially when relying on language models alone.
+Bank (HB) (§4.2.3) offers case-based references for hypothesis           To address this challenge, FCR adopts a case-based retrieval
+initialization.                                                          strategy that searches for historical fault instances exhibiting
+                                                                         similar symptom patterns. Each historical case is indexed by
+4.1    Core Diagnostic Modules                                           a vector embedding produced by the shared representation
+                                                                         encoder in the Tool Pool (§4.2.1), ensuring representation
+4.1.1 Planner: State-driven Multi-Task Coordination. The
+                                                                         consistency between retrieval and downstream reasoning.
+planner serves as the control core of QoEReasoner, as illus-
+                                                                         Retrieval is guided by two complementary signals. First, a se-
+trated in Fig. 5. Built on top of the LLM, it orchestrates the
+                                                                         mantic prior derived from the root-cause category predicted
+multi-step diagnosis process by selecting the next diagnostic
+                                                                         by a black-box pretrained model narrows the search space
+action at each iteration. Specifically, it maintains a shared
+                                                                         toward diagnostically relevant regions. Second, embedding-
+workflow state that records the message history and inter-
+                                                                         space similarity allows structurally similar cases from other
+mediate outputs from other modules, such as AD results,
+                                                                         categories to be retained, preserving diversity in candidate
+rule-based judgments, and FCR outputs. Based on this ac-
+                                                                         chains. By integrating these two sources of retrieval signals,
+cumulated context, the planner chooses the next step from
+                                                                         the strategy extracts a top-𝑛 candidate subset from the HB
+a constrained action space, such as invoking additional di-
+                                                                         for subsequent evidence-based verification.
+agnostic nodes to gather further evidence or terminating
+and forwarding the collected results to the reporter. After                 Verifier: Retrieved fault causal chains are aggregated into
+each action, the returned information is written back into               a candidate set and subjected to explicit causal verification.
+the shared state, allowing subsequent decisions to condition             Each chain is decomposed into adjacent atom pairs, corre-
+on the updated evidence. In this way, the planner acts as                sponding to directed fault-propagation edges. For each edge,
+                                                                     5
+               20260313
+
+
+Conference’17, July 2017, Washington, DC, USA                                                                                                                           Li et al.
+
+
+
+
+                                              KPI Perception                      Planner               Fault Causal Chain                  Reporter
+                                                                                                            Reasoning
+
+
+
+
+Protocol-layer KPIs
+                                             Trend Observation
+                                                                          Evidence Analysis            Feature-based Retrieval            Info Summary
+                                            Rule-based Analysis                                                                                                     QoE
+                                                                           Action Planning           Evidence-based Verification         Report Generation
+                                             Anomaly Recognize                                                                                                   Diagnosis
+                                                                                                                                                                  Report
+                      Time(s)
+                                                Deterministic Execution                                Constraints & Priors                              Reference
+
+                                                Tool Pool                                                  Knowledge Base                             Historical Bank
+                         Functional Tools                    Model-based Tools
+                                                                                                                        Causal Constraint              Validated Chains
+                                                                                                     Expert Rules
+                                                                                                                            Graph
+                                                                                                                                                       KPI Embeddings
+                                                                                                      Protocol            Hierarchical
+         Data      Data   Feature                           AD             RCC                                                                         Case Metadata
+                                                                                                     Constraints          Fault-Atom
+      Preprocess Summary Selection                         Model           Model
+
+                                                                    Figure 4: System overview of QoEReasoner.
+
+                                       (Run Anomaly Detection First )                                      Adjuster: The final chain ranking is obtained by fusing
+                                            Invoke AD Model
+Planner                                                                                                retrieval similarity scores with causal verification scores,
+                                    {"is_anomaly": true,"conf": 0.7502}                                where the fusion weight is adaptively adjusted according to
+                                                                                        AD             the discriminative strength of each signal, thereby mitigating
+                           (Anomaly confidence is moderate. Evidence is not            Model
+                           strong enough for a final decision. Need additional         (Tool)
+                                                                                                       over-reliance on either surface-level similarity or strict rule
+Planner                                       validation.)                                             satisfaction alone. The top-ranked alternatives are then re-
+                                  Knowledge-Base Rule Validation
+                                                                                                       tained in the agent state to support subsequent planning and
+                                             {"is_anomaly": true}                                      downstream diagnostic procedures. Within QoEReasoner, the
+                            (Rule-based evidence confirms anomaly. Multiple            Rule            starting atom of the inferred causal chain is taken as the iden-
+                           interference-related symptoms detected. Evidence            (KB)            tified root cause, and the corresponding root-cause category
+Planner                                    sufficient for FCR.)
+                                 Node->Fault Cause Chain Reasoning
+                                                                                                       is deterministically mapped from that atom.
+                                                                                                           By design, FCR serves as a disciplined reasoning layer
+                                downlink_                   dl_air_interface_
+                            interference_high                   dtx_rbler
+                                                                                                       that bridges data-driven signals, protocol knowledge, and
+                                                                                        FCR            interpretable diagnosis, thereby making causal explanations
+                                                                 rlc_arq_                              more reliable for network optimization.
+                         downlink_delay_high
+                                                             retransmission
+
+                                (Multi-source evidence aligned. Construct final                        4.1.4 Reporter: Evidence-Grounded Report Generation. The
+                                            diagnostic summary.)                                       reporter serves as the interpretability interface for QoERea-
+Planner                                Node->Final Diagnostic Report
+                                                                                                       soner, which uses an LLM to aggregate the diagnostic state
+                                         QoE Diagnosis Report                                          maintained by the planner, along with the supporting ev-
+                                   [Diagnosis Result] [Key Evidence]
+                                                  ...                                 Reporter         idence accumulated during reasoning, and converts them
+                                                                                                       into concise, human-readable reports.
+Figure 5: Example of state-driven planner for QoE di-
+agnosis.
+                                                                                                       4.2     Supporting Components
+                                                                                                       The core diagnostic modules rely on three shared supporting
+the verifier queries the KB (§4.2.2) for expected KPI-level                                            components described below.
+manifestations. The verifier then checks the consistency be-
+tween observed KPI behaviors and the expected constraints                                              4.2.1 Tool Pool: Deterministic Skill Support. The Tool Pool
+implied by each causal edge as shown in Fig. 6b. This process                                          serves as a shared skill repository for multiple modules in
+yields per-edge verification decisions as well as an over-                                             the framework, providing access to a heterogeneous set of
+all chain-level consistency score, enabling fine-grained, au-                                          capabilities through well-defined interfaces, which can be
+ditable causal validation.                                                                             broadly grouped into two categories.
+                                                                                                 6
+QoEReasoner: An Agentic Reasoning Framework for Automated and Explainable QoE Diagnosis in RANs Conference’17, July 2017, Washington, DC, USA
+
+
+                                                                                                   Global Causal Graph                                        Expert-Defined Rules
+                                        Planner                                                                                       Downlink Interference                Uplink Weak Coverage         ...
+                                                                                                                downlink_delay_high       DL_RLC_AVG_DELAY_SUM >= 200 ms            CELL_DL_PRB_RATIO > 0.7
+  *Role and Target*: You are the control core of a QoE diagnosis workflow. As the                                                         DL_RBLER > 0.1 or UL_RBLER > 0.1          ...
+  Planner. you orchestrate multi-task coordination and the next action based on the                                                       SERVING_CELL_SSB_RSRQ < -15               ...
+                                                                                                                                          ...                                       ...
+  current evidence state.                                                                                            dl_rlc_delay_
+                                                                                                                     high                             Edge-Level Causal Constraint
+  *Diagnostic State*: {current evidence state}                                                                                              Mechanism                           Key Signals
+                                                                                                                                      Frequent ARQ                RLC ARQ retransmission increase:
+  *Evidence-State Reasoning*                                                                                       dl_rlc_arq_retra   retransmissions and         DL_RLC_ARQ_RETRANSMISSION_COUNT
+                                                                                                                   nsmission          reordering keep SDUs
+  - Consistency: Is the evidence clear or borderline?                                                                                                             Delay indicators increase：
+                                                                                                                                      in RLC buffer longer,
+                                                                                                                                                                  DL_RLC_AVG_DELAY_SUM
+  - Disagreement: Does the current evidence conflict?                                                                                 directly inflating RLC
+                                                                                                                downlink_interfere    queuing and                 Low-delay buckets:
+  - Expected gain: Is the additional cost worth it?                                                             nce_high              reordering delay.           DL_RLC_DELAY_IN_0_5MS_COUNT
+
+  *Output*: Next action; state update                                                              Fault-Atom               Causal Edge         Root Cause Category                       Network KPI
+
+
+                                      (a) Planner                                              Figure 7: Illustration of the key components of the
+                                                                                               Knowledge Base.
+                                        Verifier
+  *Role*: You are a domain-aware causal Verifier. Evaluate each edge in the given              as an embedding function to project KPI patterns into a la-
+  candidate chain.                                                                             tent root-cause space, which supports retrieval (§4.1.3) and
+  *Input*: {Candidate chain}, {Edge domain knowledge}
+                                                                                               facilitates more structurally informed hypothesis generation.
+  *Verification Principles*: For edge A → B, assume A is true and check the
+                                                                                                  Within QoEReasoner, tool invocation is dynamically or-
+  expected evidence for B. Evidence MUST be grounded in the sample summary.
+  Missing evidence ≠ counter evidence.
+                                                                                               chestrated based on the diagnostic state and available evi-
+  *Per-Edge Task*: Step 1) Identify relevant KPIs; Step 2) Extract direction-aware             dence. This design decouples specialized analytical capabili-
+  evidence; Step 3) Classify: supporting / missing / counter                                   ties from the language-model core, allowing the framework
+  *Output*: {Per-edge consistency score and reasoning}                                         to flexibly reuse deterministic tools while improving the
+                                                                                               reliability and controllability of diagnosis.
+                                      (b) Verifier
+                                       Reporter                                                4.2.2 Knowledge Base: Structured Domain Constraints. The
+  *Role*: You are a telecom fault analysis Reporter. Generate a concise diagnostic
+                                                                                               Knowledge Base (KB) formalizes diagnostic knowledge as a
+  report.                                                                                      set of enforceable structural domain constraints.
+  *Input*: {AD result}; {primary root cause}; {primary fault chain}; {candidate chains};
+  {edge-level KPI observations}...                                                                Hierarchical Fault-Atom Abstraction: Diagnosis is formu-
+  *Output*: Structured diagnostic report:                                                      lated over minimal semantic units, termed fault atoms, which
+  §1. Diagnosis Result                                                                         are organized into a three-layer hierarchy, as shown in the
+  §2. Fault Causal Chain Candidates
+                                                                                               left panel of Fig. 7: symptom (e.g., downlink_delay_high),
+  §3. Key Evidence
+  ...
+                                                                                               mechanism (e.g., dl_rlc_delay_high) and root cause (e.g.,
+                                                                                               downlink_interference_high). This hierarchy abstraction
+                                     (c) Reporter                                              provides a semantically structured interface for controllable
+                                                                                               causal chain construction and verification.
+Figure 6: The prompt template for three core LLM-
+driven modules.                                                                                   Global Causal Graph: The KB maintains a global causal
+   Functional Tools: These tools perform data-level opera-                                     graph over fault atoms to encode valid cross-layer transi-
+tions that transform raw KPI streams into structured repre-                                    tions and protocol-consistent fault propagation patterns. As
+sentations. For example, the data preprocessing tool normal-                                   illustrated in the left panel of Fig. 7, one path captures that
+izes KPI values and interpolates missing entries to ensure                                     downlink interference evolves into retransmission abnor-
+numerical consistency; the data summary tool derives statisti-                                 malities, intermediate delay buildup, and eventually high
+cal profiles such as percentiles and peak/valley statistics; and                               downlink delay. Candidate fault causal chains must follow
+the feature selection tool extracts task-relevant KPI subsets.                                 graph-consistent connectivity, thereby restricting reasoning
+                                                                                               to structurally valid paths.
+  Model-Based Tools: These tools consist of task-specific
+pre-trained models with frozen parameters, providing data-                                        Edge-Level Causal Constraint: Each valid atom transition
+driven capabilities that complement the agent’s reasoning                                      is annotated with domain knowledge describing its expected
+process. For instance, the AD model is mainly used by the                                      KPI-level manifestations, such as characteristic trends, symp-
+KPI Perception module to detect abnormal sessions and out-                                     tomatic patterns, and underlying mechanisms, as illustrated
+put confidence scores. The RCC model provides data-driven                                      in the bottom panel of Fig. 7. During reasoning, the verifier
+priors for fault causal chain reasoning by identifying likely                                  uses these constraints to determine whether the observed
+root-cause categories. Meanwhile, its encoder can be reused                                    KPI behaviors are causally consistent with the transition.
+                                                                                           7
+Conference’17, July 2017, Washington, DC, USA                                                                                             Li et al.
+
+
+  Expert-Defined Rules: The KB integrates interpretable                 nodes with structured inputs and outputs, enabling repro-
+rules based on operational thresholds, as shown in the                  ducible orchestration and end-to-end traceability. To sup-
+top-right panel of Fig. 7. Within the agent framework, these            port reliable numeric perception, the Tool Pool includes pre-
+deterministic priors complement reasoning by providing                  processing utilities and lightweight CNN-based classifiers.
+auxiliary signals at key stages of diagnosis.                           Detailed architectures, training settings, and hardware con-
+  Overall, the KB suppresses spurious hypotheses and en-                figuration are provided in Appendix B.
+hances interpretability without increasing model complexity,
+providing a lightweight yet effective way to impose domain-             5.2     Datasets
+consistent structure on the diagnostic process.                         We evaluate QoEReasoner on a real-world dataset from an
+                                                                        operational mobile network. The dataset covers six root-
+4.2.3 Historical Bank: Case-Based Reference. The Historical             cause categories and 21 expert-validated fault-chain tem-
+Bank (HB) is motivated by the observation that mobile net-              plates, each capturing a propagation path from root cause to
+work faults often recur through similar cross-layer causal              QoE degradation. It contains 300 sessions, including 130 ab-
+structures, even though their raw KPI patterns may differ               normal sessions with expert-verified root-cause chains; the
+substantially across instances and are difficult to characterize        rest are normal sessions used for anomaly detection. 4 The
+with fixed thresholds [17, 34]. As a result, validated historical       limited scale reflects the high cost of industrial annotation,
+cases provide useful structural priors that complement the              as each chain must be manually verified from multi-layer
+limited domain specificity of general-purpose LLMs. Each                KPI traces by experienced engineers.
+HB entry therefore pairs a representative KPI segment with
+its validated fault causal chain, serving as a case-based refer-        6     Evaluation
+ence for reasoning.                                                     To provide a comprehensive evaluation of QoEReasoner from
+                                                                        both quantitative and qualitative perspectives, we first assess
+   Similarity-Guided Hypothesis Initialization: Retrieval in            fault diagnosis performance against representative baselines
+HB is performed in a learned representation space aligned               across multiple paradigms. We then conduct module-level
+with root-cause semantics. Specifically, the encoder of the             analyses to examine the effectiveness of key components
+pre-trained RCA model (§4.2.1) projects multivariate KPI                within QoEReasoner, followed by ablation studies on the
+time series into a latent embedding space, in which samples             Historical Bank (HB) and Knowledge Base (KB). Finally, we
+with similar underlying causes are expected to lie closer.              present case studies and user evaluation to demonstrate prac-
+Feature-based retrieval over HB then identifies structurally            tical utility and report quality.
+similar historical cases. Rather than serving as direct an-
+swers, retrieved cases act as hypothesis initializers that pro-         6.1     Metrics
+vide candidate fault causal chain templates. This similarity-           As defined in §2.1, our framework addresses two core diag-
+guided initialization transforms fault causal chain construc-           nostic tasks, AD and FCR, along with a derived evaluation
+tion from open-ended combinatorial graph exploration into               dimension (root-cause classification), each evaluated with
+a constrained hypothesis verification process, significantly            different metrics. We briefly summarize them below and
+reducing the search space induced by the graph prior.                   defer the formal definitions to Appendix E.
+                                                                        • AD. We report Precision, Recall, false alarm rate (FAR),
+   Evidence-Constrained Revalidation and Bias Control: His-                and F1 score from the binary confusion matrix. These
+torical guidance from HB is always subject to revalidation                 metrics respectively capture anomaly precision, detection
+under the current KPI observations and KB constraints be-                  coverage, false-alarm tendency on normal samples, and
+fore being accepted. This tight coupling between retrieval                 the balance between Precision and Recall.
+and verification confines HB to proposing structurally plau-            • FCR. We report node-level precision/recall (node_p,
+sible hypotheses. As a result, QoEReasoner uses historical                 node_r), edge precision (edge_p), and exact chain match
+priors to make reasoning more targeted and sample-efficient,               (chain_em), averaged over samples with non-empty
+while preserving consistency with present evidence.                        ground-truth chains. They evaluate node correctness,
+                                                                           edge correctness, and exact recovery of the full fault chain.
+                                                                           For the module-level analysis in §6.3.2, we additionally
+5 Experiment Setup                                                         use several ranking metrics.5
+5.1 Implementation                                                      4 Detailed label definitions and the FCR vocabulary are provided in Appen-
+We implement QoEReasoner with LangGraph [23] under a                    dix D and Appendix C.
+ReAct-style control loop [52]. All tools are exposed as callable        5 Formal definitions are provided in Appendix E.
+
+                                                                    8
+QoEReasoner: An Agentic Reasoning Framework for Automated and Explainable QoE Diagnosis in RANs Conference’17, July 2017, Washington, DC, USA
+
+
+Table 2: Anomaly detection (AD) performance compar-                                                   Reference         DeepSeek-V3.2          GPT-5.2         Qwen3-14B
+ison. “–” indicates the approach does not support this                                                      Expansion                                    Reconfigured
+task.                                                                                   100                                             100
+
+
+
+
+                                                                         Metric Value (%)
+ Method            Paradigm Precision ↑ Recall ↑ FAR ↓      F1 ↑                            80                                           80
+                                                                                            60                                           60
+ Rule              Heuristic     0.6833    0.6496   0.2883 0.6520
+ TSTCC [12]        DL               –         –        –      –                             40                                           40
+ CATCC [11]        DL               –         –        –      –                             20                                           20
+ DeepSeek-V3.2    LLM           0.2452     1.0000 1.0000 0.3939                              0 Precision Recall   FAR        F1           0 Precision Recall    FAR        F1
+ + RCA-Agent [50] Agent         0.4567     1.0000 1.0000 0.6270
+                                                                             Figure 8: Performance of QoE degradation detection
+ + QoEReasoner Agent            0.8600     0.8686 0.1472 0.8500
+                                                                             under different planner-induced structural deviation
+ GPT-5.2          LLM           0.3643     0.6623 0.3755 0.4700              categories.
+ + RCA-Agent [50] Agent         0.5146     0.6423 0.5092 0.5714
+ + QoEReasoner Agent            0.8600     0.8686 0.1472 0.8500                 From a performance standpoint, QoEReasoner further de-
+ Qwen3-14B        LLM           0.2637     0.9863 0.9095 0.4162              livers clear gains across all tasks. In anomaly detection, its
+ + RCA-Agent [50] Agent         0.5000     0.5693 0.4785 0.5324              structured tool invocation and verification pipeline improve
+ + QoEReasoner Agent            0.8567     0.8686 0.1534 0.8479
+                                                                             reliability by suppressing oversensitive judgments and re-
+                                                                             ducing spurious predictions. At the reasoning and decision
+• RCC. We report top-1 accuracy (top1_acc), macro-F1, and
+                                                                             layers, the advantage becomes even more evident: pure LLMs
+  balanced accuracy (balanced_acc). These reflect overall
+                                                                             struggle with node- and edge-level structural correctness,
+  classification performance as well as class-balanced per-
+                                                                             while deep learning models, although sometimes competi-
+  formance under label imbalance.
+                                                                             tive for flat classification, lack explicit reasoning capability
+                                                                             and therefore cannot construct interpretable causal struc-
+6.2    Baseline Comparison                                                   tures. By coordinating structured evidence, protocol-aware
+   Baselines. We compare QoEReasoner against representa-                     constraints, and task-oriented reasoning modules within the
+tive baselines from rule-based, deep learning, pure LLM, and                 agent loop, QoEReasoner not only improves the structural
+agent-based paradigms. Specifically, for the DL paradigm,                    validity of predicted fault chains but also achieves stronger
+we consider TSTCC [12] and CATCC [11]; for the agent par-                    root-cause classification accuracy. Overall, these results show
+adigm, we use RCA-Agent [50]. More details are provided in                   that the superiority of QoEReasoner comes not merely from
+Appendix F.                                                                  using an LLM-based agent architecture, but from embed-
+                                                                             ding structured evidence coordination and constraint-aware
+   Multi-Task Performance Advantage. From the perspective                    reasoning into a unified multi-task diagnostic framework.
+of task coverage, the compared baselines exhibit clear lim-
+itations across the diagnosis tasks. Rule-based heuristics                       Robustness Across LLM Scales. Another important finding
+and conventional deep learning models can deliver accept-                    is that the performance gains of QoEReasoner remain con-
+able performance on anomaly detection, but they remain                       sistent across different LLM backbones. While pure LLM
+weak at root-cause identification and do not support fault                   baselines show substantial variation in standalone reasoning
+causal chain analysis. Pure LLMs, while capable of generating                and classification quality, their agent-enhanced counterparts
+free-form reasoning traces, fail to produce stable and struc-                achieve much more stable and uniformly strong performance.
+turally valid fault chains, and their decision quality varies                This suggests that the effectiveness of QoEReasoner can com-
+considerably across different model backbones. RCA-Agent                     pensate for backbone differences through structured tool
+improves anomaly detection over pure LLMs, largely due to                    support, constrained reasoning, and evidence verification,
+its controller-executor workflow, yet its lack of task-specific              enabling even smaller LLMs to attain performance competi-
+domain constraints and customized diagnostic knowledge                       tive with much larger models. Such backbone-agnostic ro-
+makes it ineffective for more demanding reasoning tasks                      bustness is particularly valuable for practical deployment, as
+such as fault causal reasoning. In contrast, QoEReasoner con-                it improves model flexibility while reducing dependence on
+sistently supports anomaly detection, fault causal reasoning,                expensive high-end LLMs.
+and root-cause identification within a unified framework,
+demonstrating a level of cross-task compatibility that prior                 6.3                  Module Analysis
+approaches inherently lack. Additionally, these results col-                 This section evaluates the internal design of QoEReasoner,
+lectively demonstrate that the framework fulfills the require-               including planner-guided anomaly perception and the FCR
+ments of causally grounded fault-chain reasoning (R2) and                    module for structured fault causal chain reasoning.
+coherent cross-task coordination (R3).
+                                                                     9
+Conference’17, July 2017, Washington, DC, USA                                                                                               Li et al.
+
+
+Table 3: Comparison of structured reasoning (FCR) and root-cause classification (RCC) performance. Node/edge
+metrics evaluate the structural correctness of inferred fault chains, and the root-cause category is derived from
+the first node of each chain.
+  Method                 Paradigm                          Reasoning (FCR)                                      Root-Cause (RCC)
+                                        node_p ↑      node_r ↑           edge_p ↑    chain_em ↑    top1_acc ↑    macro_F1 ↑   balanced_acc ↑
+  Rule                   Heuristic            –             –               –             –          0.0571        0.1800          0.2444
+  TSTCC [12]             DL                   –             –               –             –          0.3143        0.0965          0.1073
+  CATCC [11]             DL                   –             –               –             –          0.2857        0.0901          0.0976
+  DeepSeek-V3.2          LLM             0.1488        0.1036            0.0048        0.0000        0.0286        0.0870          0.0098
+  + RCA-Agent [50]       Agent           0.1126        0.1071            0.0214        0.0000        0.0143        0.0211          0.2000
+  + QoEReasoner          Agent           0.4271        0.4264            0.3095        0.2857        0.5714        0.5333          0.5518
+  GPT-5.2                LLM             0.3083        0.2207            0.0476        0.0000        0.3623        0.6757          0.1220
+  + RCA-Agent [50]       Agent           0.1179        0.0893            0.0000        0.0000        0.1714        0.1555          0.3160
+  + QoEReasoner          Agent           0.5414        0.5400            0.4286        0.4000        0.6714        0.6171          0.5859
+  Qwen3-14B              LLM             0.1738        0.0879            0.0143        0.0000        0.0000        0.0000          0.0000
+  + RCA-Agent [50]       Agent           0.0048        0.0036            0.0000        0.0000        0.0143        0.0069          0.2000
+  + QoEReasoner          Agent           0.4464        0.4429            0.3286        0.3000        0.6000        0.5829          0.5566
+
+
+Table 4: Stage-wise ranking of the ground-truth chain                             At retrieval, the ground-truth (GT) chain already achieves
+among FCR candidate chains with GPT-5.2 as the veri-                              reasonably strong coverage in the candidate set, indicating
+fier backbone. MRR and Top-5 AUC characterize the                                 that similarity-guided retrieval can form a concentrated hy-
+concentration of the ranking toward the ground-truth                              pothesis space. However, the ranking is still coarse, as shown
+chain, while R@1/3/5 measure its cumulative recall                                by only moderate MRR and limited Recall@1. Verification
+under different cutoffs.                                                          and adjustment then further improve MRR and Recall@1,
+  Stage        MRR ↑      AUC ↑      R@1 ↑        R@3 ↑      R@5 ↑                showing that score fusion and consistency-aware reweight-
+                                                                                  ing effectively promote the GT chain toward the top of the
+  Retrieval    0.6003     3.1714     0.3429       0.6857        0.8714            ranking. This confirms that candidate pruning and ranking
+  Verifier     0.5817     3.4143     0.3426       0.7429        0.9000            refinement play distinct yet complementary roles. Overall,
+  Adjuster     0.6206     3.5714     0.4000       0.7571        0.9142            the stage-wise trend validates the necessity of the multi-
+6.3.1 Anomaly Perception under Planner Analysis. To ex-                           stage FCR design. Retrieval ensures coverage, verification
+amine anomaly detection under planner-guided execution,                           enforces causal consistency, and adjustment sharpens rank-
+we use a rule-based AD → FCR workflow as a conserva-                              ing concentration, together enabling stable and interpretable
+tive deterministic baseline. Planner-generated paths are then                     fault causal chain reconstruction.
+compared against this reference in terms of structural de-                           Notably, FCR remains robust across different LLM back-
+viation and AD performance, where Expansion extends the                           bones, enabling lightweight models such as Qwen-14B to
+path with additional evidence and Reconfigured reorganizes                        achieve performance comparable to larger models such as
+the reasoning structure.                                                          GPT-5.2 within the same pipeline. Although different LLMs
+   Across LLM backbones, about 20% of cases fall into Ex-                         exhibit markedly different pruning behaviors at the verifier
+pansion, while nearly 80% are Reconfigured. As shown in                           stage, the final GT-chain ranking after adjustment remains
+Fig. 8, Expansion slightly increases false alarms, whereas Re-                    consistently strong. Fig. 9 further supports this finding by
+configured improves overall AD performance by reducing                            showing closely aligned Top-𝐾 hit curves across backbones,
+false alarms without sacrificing recall. This suggests that                       where correct hypotheses are progressively concentrated
+restructuring diagnostic dependencies yields more reliable                        into compact candidate sets and the Top-3 predictions al-
+perception (R1). The results are consistent with the planner’s                    ready cover the GT chain in most cases. These results further
+design. It treats the rule as a structural prior and adaptively                   confirm the effectiveness of QoEReasoner in concentrating
+adds tools or reordering steps when beneficial. Together,                         correct fault-chain hypotheses through structured reasoning.
+these findings support that stateful planning enables coher-
+ent cross-task reasoning (R3).
+6.3.2 Fault Causal Chain Reasoning Module. Table 4 high-
+lights the complementary roles of the three stages in FCR.
+                                                                            10
+     QoEReasoner: An Agentic Reasoning Framework for Automated and Explainable QoE Diagnosis in RANs Conference’17, July 2017, Washington, DC, USA
+                      FCR Cumulative Hit Rate Curve - Full FCR (with Adjuster)
+                  100%                                                                                                               DeepSeek-V3.2               GPT-5.2              Qwen3-14B
+
+
+
+
+Cumulative Hit Rate
+                   90%                 74.29%                                                                      Edge Precision                60          Chain EM                               Recall@3
+                                                                                                      60                                                                              80
+                   80%                 75.71%                                                         50                                         50
+
+
+
+
+                                                                                       Metric Value (%)
+                                                                                                                                                                                      70
+                   70%                 68.57%                                                         40                                         40
+                                                                                                                                                                                      60
+                                                                                                                                                 30
+                   60%                                                                                30
+                                                                                                                                                                                      50
+                                                                                                      20                                         20
+                   50%                                            DeepSeek-V3.2                                                 DS: +8.5                              DS: +12.8       40                    DS: +25.7
+                                                                                                      10                      GPT: +14.3         10                  GPT: +15.7                            GPT: +15.7
+                   40%                                            GPT-5.2                                 0 H0
+                                                                                                                              Qwen: -7.5          0 H0
+                                                                                                                                                                     Qwen: -4.3       30                   Qwen: +4.3
+                                                                                                                  r=0.3   r=0.5   r=0.8    H2            r=0.3   r=0.5   r=0.8   H2        H0   r=0.3   r=0.5   r=0.8   H2
+                   30%                                            Qwen3-14B                Figure 10: Impact of HB coverage on candidate-level
+                   20%    1   2    3     4      5     6       7   8     9   10
+                                             Rank K (Top-K)                                fault causal chain quality.
+     Figure 9: The cumulative Top-𝐾 hit rate of the FCR                                    Table 5: End-to-End Fault Causal Chain Quality under
+     module.                                                                               KB and HB Ablation (GPT-5.2).
+
+     6.4                 Ablation Study                                                                                                         Fault Causal Chain Quality (FCR)
+                                                                                                                 HB          KB
+     To assess the individual and joint effects of KB and HB in                                                                       node_p ↑ node_r ↑ edge_p ↑ chain_em ↑
+     QoEReasoner, we perform ablation studies across multiple                                            ✗                    ✗           0.3083            0.2207               0.0476                 0.0000
+     regimes, as summarized in Fig. 10 and Table 5.                                                      ✗                    ✓           0.4957            0.5050               0.3810                 0.3143
+                                                                                                     △(𝑟 = 0.5)               ✓           0.4550            0.4514               0.3476                 0.3143
+        Complementary structural roles of KB and HB.. KB and                                             ✓                    ✗           0.4286            0.4257               0.2762                 0.2429
+     HB improve FCR through complementary mechanisms. En-                                                ✓                    ✓           0.5414            0.5400               0.4286                 0.4000
+     abling KB alone substantially improves structural validity,
+     as reflected in stronger edge- and chain-level performance,                             Case Study. As shown in Fig. 11, QoEReasoner converts
+     because protocol-aware causal constraints explicitly enforce                         complex multi-layer KPI dynamics into a concise and
+     feasible cross-layer propagation paths. However, without                             evidence-grounded diagnostic report. In this example, the
+     HB, performance remains limited by the lack of data-driven                           system identifies uplink interference as the primary cause.
+     priors, indicating that structural correctness alone is insuffi-                     The generated report contains the final diagnosis, the
+     cient to concentrate hypotheses around semantically aligned                          highest-ranked fault chain together with alternative hy-
+     root causes. Another observation is that HB alone still yields                       potheses, and a natural-language explanation that connects
+     clearly weaker structural quality than the full model, since                         observed KPI abnormalities with the inferred propagation
+     historical templates cannot by themselves exclude struc-                             path, thereby better matching expert diagnostic practice.
+     turally invalid transitions. Overall, HB reshapes the hypoth-                        We further quantify the inference overhead of this case.
+     esis space with distributional priors, while KB defines its                          The end-to-end diagnosis uses 166,375 tokens, comprising
+     feasible boundaries.                                                                 117,888 cached input tokens, 35,929 non-cached input
+                                                                                          tokens, and 12,558 output tokens, for a total API cost of
+        Impact of HB coverage and prior bias. We further observe                          about $0.02 when the retrieval hyperparameter in §4.1.3
+     that insufficient HB coverage can significantly degrade per-                         is set to 𝑛 = 5. This result indicates that QoEReasoner can
+     formance. Similar trends are consistently observed across                            deliver interpretable and operationally meaningful diagnosis
+     different LLM backbones in Fig. 10, where limited histor-                            at low per-session monetary cost.
+     ical retrieval tends to introduce biased priors that restrict
+     exploration without providing sufficient structural diversity.                           Subjective Measurement. We conducted a user study in
+     Nevertheless, even under such low-coverage regimes, the                               which three domain experts jointly reviewed 50 diagnos-
+     KB-only baseline remains competitive on several metrics,                              tic reports generated by GPT-5.2 + QoEReasoner. Each re-
+     suggesting that structurally grounded reasoning enforced by                           port was rated on four dimensions, namely Correctness
+     KB can be more reliable than weak or noisy priors induced                             (Co), Evidence Grounding (EG), Knowledge Grounding (KG),
+     by sparse historical templates.                                                       and Interpretability (In), using a five-point Likert scale.6 As
+        Overall, these results show that QoEReasoner improves                              shown in Fig. 11c, all average scores exceed 4, suggesting that
+     reasoning effectiveness by grounding diagnosis in structured                          the reports are generally perceived as accurate, knowledge-
+     constraints and historical reference.                                                 grounded, and easy to interpret. Interpretability achieves
+                                                                                           the highest score, while the slightly lower Evidence Ground-
+                                                                                           ing score suggests room to further strengthen the linkage
+     6.5                 Case Study and Expert Evaluation                                  between conclusions and supporting KPI observations. In
+     We present a case study and expert evaluation to qualitatively                        addition, QoEReasoner typically completes one diagnostic
+     assess the interpretability and practical utility of QoERea-
+     soner.                                                                                6 The detailed scoring rubric is provided in Appendix G.
+
+                                                                                  11
+  Conference’17, July 2017, Washington, DC, USA                                                                                                                                                                    Li et al.
+                                                 Key KPIs - Sample #1
+                DL_INITIAL_BLOCK_ERROR_RATE                              SIGNAL_QUALITY (SINR)                                            Diagnosis Report                                        EG
+   0.4                                                                                                      Diagnosis Result: An anomaly is detected, likely caused by uplink
+                                                              7.5                                           interference that propagates to high downlink latency.                                                      5
+   0.2                                                        5.0                                                                                                                                                   4
+                                                                                                                                                                                                               3
+   0.0                                                        2.5                                           Fault Causal Chain Candidates:                                                                 2
+                                                                                                                                                                                         KG                                 Co
+                                                                                                                                                                                                       1
+                0       1    2      3        4     5   6             0    1    2      3    4   5    6       #1 Uplink interference increases downlink decoding errors, triggers HARQ
+        DL_MAX_CONSECUTIVE_HARQ_ERROR                          UL_CONTROL_CHANNEL_FAILURE_RATE              failures and subsequent retransmissions, and eventually leads to RLC-layer
+                                                                                                            delay accumulation... #2... #3...
+      2                                                      0.15
+                                                             0.10                                           Key Evidence：
+                                                                                                            HARQ failures: maximum consecutive downlink decoding errors up to 3.
+      0
+                0       1    2      3        4     5   6
+                                                             0.05
+                                                                     0    1    2      3    4   5    6       ...                                                                                   In
+                    UL Scheduling Failure Rate                      UL Buffer Status After Scheduling
+ 0.50                   (a) Temporal dynamics of partial KPIs.                                                                 (b) Illustrative diagnostic report.                       (c) Subjective Expert
+                                                            50000
+ 0.25                                                                                                                                                                                    User study.
+ 0.00                                                           0
+                0       1    2      3        4     5   6   Figure0 11:
+                                                                    1 Case
+                                                                       2 3 study
+                                                                            4  5 and
+                                                                                 6   expert subjective evaluation of QoEReasoner.
+           UL Gap Measurement Stop Count                            DL Gap Measurement Stop Count
+    10
+                                                                5
+      5
+      0         30                                              0
+                                                                                                                                     network conditions, and operational practices evolve contin-
+                0    1   2    3   4    5    6                        0    1    2      3    4   5    6
+                10DL Discontinuous TX Ratio                               UL RLC Traffic (Mbit)                                      uously. Although post-diagnosis optimization is outside the
+
+
+
+Runtime (min)
+                                                                                                               15                    scope of this paper, the same modular design may support
+
+                                                                                                                   LLM Calls
+ 0.05                                                         0.1
+                                                                                                                                     future integration of components such as simulation-backed
+ 0.00               5 1                                       0.0                                              10
+                0            2      3
+                                 Time Step
+                                             4     5   6             0    1    2      3    4   5    6
+                                                                                           Runtime (Ours)
+                                                                                   Time Step
+                                                                                                                                     validation or recommendation modules, thereby enabling
+                                                                                          Runtime (Human)      5                     broader detect–diagnose–optimize workflows.
+                                                                                          LLM Calls (Ours)
+                    0                                                                                          0
+                            1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18                                                                Beyond Single-Chain Diagnosis. Our current formulation
+                                                                Top-n                                                                adopts a practical single-dominant-chain assumption to en-
+  Figure 12: Runtime and LLM API calls versus the Top-𝑛                                                                              able tractable structured diagnosis. In real RANs environ-
+  retrieval budget.                                                                                                                  ments, however, QoE degradation may arise from multiple
+  session in about 3 minutes, whereas manual expert analysis                                                                         concurrent and interacting fault propagation paths rather
+  often takes 30–60 minutes, demonstrating its potential to                                                                          than from a single isolated chain. For instance, the same ses-
+  improve diagnostic efficiency with interpretable and opera-                                                                        sion may simultaneously reflect retransmission-related and
+  tionally meaningful outputs.                                                                                                       control-channel-related symptoms triggered by a shared up-
+                                                                                                                                     stream condition. Such ambiguity is difficult even for human
+                                                                                                                                     experts to fully enumerate and also limits the completeness
+  7                 Discussion                                                                                                       of available supervision. For this reason, QoEReasoner is de-
+    Runtime Cost and Scaling. QoEReasoner demonstrates prac-                                                                         signed to return multiple plausible fault chains, making the
+ tically acceptable efficiency together with predictable scaling                                                                     framework more useful when degradation processes are only
+ behavior. As shown in Fig. 12, diagnosis latency increases                                                                          partially observable or involve concurrent causes, while also
+ with the Top-𝑛 retrieval budget and closely tracks the num-                                                                         providing a natural foundation for future extensions toward
+ ber of LLM invocations, indicating that runtime is primarily                                                                        structured multi-chain diagnosis.
+ dominated by multi-round planning and causal verification.
+ Empirically, we observe that QoEReasoner can already pro-                                                                              Toward Adaptive Agentic Diagnosis. The present frame-
+ duce reports with expert-level quality within about three                                                                           work already offers a structured diagnosis pipeline, which
+ minutes per session. This runtime is substantially more effi-                                                                       provides a basis for improvement without changing the over-
+ cient than manual expert analysis, which typically requires                                                                         all architecture. In particular, the planner could gradually
+ about 30–60 minutes. Moving forward, QoEReasoner can be                                                                             become more adaptive by learning how to balance case com-
+ further accelerated by more efficient techniques such as lo-                                                                        plexity and historical diagnostic outcomes when selecting
+ cal/lightweight LLM serving and parallel verifier execution.                                                                        subsequent actions. In this way, QoEReasoner may evolve to-
+                                                                                                                                     ward a more experience-driven agentic diagnosis framework,
+    Deployment and Extensibility. From a deployment stand-
+                                                                                                                                     offering a practical path toward AI-native RANs diagnosis.
+  point, QoEReasoner remains lightweight because it reuses
+  pre-trained offline models and external LLM services without
+  requiring task-specific fine-tuning at inference time. More                                                                        8   Related Work
+  importantly, through a modular design paradigm in which                                                                               Anomaly Diagnosis in RANs. Traditional RANs diagnosis
+  the framework is decoupled through explicit interfaces, new                                                                        relies on expert rules [20], but suffers from limited scalability.
+  tools or domain-specific components can be integrated with-                                                                        Data-driven methods including machine learning [6, 10, 44]
+  out redesigning the overall workflow. This property is partic-                                                                     and deep learning [13] have become dominant but lack ex-
+  ularly valuable in RANs environments, where KPI definitions,                                                                       plicit fault causal chain construction or causal verification.
+                                                                                                                                12
+QoEReasoner: An Agentic Reasoning Framework for Automated and Explainable QoE Diagnosis in RANs Conference’17, July 2017, Washington, DC, USA
+
+
+These approaches treat perception, reasoning, and decision-                         [2] Khurshid Alam, Mohammad Asif Habibi, Matthias Tammen, Dennis
+making as loosely coupled components without explicit di-                               Krummacker, Walid Saad, Marco Di Renzo, Tommaso Melodia, Xavier
+agnostic state or constraint-aware verification. In contrast,                           Costa-Pérez, Mérouane Debbah, Ashutosh Dutta, et al. 2025. A com-
+                                                                                        prehensive tutorial and survey of O-RAN: Exploring slicing-aware
+QoEReasoner integrates perception, planning, and reason-                                architecture, deployment options, use cases, and challenges. IEEE
+ing within a unified loop, maintaining explicit states and                              Communications Surveys & Tutorials (2025).
+producing traceable fault causal chains.                                            [3] Gordon Owusu Boateng, Hani Sami, Ahmed Alagha, Hanae Elmekki,
+                                                                                        Ahmad Hammoud, Rabeb Mizouni, Azzam Mourad, Hadi Otrok, Jamal
+   LLM-Enabled Agentic AI in Wireless Networks. Recent ad-                              Bentahar, Sami Muhaidat, et al. 2025. A survey on large language
+vances have stimulated interest in LLM integration into                                 models for communication, network, and service management: Appli-
+                                                                                        cation insights, challenges, and future directions. IEEE Communications
+wireless systems [3, 19], from natural language interaction                             Surveys & Tutorials (2025).
+for intent management [32, 47] to agent-based paradigms                             [4] Ashima Chawla, Paul Jacob, Saman Feghhi, Devashish Rughwani, Sven
+characterized by perception–reasoning–action loops and ex-                              van der Meer, and Sheila Fallon. 2020. Interpretable unsupervised
+plicit state tracking [54]. Agentic frameworks have been                                anomaly detection for RAN cell trace analysis. In 2020 16th Interna-
+explored for mobile edge intelligence, semantic communica-                              tional Conference on Network and Service Management (CNSM). IEEE,
+                                                                                        1–5.
+tion, and network optimization [30, 37, 43, 45], with archi-                        [5] Haolong Chen, Hanzhi Chen, Zijian Zhao, Kaifeng Han, Guangxu Zhu,
+tectural visions incorporating agents into 6G and O-RANs                                Yichen Zhao, Ying Du, Wei Xu, and Qingjiang Shi. 2026. An overview
+ecosystems [18, 25, 27, 39]. However, agentic frameworks                                of domain-specific foundation model: key technologies, applications
+for causal root-cause reasoning in RANs diagnosis remain                                and challenges. Science China Information Sciences 69, 1 (2026), 111301.
+under-explored, given unique challenges of cross-layer coor-                        [6] Kuo-Ming Chen, Tsung-Hui Chang, Kai-Cheng Wang, and Ta-Sung
+                                                                                        Lee. 2019. Machine learning based automatic diagnosis in mobile
+dination and strict domain constraints. QoEReasoner intro-                              communication networks. IEEE Transactions on Vehicular Technology
+duces a constraint-aware diagnostic loop with deterministic                             68, 10 (2019), 10081–10093.
+perception and verifiable fault causal chain reasoning.                             [7] Tingwei Chen, Jiayi Chen, Zijian Zhao, Haolong Chen, Liang Zhang,
+                                                                                        and Guangxu Zhu. 2025. First Token Probability Guided RAG for
+                                                                                        Telecom Question Answering. arXiv preprint arXiv:2501.06468 (2025).
+9    Conclusion                                                                     [8] Gabriela Ciocarlie, Ulf Lindqvist, Kenneth Nitz, Szabolcs Nováczki,
+We propose QoEReasoner, a unified agentic framework for au-                             and Henning Sanneck. 2014. On the feasibility of deploying cell anom-
+tomated and explainable QoE diagnosis in RANs. Our frame-                               aly detection in operational cellular networks. In 2014 IEEE Network
+                                                                                        Operations and Management Symposium (NOMS). IEEE, 1–6.
+work features three key technical designs: tool-grounded
+                                                                                    [9] Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice Pasupat,
+deterministic perception modules for reliable numeric anal-                             Noveen Sachdeva, Inderjit Dhillon, Marcel Blistein, Ori Ram, Dan
+ysis, a Knowledge Base and Historical Bank that provide                                 Zhang, Evan Rosen, et al. 2025. Gemini 2.5: Pushing the frontier with
+domain-consistent structural constraints and data-driven                                advanced reasoning, multimodality, long context, and next generation
+priors throughout the diagnostic process, and a stateful plan-                          agentic capabilities. arXiv preprint arXiv:2507.06261 (2025).
+                                                                                   [10] Giorgos Dimopoulos, Ilias Leontiadis, Pere Barlet-Ros, Konstantina
+ner and reporter that coordinate the multi-task diagnostic
+                                                                                        Papagiannaki, and Peter Steenkiste. 2015. Identifying the root cause
+loop and synthesize interpretable outputs. Together, these                              of video streaming issues on mobile devices. In Proceedings of the 11th
+components enable QoEReasoner to couple trustworthy KPI                                 ACM Conference on Emerging Networking Experiments and Technologies.
+understanding with protocol-consistent causal reasoning un-                             1–13.
+der a unified diagnostic workflow. This design allows the                          [11] Emadeldeen Eldele, Mohamed Ragab, Zhenghua Chen, Min Wu, Chee-
+                                                                                        Keong Kwoh, Xiaoli Li, and Cuntai Guan. 2023. Self-supervised con-
+system to support end-to-end diagnosis across anomaly per-
+                                                                                        trastive representation learning for semi-supervised time-series classi-
+ception, reasoning, and report generation. Our experiments                              fication. IEEE Transactions on Pattern Analysis and Machine Intelligence
+on real-world operational data demonstrate consistent im-                               45, 12 (2023), 15604–15618.
+provements over baselines from several prior paradigms,                            [12] Emadeldeen Eldele, Mohamed Ragab, Zhenghua Chen, Min Wu, Chee-
+with robust performance across diverse LLM backbones and                                Kong Lee, Hien Nguyen, Chi Li, and Kwoh Chee Keong. 2021. Time-
+                                                                                        Series Representation Learning via Temporal and Contextual Contrast-
+validated interpretability from domain expert evaluation.
+                                                                                        ing. In Proceedings of the Thirtieth International Joint Conference on Ar-
+These results highlight the strong potential of combining                               tificial Intelligence (IJCAI-21). International Joint Conferences on Arti-
+deterministic tools, structured domain knowledge, and LLM-                              ficial Intelligence Organization, 2352–2359. doi:10.24963/ijcai.2021/324
+based coordination in a unified diagnostic loop to advance                         [13] Mah-Rukh Fida, Azza H Ahmed, Thomas Dreibholz, Andrés F Ocampo,
+scalable network diagnosis.                                                             Ahmed Elmokashfi, and Foivos I Michelinakis. 2023. Bottleneck identi-
+                                                                                        fication in cloudified mobile networks based on distributed telemetry.
+                                                                                        IEEE Transactions on Mobile Computing 23, 5 (2023), 5660–5676.
+References                                                                         [14] Madhuri Ghuge, Nidhi Ranjan, Rupali Atul Mahajan, Pawan Arunku-
+ [1] Toyin Aguda, Erik Wilson, Allan Anzagira, Simerjot Kaur, and Charese               mar Upadhye, Shrinivas T Shirkande, and Darshana Bhamare. 2023.
+     Smiley. 2025. Conservative bias in large language models: measuring                Deep learning driven QoS anomaly detection for network performance
+     relation predictions. In Findings of the association for computational             optimization. Journal of Electrical Systems 19, 2 (2023).
+     linguistics: acl 2025. 18989–18998.
+                                                                              13
+Conference’17, July 2017, Washington, DC, USA                                                                                                             Li et al.
+
+
+[15] Juan Luis Herrera, Sofia Montebugnoli, Domenico Scotece, Luca Fos-                    Shen. 2025. Toward edge general intelligence with multiple-large
+     chini, and Paolo Bellavista. 2025. A tutorial on o-ran deployment                     language model (Multi-LLM): architecture, trust, and orchestration.
+     solutions for 5g: From simulation to emulated and real testbeds. IEEE                 IEEE Transactions on Cognitive Communications and Networking (2025).
+     Communications Surveys & Tutorials (2025).                                       [31] Ali Maatouk, Kenny Chirino Ampudia, Rex Ying, and Leandros Tassi-
+[16] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya                        ulas. 2024. Tele-llms: A series of specialized large language models for
+     Ramesh, Aidan Clark, AJ Ostrow, Akila Welihinda, Alan Hayes, Alec                     telecommunications. arXiv preprint arXiv:2409.05314 (2024).
+     Radford, et al. 2024. Gpt-4o system card. arXiv preprint arXiv:2410.21276        [32] Abdelkader Mekrache, Adlen Ksentini, and Christos Verikoukis. 2024.
+     (2024).                                                                               Intent-based management of next-generation networks: An LLM-
+[17] Ebenezer R.H.P. Isaac and Akshat Sharma. 2024. Adaptive Threshold-                    centric approach. IEEE Network 38, 5 (2024), 29–36.
+     ing Heuristic for KPI Anomaly Detection. In 2024 16th International              [33] Mohamed Moulay, Rafael Garcia Leiva, Pablo J Rojo Maroni, Javier
+     Conference on COMmunication Systems & NETworkS (COMSNETS).                            Lazaro, Vincenzo Mancuso, and Antonio Fernandez Anta. 2020. A
+     737–741. doi:10.1109/COMSNETS59351.2024.10427016                                      novel methodology for the automated detection and classification
+[18] Feibo Jiang, Cunhua Pan, Kezhi Wang, Pietro Michiardi, Octavia A                      of networking anomalies. In IEEE INFOCOM 2020-IEEE Conference
+     Dobre, and Merouane Debbah. 2026. From large ai models to agentic                     on Computer Communications Workshops (INFOCOM WKSHPS). IEEE,
+     ai: A tutorial on future intelligent communications. IEEE Journal on                  780–786.
+     Selected Areas in Communications (2026).                                         [34] Mourad Nouioua, Philippe Fournier-Viger, Ganghuan He, Farid
+[19] Feibo Jiang, Yubo Peng, Li Dong, Kezhi Wang, Kun Yang, Cunhua                         Nouioua, and Zhou Min. 2021. A survey of machine learning for
+     Pan, Dusit Niyato, and Octavia A Dobre. 2024. Large language model                    network fault management. In Machine Learning and Data Mining for
+     enhanced multi-agent systems for 6G communications. IEEE Wireless                     Emerging Trend in Cyber Dynamics: Theories and Applications. Springer,
+     Communications (2024).                                                                1–27.
+[20] Cameron Kane. 2015. System and method for identifying problems on                [35] Kinge Mbeke Theophane Osee, Valery Nkemeni, and Michael Ekonde
+     a network. US Patent 9,172,593.                                                       Sone. 2025. Quality of experience management in mobile networks:
+[21] Fahime Khoramnejad and Ekram Hossain. 2025. Generative AI for the                     Techniques, constraints, and emerging trends for value-added services.
+     optimization of next-generation wireless networks: Basics, state-of-                  Computer Networks and Communications (2025), 21–58.
+     the-art, and open challenges. IEEE Communications Surveys & Tutorials            [36] Junwoo Park, Hyuck Lee, Dohyun Lee, Daehoon Gwak, and Jaegul
+     27, 6 (2025), 3483–3525.                                                              Choo. 2025. Revisiting LLMs as Zero-Shot Time Series Forecasters:
+[22] Yaxuan Kong, Yiyuan Yang, Yoontae Hwang, Wenjie Du, Stefan                            Small Noise Can Break Large Models. In Proceedings of the 63rd Annual
+     Zohren, Zhangyang Wang, Ming Jin, and Qingsong Wen. 2025. Time-                       Meeting of the Association for Computational Linguistics (Volume 2:
+     MQA: Time Series Multi-Task Question Answering with Context En-                       Short Papers). 906–922.
+     hancement. In Proceedings of the 63rd Annual Meeting of the Associ-              [37] Guanqiao Qu, Qiyuan Chen, Wei Wei, Zheng Lin, Xianhao Chen, and
+     ation for Computational Linguistics (Volume 1: Long Papers). Associ-                  Kaibin Huang. 2025. Mobile edge intelligence for large language
+     ation for Computational Linguistics, Vienna, Austria, 29736–29753.                    models: A contemporary survey. IEEE Communications Surveys &
+     doi:10.18653/v1/2025.acl-long.1437                                                    Tutorials (2025).
+[23] LangChain. 2024. https://github.com/langchain-ai/langgraph.                      [38] Yuval Reif and Roy Schwartz. 2024. Beyond performance: Quantifying
+[24] Jungjae Lee, Dongjae Lee, Chihun Choi, Youngmin Im, Jaeyoung Wi,                      and mitigating label bias in LLMs. In Proceedings of the 2024 Conference
+     Kihong Heo, Sangeun Oh, Sunjae Lee, and Insik Shin. 2025. Verisafe                    of the North American Chapter of the Association for Computational
+     agent: Safeguarding mobile gui agent via logic-based action verifi-                   Linguistics: Human Language Technologies (Volume 1: Long Papers).
+     cation. In Proceedings of the 31st Annual International Conference on                 6784–6798.
+     Mobile Computing and Networking. 817–831.                                        [39] Abdelaziz Salama, Zeinab Nezami, Mohammed MH Qazzaz, Maryam
+[25] Borui Li, Tianen Liu, Weilong Wang, Chengqing Zhao, and Shuai Wang.                   Hafeez, and Syed Ali Raza Zaidi. 2025. Edge agentic AI framework
+     2024. Agent-as-a-Service: An AI-Native Edge Computing Framework                       for autonomous network optimisation in O-RAN. In 2025 IEEE 36th
+     for 6G Networks. IEEE Network (2024).                                                 International Symposium on Personal, Indoor and Mobile Radio Commu-
+[26] Qizhe Li, Haolong Chen, Jiansheng Li, Shuqi Chai, Xuan Li, Yuzhou                     nications (PIMRC). IEEE, 1–7.
+     Hou, Xinhua Shao, Fangfang Li, Kaifeng Han, and Guangxu Zhu. 2025.               [40] Leming Shen, Qiang Yang, Yuanqing Zheng, and Mo Li. 2025. Autoiot:
+     DK-Root: A Joint Data-and-Knowledge-Driven Framework for Root                         Llm-driven automated natural language programming for aiot appli-
+     Cause Analysis of QoE Degradations in Mobile Networks. arXiv                          cations. In Proceedings of the 31st Annual International Conference on
+     preprint arXiv:2511.11737 (2025).                                                     Mobile Computing and Networking. 468–482.
+[27] Zheng Lin, Guanqiao Qu, Qiyuan Chen, Xianhao Chen, Zhe Chen, and                 [41] Gaurang Sriramanan, Siddhant Bharti, Vinu Sankar Sadasivan,
+     Kaibin Huang. 2025. Pushing large language models to the 6g edge:                     Shoumik Saha, Priyatham Kattakinda, and Soheil Feizi. 2024. Llm-
+     Vision, challenges, and opportunities. IEEE Communications Magazine                   check: Investigating detection of hallucinations in large language
+     63, 9 (2025), 52–59.                                                                  models. Advances in Neural Information Processing Systems 37 (2024),
+[28] Aixin Liu, Aoxue Mei, Bangcai Lin, Bing Xue, Bingxuan Wang,                           34188–34216.
+     Bingzheng Xu, Bochao Wu, Bowei Zhang, Chaofan Lin, Chen Dong,                    [42] Chuanhao Sun, Ujjwal Pawar, Molham Khoja, Xenofon Foukas, Ma-
+     et al. 2025. Deepseek-v3. 2: Pushing the frontier of open large language              hesh K Marina, and Bozidar Radunovic. 2024. SpotLight: Accurate,
+     models. arXiv preprint arXiv:2512.02556 (2025).                                       explainable and efficient anomaly detection for Open RAN. In Proceed-
+[29] Jun Liu, Chaoyun Zhang, Jiaxu Qian, Minghua Ma, Si Qin, Chetan                        ings of the 30th Annual International Conference on Mobile Computing
+     Bansal, Qingwei Lin, Saravan Rajmohan, and Dongmei Zhang. 2025.                       and Networking. 923–937.
+     Large language models can deliver accurate and interpretable time                [43] Yan Sun, Yinqiu Liu, Shaoyong Guo, Xuesong Qiu, Jiewei Chen, Jiakai
+     series anomaly detection. In Proceedings of the 31st ACM SIGKDD                       Hao, and Dusit Niyato. 2025. Edge large AI model agent-empowered
+     Conference on Knowledge Discovery and Data Mining V. 2. 4623–4634.                    cognitive multimodal semantic communication. IEEE Transactions on
+[30] Haoxiang Luo, Yinqiu Liu, Ruichen Zhang, Jiacheng Wang, Gang Sun,                     Mobile Computing (2025).
+     Dusit Niyato, Hongfang Yu, Zehui Xiong, Xianbin Wang, and Xuemin
+                                                                                 14
+QoEReasoner: An Agentic Reasoning Framework for Automated and Explainable QoE Diagnosis in RANs Conference’17, July 2017, Washington, DC, USA
+
+
+[44] Tobias Sundqvist, Monowar H Bhuyan, Johan Forsman, and Erik Elm-                 and outputs, which facilitates reproducible orchestration and
+     roth. 2020. Boosted ensemble learning for anomaly detection in 5G                end-to-end traceability.
+     RAN. In IFIP international conference on artificial intelligence applica-           To provide reliable numeric perception, we implement
+     tions and innovations. Springer, 15–30.
+[45] Jingwen Tong, Wei Guo, Jiawei Shao, Qiong Wu, Zijian Li, Zehong Lin,             data preprocessing utilities and lightweight CNN-based clas-
+     and Jun Zhang. 2025. Wirelessagent: Large language model agents for              sifiers as deterministic tools. For anomaly detection (AD), we
+     intelligent wireless networks. arXiv preprint arXiv:2505.01074 (2025).           train a supervised binary classifier on labeled QoE session
+[46] Jingwen Tong, Zijian Li, Fang Liu, Wei Guo, and Jun Zhang. 2026. Wire-           samples (normal vs. anomalous). Given a multivariate KPI
+     lessAgent++: Automated Agentic Workflow Design and Benchmarking                  sequence X ∈ R𝑇 ×𝑀 , the model outputs an anomaly proba-
+     for Wireless Networks. arXiv preprint arXiv:2603.00501 (2026).
+[47] Kailin Tong and Selim Solmaz. 2024. Connectgpt: Connect large lan-               bility, which is used by the planner for confidence tracking
+     guage models with connected and automated vehicles. In 2024 IEEE                 and stopping decisions.
+     Intelligent Vehicles Symposium (IV). IEEE, 581–588.                                 For root-cause classification (RCC), we train a supervised
+[48] Bingrui Wang, Yuan Zhou, Leijiao Ge, and Sun-Yuan Kung. 2025. Large-             multi-class classifier on labeled anomalous samples with
+     model-based smart agent for time series anomaly detection in power               root-cause category annotations. The predicted category
+     systems. Expert Systems with Applications (2025), 128917.
+[49] Duo Wu, Xianda Wang, Yaqi Qiao, Zhi Wang, Junchen Jiang, Shuguang                distribution is then used as candidate evidence, which can be
+     Cui, and Fangxin Wang. 2024. Netllm: Adapting large language models              further verified or corrected by the knowledge-constrained
+     for networking. In Proceedings of the ACM SIGCOMM 2024 Conference.               fault causal chain reasoning module.
+     661–678.                                                                            All experiments are conducted on a single NVIDIA RTX
+[50] Junjielong Xu, Qinan Zhang, Zhiqing Zhong, Shilin He, Chaoyun                    3090 GPU.
+     Zhang, Qingwei Lin, Dan Pei, Pinjia He, Dongmei Zhang, and Qi Zhang.
+     2025. OpenRCA: Can Large Language Models Locate the Root Cause of
+     Software Failures?. In The Thirteenth International Conference on Learn-         C    Fault Chain Vocabulary
+     ing Representations. https://openreview.net/forum?id=M4qNIzQYpd
+                                                                                      We show the fault chain vocabulary in Table 6.
+[51] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo
+     Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. 2025.
+     Qwen3 technical report. arXiv preprint arXiv:2505.09388 (2025).                  D    Root-Cause Category Labels
+[52] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R
+                                                                                      We show all root-cause category labels in Table 7.
+     Narasimhan, and Yuan Cao. 2022. React: Synergizing reasoning and
+     acting in language models. In The eleventh international conference on
+     learning representations.                                                        E    Metrics
+[53] Yannan Yuan, Jiaolong Yang, Ran Duan, I Chih-Lin, and Jinri Huang.
+                                                                                         Notation. Let 𝑁 denote the number of evaluated sam-
+     2020. Anomaly detection and root cause analysis enabled by artificial
+     intelligence. In 2020 IEEE Globecom Workshops (GC Wkshps. IEEE, 1–6.             ples for AD or RCC after task-specific filtering. For AD, let
+[54] Ruichen Zhang, Guangyuan Liu, Yinqiu Liu, Changyuan Zhao, Ji-                    (𝑇 𝑃, 𝐹 𝑃,𝑇 𝑁 , 𝐹 𝑁 ) be the binary confusion counts. For RCC,
+     acheng Wang, Yunting Xu, Dusit Niyato, Jiawen Kang, Yonghui Li,                  let C denote the set of ground-truth root-cause classes after
+     Shiwen Mao, et al. 2026. Toward edge general intelligence with agentic           filtering, and let (𝑦𝑖 , 𝑦ˆ𝑖 ) be the ground-truth and predicted
+     AI and agentification: Concepts, technologies, and future directions.
+                                                                                      class labels for sample 𝑖. For FCR, let 𝑔𝑖 and 𝑝𝑖 denote the
+     IEEE Communications Surveys & Tutorials 28 (2026), 4285–4318.
+[55] Zihao Zhou and Rose Yu. 2025. Can LLMs Understand Time Series                    ground-truth and predicted fault chains for sample 𝑖, respec-
+     Anomalies?. In The Thirteenth International Conference on Learning               tively, where each chain is represented as an ordered node
+     Representations. https://openreview.net/forum?id=LGafQ1g2D2                      sequence. Let 𝑀 be the number of samples with non-empty
+                                                                                      ground-truth chains.
+A     Preliminary LLM Study Setup                                                        AD metrics. We use standard binary classification met-
+This appendix summarizes the experimental setup for the                               rics to evaluate anomaly detection. Precision measures the
+preliminary study in §2.2. We consider prompt-based anom-                             correctness of predicted anomalies, Recall measures the cov-
+aly detection on cellular KPI sequences and evaluate repre-                           erage of true anomalies, FAR measures the false-alarm ten-
+sentative, recently released industry-leading LLM families,                           dency on normal samples, and F1 balances Precision and
+including DeepSeek-V3.2, Gemini series, GPT series, and                               Recall:
+Qwen3 family [9, 16, 28, 51]. The evaluation uses 350 labeled
+                                                                                                                   𝑇𝑃
+KPI sequence samples, consisting of 175 normal and 175                                             Precision =            ,                       (6)
+                                                                                                                𝑇𝑃 + 𝐹𝑃
+anomalous cases.
+                                                                                                                    𝑇𝑃
+                                                                                                       Recall =             ,                     (7)
+                                                                                                                𝑇𝑃 + 𝐹𝑁
+B     Implementation Details                                                                                        𝐹𝑃
+We implement QoEReasoner with LangGraph [23] and orga-                                                  FAR =               ,                     (8)
+                                                                                                                𝐹𝑃 + 𝑇 𝑁
+nize the workflow under a ReAct-style control loop [52]. All                                                    2 · Precision · Recall
+tools are exposed as callable nodes with structured inputs                                                F1 =                         .          (9)
+                                                                                                                 Precision + Recall
+                                                                                 15
+Conference’17, July 2017, Washington, DC, USA                                                                                            Li et al.
+
+
+  Table 6: FCR vocabulary of anomaly phenomena.                      Balanced accuracy averages per-class recall and reflects how
+                       Vocabulary Atom                               well the model recognizes each class under class imbalance:
+
+  cell_level_high_CCE_load_or_allocation_failure                                                      1 ∑︁
+                                                                                     balanced_acc =            𝑅𝑐 .           (14)
+  user_level_high_uplink_CCE_allocation_failure                                                      |C| 𝑐 ∈ C
+              sr_scheduling_delay_high
+                  uplink_delay_high                                    FCR metrics. For fault chain reasoning, we evaluate struc-
+                uplink_weak_coverage                                 tural correctness from three perspectives: node recovery,
+             ul_low_spectral_efficiency                              edge recovery, and exact chain match.
+                ul_rlc_many_segments                                   For sample 𝑖, define the node sets
+                  ul_rlc_delay_high
+              uplink_interference_high                                                 𝐺𝑖 = set(𝑔𝑖 ),         𝑃𝑖 = set(𝑝𝑖 ),                (15)
+                  dl_high_error_rate
+                     dl_arq_high                                     and the edge sets induced by adjacent node pairs:
+                  dl_rlc_delay_high                                                              |𝑔 | −1                                |𝑝 | −1
+                                                                      𝐸 (𝑔𝑖 ) = {(𝑔𝑖,𝑗 , 𝑔𝑖,𝑗+1 )} 𝑗=1
+                                                                                                     𝑖
+                                                                                                       ,    𝐸 (𝑝𝑖 ) = {(𝑝𝑖,𝑗 , 𝑝𝑖,𝑗+1 )} 𝑗=1𝑖 .
+ user_level_high_downlink_CCE_allocation_failure
+                dl_rlc_many_segments                                                                                                         (16)
+             dl_low_small_packet_ratio                                 Node precision (node_p) measures how many predicted
+                 downlink_delay_high
+                                                                     nodes are correct:
+             ul_air_interface_dtx_rbler                                                          (
+             ul_rlc_arq_retransmission                                                             |𝐺𝑖 ∩𝑃𝑖 |
+                                                                                                      |𝑃𝑖 | , |𝑃𝑖 | > 0,
+               downlink_weak_coverage                                          node_precision𝑖 =                         (17)
+                                                                                                   0,         |𝑃𝑖 | = 0,
+             dl_air_interface_dtx_rbler
+             dl_rlc_arq_retransmission                               Node recall (node_r) measures how much of the ground-truth
+             downlink_interference_high                              chain is covered:
+        cell_downlink_PRB_utilization_high
+              user_high_traffic_demand                                                                         |𝐺𝑖 ∩ 𝑃𝑖 |
+                                                                                          node_recall𝑖 =                  .                 (18)
+             high_CCE_aggregation_level                                                                          |𝐺𝑖 |
+            high_CCE_allocation_failure
+                  packet_aggregation                                 Edge precision (edge_p) measures the correctness of pre-
+               rlc_arq_retransmission                                dicted causal transitions:
+             dl_spectral_efficiency_low
+                                                                                             ( |𝐸 (𝑔 )∩𝐸 (𝑝 ) |
+                                                                                                    𝑖
+                                                                                                   |𝐸 (𝑝𝑖 ) |
+                                                                                                              𝑖
+                                                                                                                , |𝐸 (𝑝𝑖 )| > 0,
+           uplink_rlc_fragmentation_high                                  edge_precision𝑖 =                                      (19)
+                                                                                               0,                 |𝐸 (𝑝𝑖 )| = 0,
+  RCC metrics. For root-cause classification, top-1 accuracy
+measures overall prediction correctness, while macro-F1 and          Exact chain match (chain_em) evaluates whether the whole
+balanced accuracy emphasize class-balanced performance.              predicted chain exactly matches the ground truth:
+  Top-1 accuracy is defined as                                                             chain_em𝑖 = 1[𝑔𝑖 = 𝑝𝑖 ].                         (20)
+                                   𝑁
+                               1  ∑︁                                   Dataset-level FCR metrics are macro averages over all
+                 top1_acc =          1[𝑦ˆ𝑖 = 𝑦𝑖 ].       (10)        samples.
+                               𝑁 𝑖=1
+                                                                        FCR module-level ranking metrics. The following metrics
+  For each class 𝑐 ∈ C, let 𝑇 𝑃𝑐 , 𝐹 𝑃𝑐 , and 𝐹 𝑁𝑐 denote the
+                                                                     are used in §6.3.2 to evaluate how effectively the multi-stage
+one-vs-rest confusion counts. Then
+                                                                     FCR pipeline concentrates the ground-truth (GT) chain to-
+              𝑃𝑐 =
+                       𝑇 𝑃𝑐
+                              , 𝑅𝑐 =
+                                           𝑇 𝑃𝑐
+                                                   ,     (11)        ward the top of the candidate ranking.
+                  𝑇 𝑃𝑐 + 𝐹 𝑃𝑐          𝑇 𝑃𝑐 + 𝐹 𝑁𝑐                      Let 𝐾 denote the total number of candidate chains re-
+                  (
+                    2𝑃𝑐 𝑅𝑐
+                            , 𝑃𝑐 + 𝑅𝑐 > 0,                           trieved for a given sample, and let 𝑟𝑖 ∈ {1, . . . , 𝐾 } denote the
+            𝐹 1𝑐 = 𝑃𝑐 +𝑅𝑐                                (12)        rank position of the GT chain for sample 𝑖 (𝑟𝑖 = ∞ if the GT
+                    0,        otherwise.
+                                                                     chain is absent from the candidate set). Then:
+Macro-F1 averages per-class F1 scores and thus treats all               Mean Reciprocal Rank (MRR) measures how close the GT
+classes equally:                                                     chain is to the top of the ranking on average:
+                                                                                                              𝑀
+                             1 ∑︁                                                                          1 ∑︁ 1
+                 macro_F1 =           𝐹 1𝑐 .         (13)                                      MRR =                .                       (21)
+                            |C| 𝑐 ∈ C                                                                      𝑀 𝑖=1 𝑟𝑖
+                                                                16
+QoEReasoner: An Agentic Reasoning Framework for Automated and Explainable QoE Diagnosis in RANs Conference’17, July 2017, Washington, DC, USA
+
+
+                                       Table 7: Description of the Root-Cause Categories.
+ ID         Category            Description
+  1    Uplink Interference      External noise or frequency overlap causes decoding errors and uplink throughput degradation.
+  2  Uplink Weak Coverage       Low uplink signal strength due to path loss or deep indoor scenarios, leading to increased latency.
+  3  Downlink Interference      Strong interference from neighboring cells degrades SINR and reduces downlink data rates.
+  4 Downlink Weak Coverage      Weak downlink signal at the cell edge or under obstruction leads to poor service quality.
+  5 Traffic Channel Overload    Overload of data channels caused by excessive user traffic demand, resulting in congestion and increased latency.
+  6 Control Channel Overload    Congestion on control channels delays resource scheduling and increases access failures.
+
+
+  Top-𝐾 AUC accumulates rank-position indicators across                     • DeepSeek-V3.2 [28]: a recent large-scale Mixture-of-
+the top-𝐾 slots to capture the overall concentration of the                   Experts language model with strong general reasoning
+GT chain within the highest-ranked candidates:                                ability, used here as a representative open-weight LLM
+                                 𝑀   𝐾                                        backbone.
+                       1 ∑︁ ∑︁                                              • GPT-5.2 [16]: a frontier proprietary LLM from OpenAI
+               AUC@K =         1[𝑟𝑖 ≤ 𝑘].                       (22)
+                       𝑀 𝑖=1
+                                     𝑘=1                                      with strong instruction-following and reasoning capabili-
+                                                                              ties, representing a state-of-the-art commercial LLM API.
+   Recall at rank 𝑘 (R@𝑘) measures the fraction of samples
+                                                                            • Qwen3-14B [51]: a medium-scale open-weight LLM from
+for which the GT chain appears within the top-𝑘 positions:
+                                                                              the Qwen3 family, included to evaluate whether smaller
+                                 𝑀
+                            1 ∑︁                                              models can remain competitive in domain-specific diag-
+                   R@𝑘 =          1[𝑟𝑖 ≤ 𝑘].                    (23)          nosis tasks.
+                            𝑀 𝑖=1
+  Top-𝐾 hit rate is the cumulative recall curve reported in                    Agent Baseline. RCA-Agent [50] is a ReAct-style root
+Fig. 9. For each cutoff 𝑘 ∈ {1, . . . , 𝐾 }, it equals R@𝑘 and              cause analysis agent. It supports multi-step reasoning and it-
+measures the fraction of test samples whose GT chain is                     erative evidence gathering over heterogeneous observability
+ranked within the top 𝑘 after the final adjustment stage.                   signals through a controller–executor workflow built on top
+                                                                            of an LLM backbone.
+F    Baselines
+We compare QoEReasoner against baselines spanning four                      G    Rubrics of User Study
+paradigms: rule-based heuristics, deep learning, pure LLMs,
+and LLM-based agents.                                                       The expert evaluators assessed each report along four di-
+                                                                            mensions: Correctness, Evidence Grounding, Knowledge
+   Heuristic Baseline. The rule-based baseline is an expert-                Grounding, and Interpretability. Each dimension was rated
+engineered deterministic diagnostic workflow. For each KPI                  on a 5-point Likert scale, with higher scores indicating better
+time-series window, a set of hand-crafted conditional rules                 quality.
+checks whether specific KPI combinations exceed predefined                  • Correctness
+thresholds.                                                                   – 1: Neither the main causal chain nor the alternative
+                                                                                 candidate chains are valid, and the causal direction is
+  Deep Learning Baselines.
+                                                                                 clearly incorrect.
+• TS-TCC [12]: a contrastive representation learning frame-
+                                                                              – 2: Mentions a few relevant variables, but fails to form
+  work for time-series data. It learns informative representa-
+                                                                                 an effective causal chain.
+  tions from augmented time-series inputs, which are then
+                                                                              – 3: Contains some correct chain segments, but the over-
+  used for downstream classification.
+                                                                                 all chain is incomplete, or key intermediate nodes are
+• CA-TCC [11]: a semi-supervised extension of TS-TCC for
+                                                                                 incorrect.
+  few-labeled settings. It combines representation learning
+                                                                              – 4: The main chain is mostly correct, and the major inter-
+  on unlabeled time-series data with class-aware optimiza-
+                                                                                 mediate steps are reasonable, but there are minor jumps
+  tion, and uses the learned representations for downstream
+                                                                                 or weak links.
+  classification.
+                                                                              – 5: The main chain is complete and correct, with a clear
+   Pure LLM Baselines. For each LLM, the raw or summarized                       and valid progression from root cause to intermediate
+KPI time-series data, together with a task-specific prompt,                      mechanism to observed phenomenon/result.
+is directly provided to the model for diagnosis. No external                • Evidence Grounding
+tools, domain knowledge bases, or iterative reasoning loops                   – 1: Almost no data support is provided; the report mainly
+are used.                                                                        states conclusions without evidence.
+                                                                       17
+Conference’17, July 2017, Washington, DC, USA                                                                           Li et al.
+
+
+  – 2: Refers to a small amount of KPI data, but the con-             immediately visible; causal chains, evidence, counter-
+    nection to the conclusions is weak, or only supports a            evidence, uncertainties, and recommended actions are
+    small part of the chain.                                          clearly aligned; the language is concise and information-
+  – 3: Key conclusions are partially supported by data, but           dense, enabling different reviewers to quickly under-
+    there are unverified jumps in the intermediate reasoning          stand, compare, and validate the report.
+    chain.
+  – 4: Most key nodes are supported by data, and both
+    supporting and opposing evidence are considered.
+  – 5: The report provides explicit data support from root
+    cause to intermediate steps to final outcomes, and
+    clearly explains the strength of evidence as well as
+    remaining gaps.
+• Knowledge Grounding
+  – 1: The reasoning clearly contradicts domain knowledge,
+    or the meanings of KPIs are used incorrectly.
+  – 2: Contains multiple unreasonable mappings between
+    KPIs and mechanisms, and the explanations are forced
+    or implausible.
+  – 3: The overall perspective is reasonable, but some mech-
+    anistic chains are oversimplified or lack rigor.
+  – 4: Consistent with most domain knowledge, and the
+    mapping between KPIs and fault mechanisms is largely
+    correct.
+  – 5: The mechanistic explanation is accurate and rigorous,
+    and it clearly distinguishes direct evidence, indirect
+    evidence, and counter-evidence.
+• Interpretability
+  – 1: Confusing and difficult to understand. The output
+    lacks basic organization, with information piled to-
+    gether chaotically; phenomena, conclusions, evidence,
+    and suggestions are hard to distinguish; reviewers
+    cannot quickly understand what the agent is trying to
+    convey.
+  – 2: Barely readable, but loosely structured. Some struc-
+    ture is present, but the organization is unstable; conclu-
+    sions, reasoning, evidence, and suggestions are mixed
+    together; the content can be roughly understood, but
+    reviewers must reorganize the information themselves.
+  – 3: Basically clear in structure. The report has a rea-
+    sonably clear organization and can distinguish major
+    conclusions, some evidence, and some reasoning; it is
+    generally understandable, but may still contain repe-
+    tition, unnatural ordering, or insufficient emphasis on
+    key points.
+  – 4: Clear hierarchy with distinct priorities. The main con-
+    clusion is prominent; causal chains, evidence, counter-
+    evidence/limitations, and suggested actions are clearly
+    separated; the writing is fairly concise, with no obvious
+    redundancy, allowing reviewers to read and understand
+    it efficiently.
+  – 5: Highly clear and easy to review and verify. The out-
+    put is very well structured, with the main conclusion
+                                                                 18
+

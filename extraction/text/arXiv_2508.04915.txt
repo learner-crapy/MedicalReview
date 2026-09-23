@@ -1,0 +1,715 @@
+                                           ConfAgents: A Conformal-Guided Multi-Agent Framework for Cost-Efficient
+                                                                     Medical Diagnosis
+                                           Huiya Zhao1, ∗ , Yinghao Zhu1,2, ∗ , Zixiang Wang1, ∗ , Yasha Wang1 , Junyi Gao3,4 , Liantao Ma1, † ,
+                                                                                       1
+                                                                                       Peking University, 2 The University of Hong Kong,
+                                                                                 3
+                                                                                     The University of Edinburgh, 4 Health Data Research UK
+                                                                                           yhzhu99@gmail.com, malt@pku.edu.cn
+
+
+                                                                      Abstract                                    are universally challenged by a critical efficiency bottleneck
+
+
+
+
+arXiv:2508.04915v1 [cs.AI] 6 Aug 2025
+                                          Multi-agent systems powered by Large Language Models
+                                                                                                                  that severely undermines their practical applicability in clin-
+                                          (LLMs) are an emerging paradigm for tackling complex rea-               ical settings. The core of this issue lies in their “one-size-
+                                          soning tasks. In the critical domain of medicine, these systems         fits-all” approach: they apply an intensive, resource-heavy
+                                          show immense promise by simulating expert consultations to              collaborative process to every case, regardless of its intrinsic
+                                          improve diagnostic accuracy. However, the substantial com-              difficulty. Our analysis reveals that a multi-agent consultation
+                                          putational overhead of existing frameworks critically under-            can be up to 50 times slower than a single LLM call, yet
+                                          mines their real-world applicability, creating a major bottle-          the performance gains are often marginal for the majority
+                                          neck for clinical deployment. This inefficiency stems from a            of cases (Table 1). We find that a large portion of medical
+                                          “one-size-fits-all” approach that applies intensive multi-agent         questions can be answered with high confidence and accu-
+                                          collaboration to all cases, regardless of their intrinsic difficulty.   racy by a single agent. This indiscriminate application of
+                                          To address this challenge, we propose ConfAgents, an adap-
+                                          tive multi-agent framework. The core insight of ConfAgents
+                                                                                                                  collaboration leads to substantial and unnecessary consump-
+                                          is a principled, two-stage process: it first employs a robust,          tion of computational resources and introduces significant
+                                          confidence-based triage mechanism to reliably identify and              latency, making these systems impractical for routine clinical
+                                          escalate only the most complex cases for collaborative deliber-         deployment.
+                                          ation. For these escalated cases, ConfAgents then initiates an             Inspired by triage processes in human clinical practice,
+                                          enhanced collaborative process where agents can dynamically             where expert consultations are reserved for genuinely chal-
+                                          retrieve and integrate external knowledge to surmount the lim-          lenging cases, we argue for an adaptive strategy. Such an
+                                          itations of their static training. Extensive experiments on four
+                                                                                                                  approach selectively engages the full multi-agent framework
+                                          medical benchmarks demonstrate that ConfAgents not only
+                                          achieves state-of-the-art accuracy but also drastically reduces         only for difficult problems, thereby maximizing efficiency
+                                          computational costs, for instance by over 50% on the MedQA              without compromising diagnostic accuracy. However, imple-
+                                          dataset, moving these powerful systems significantly closer to          menting this strategy presents two significant challenges: (1)
+                                          practical clinical use.                                                 Unreliable Confidence Estimation. A reliable mechanism
+                                                                                                                  to differentiate between simple and complex cases is re-
+                                        Code — https://github.com/PKU-AICare/ConfAgents                           quired. LLMs, however, are notoriously miscalibrated (Da
+                                                                                                                  et al. 2024; Ye et al. 2024) and often express high confidence
+                                                               1     Introduction                                 in erroneous conclusions (Yadkori et al. 2024; Feng et al.
+                                                                                                                  2024). Naively trusting an agent’s self-reported confidence is
+                                        Multi-agent systems driven by Large Language Models                       therefore an inadequate foundation for a robust triage system.
+                                        (LLMs) represent a leading paradigm for complex rea-                      (2) Insufficiency of Static Knowledge. For complex cases that
+                                        soning, particularly in the high-stakes domain of medical                 warrant collaboration, the agents’ deliberation is fundamen-
+                                        decision-making (MDM) (Kim et al. 2024). By simulating                    tally constrained by their static, pre-trained knowledge (Ng,
+                                        the collaborative deliberation of a Multidisciplinary Team                Matsuba, and Zhang 2025; Wang et al. 2024). When faced
+                                        (MDT) (Taberna et al. 2020), these frameworks can synthe-                 with novel or nuanced problems, existing frameworks lack
+                                        size diverse perspectives to achieve a level of diagnostic ac-            an intrinsic mechanism to recognize the boundaries of their
+                                        curacy and robustness that a single model often cannot (Tang              collective knowledge and dynamically seek external, up-to-
+                                        et al. 2023; Chen, Saha, and Bansal 2023). As the complex-                date evidence (Li, Yuan, and Zhang 2024; dos Santos Junior
+                                        ity of modern medicine grows with the proliferation of new                et al. 2024).
+                                        knowledge (Masic 2022), the ability of multi-agent systems
+                                        to perform intricate, collaborative reasoning establishes them               To address these challenges, we propose ConfAgents,
+                                        as a vital frontier in medical AI.                                        an adaptive multi-agent framework for cost-efficient med-
+                                           However, this enhanced capability comes at a significant,              ical diagnosis. ConfAgents introduces a pivotal module,
+                                        and often prohibitive, cost. Current multi-agent frameworks               the CP Judger, which leverages conformal prediction (CP)
+                                                                                                                  to generate prediction sets with rigorous statistical guaran-
+                                            ∗
+                                                Equal contribution, † Corresponding author.                       tees (Cherian, Gibbs, and Candes 2024; Zhou et al. 2025).
+This allows it to act as a reliable and theoretically grounded       times greater than a single LLM generation under a represen-
+gatekeeper, escalating only the low-confidence cases for col-        tative setting, while the corresponding performance improve-
+laborative consultation. For these complex cases, our frame-         ment is often marginal. This disparity highlights a crucial
+work initiates an enhanced collaborative process armed with          challenge: the substantial benefits of complex consultation
+an iterative dynamic Retrieval-Augmented Generation (RAG)            are confined to a small fraction of difficult cases, but their
+mechanism. This empowers agents to recognize knowledge               high computational cost is paid universally, diluting the over-
+gaps during deliberation and to dynamically seek, integrate,         all value and hindering practical adoption.
+and reason upon external evidence from a medical corpus.
+This dual-component design enables ConfAgents to drasti-                   Methods
+                                                                                             Single LLM Agent         Multi-LLM Agents
+                                                                                        Zero-Shot Self-Consistency   MedAgents ColaCare
+cally reduce computational overhead by filtering out simpler
+cases while simultaneously enhancing diagnostic accuracy              Processing Time     2.1s         10.6s          113.4s     98.3s
+                                                                      Accuracy           48.6%         51.2%          58.8%      60.8%
+on complex ones. Our primary contributions are summarized
+as follows:                                                          Table 1: Comparison of processing times and accuracy for sin-
+• Insightfully, we are the first to systematically analyze and       gle LLM and multi-agent frameworks on the MedQA dataset.
+  address the efficiency-accuracy trade-off in medical multi-        The experiment uses GPT-4o and highlights the significant
+  agent frameworks. We propose a novel adaptive triage               increase in latency for collaborative methods.
+  mechanism based on conformal prediction, which provides
+  a statistically rigorous criterion for initiating collaboration.
+• Methodologically, we develop a collaborative mechanism             2.2     Conformal Prediction
+  that incorporates an iterative dynamic RAG process. This           Conformal prediction is a statistical framework that provides
+  allows agents to deconstruct a problem, perform targeted           rigorous, model-agnostic uncertainty quantification for ma-
+  evidence retrieval from a medical corpus, and engage in            chine learning models (Angelopoulos and Bates 2021). A
+  informed deliberation, thereby overcoming the limitations          primary advantage is its distribution-free nature, meaning
+  of static knowledge.                                               its validity guarantees hold without restrictive assumptions
+• Experimentally, we conduct extensive experiments on four           about the underlying data distribution.
+  benchmark medical question-answering datasets. The re-             Score function. The mechanism of CP relies on a non-
+  sults demonstrate that ConfAgents achieves state-of-the-art        conformity score function, denoted g : X × Y 7→ R, which
+  diagnostic accuracy while being significantly more effi-           quantifies how “unusual” a candidate output y is for a given
+  cient, with up to 7.71× faster processing time compared to         input x. By convention, lower scores signify a better fit. For
+  existing multi-agent methods.                                      classification tasks, a standard choice for the score function
+                                                                     is one minus the softmax probability of the candidate class,
+          2    Preliminary and Motivation                            g(x, y) = 1 − p(y|x).
+2.1   LLM Multi-Agent Collaboration in Medicine                      Prediction sets. Given a score function g and a threshold
+                                                                     τ , the prediction set for a new input x ∈ X is formed by
+The application of LLM-driven multi-agent systems, wherein           including all possible outputs whose non-conformity scores
+multiple specialized agents collaborate and leverage external        are below this threshold:
+tools (Kim et al. 2024), has emerged as a promising fron-                         C(x; g, τ ) := {y ∈ Y : g(x, y) ≤ τ }.           (1)
+tier in the medical domain. A significant line of research
+focuses on creating simulated clinical environments to bench-        Intuitively, the size of the prediction set reflects model uncer-
+mark agent capabilities, a concept realized in platforms like        tainty: larger sets imply greater uncertainty, while a singleton
+AI Hospital (Fan et al. 2024) and Agent Hospital (Li et al.          set indicates high confidence.
+2024). These systems construct virtual hospitals where multi-        Split conformal prediction. We employ the standard split
+ple agents emulate real-world clinical workflows, facilitating       conformal prediction method for its simplicity and computa-
+the comprehensive evaluation of an LLM’s clinical aptitude.          tional efficiency. This approach leverages a held-out calibra-
+Concurrently, another stream of research explores intricate          tion dataset, Dcal = {(xi , yi∗ )}ni=1
+                                                                                                         cal
+                                                                                                             , to empirically determine
+collaboration mechanisms to enhance diagnostic accuracy.             the threshold τ . First, we compute the non-conformity scores
+Notable examples include MedAgents (Tang et al. 2023),               for the ground-truth pairs in the calibration set:
+which employs a voting mechanism; ArgMed-Agents (Hong                          Scal = {si = g(xi , yi∗ ) | (xi , yi∗ ) ∈ Dcal }.    (2)
+et al. 2024), which resolves conflicts using formal deduc-
+                                                                     For a user-specified miscoverage rate α ∈ (0, 1), for instance
+tion; and ReConcile (Chen, Saha, and Bansal 2023), which
+                                                                     α = 0.1 for 90% coverage, the threshold τ is set to the
+introduces a confidence-weighted voting scheme to achieve
+                                                                     empirical (1 − α)-quantile of these scores. With the standard
+consensus.
+                                                                     finite-sample correction, it is defined as:
+   However, while these prior works focus on designing in-                                                                   
+creasingly sophisticated methods to improve performance on                                            ⌈(ncal + 1)(1 − α)⌉
+                                                                              τ = Quantile Scal ,                                .  (3)
+medical Q&A tasks, they often overlook a critical trade-off.                                                     ncal
+We find that such approaches introduce a significant effi-           This calibrated threshold is then used to construct predic-
+ciency and resource bottleneck. As illustrated in Table 1, a         tion sets for new test points using Equation 1, providing a
+multi-agent consultation can incur a time overhead nearly 50         marginal coverage guarantee of at least 1 − α on unseen data.
+       Question Input                                                                                       CP Judger
+  Question: A 17-year-old female with no medical history                        MainAgent
+                                                                                                                      Score
+  presents with acute dyspnea, chest pain, and hemoptysis.
+                                                                                                                     Function                        B: Autosomal ...
+  Examination reveals pulmonary vascular congestion. What is                                                                                                              Length = 1   Reliable
+  the most likely inheritance pattern for this patient's underlying      Probability (LogProb)                                                       C: X-linked ...
+  condition?
+  Options:                                                                      A: 10% B: 54%
+                                                                                                           A B C D
+                                                                                                                                                                                       Answer
+  A: Autosomal dominant B: Autosomal recessive                                                        LLM LogProb                                     Prediction Set
+                                                                                C: 32% D: 4%                                    Calibration Set
+  C: X-linked dominant D: Autosomal codominant                                                         For Options                                  (Length of Set = 2)
+
+                                     Summary                                   Iterative RAG Process With Stop Button
+                                                                                                                 Original                                                        Length >= 2
+                                                                                                              Question Input
+                                                                      AssistAgents       Sub Question 1
+                                   MainAgent                                             Sub Question 2
+                                                                                                               Continue                            Break
+                                                                                                                                 Stop Buttion
+                                                                                         Sub Question 3
+                                                                                                                                  (CP Judger)
+  Reliable
+   Answer                                                                  .                                                                                    .
+                                            .                                                                  Relevant                   Summarized
+                                                                           .                                                               Knowledge
+                                                                                                                                                                .
+                                            .                                              Corpus             Knowledge
+                                                                           .                                                                                    .
+                                            .
+                                                                                                          Similar RAG Process
+
+
+
+
+Figure 1: The overall architecture of our proposed ConfAgents framework. It begins with a MainAgent’s initial diagnosis. A
+CP Judger then assesses the confidence; if low, it triggers a collaborative stage where AssistAgents use iterative RAG to gather
+evidence. Finally, the MainAgent synthesizes all information for a refined diagnosis.
+
+
+2.3       Uncertainty Quantification for LLMs                                                                 tation. In this stage, a team of AssistAgents is engaged to
+Uncertainty quantification is a foundational research area in                                                 further analyze the case by iteratively interacting with pro-
+machine learning, critical for high-stakes applications like                                                  fessional medical guidelines to gather additional evidence.
+medical decision-making (Da et al. 2024; Ye et al. 2024).                                                     Finally, the MainAgent synthesizes its initial assessment with
+Early efforts to quantify LLM uncertainty focused on heuris-                                                  the new evidence from the consultation to produce the final,
+tic approaches. A common strategy is to query the LLM for                                                     refined diagnosis.
+its own confidence score, but models are often poorly cal-
+                                                                                                              3.1      MainAgent’s Initial Diagnosis
+ibrated and prone to overconfidence (Yadkori et al. 2024).
+Other approaches leverage metrics like output entropy, but                                                    Given an input query x, which comprises patient informa-
+these can be equally unreliable.                                                                              tion and a set of candidate options Y = {y1 , . . . , yK }, the
+   Recently, there has been a growing interest in applying                                                    LLM-based MainAgent, Amain , simulates a medical expert to
+conformal prediction (CP) for robust uncertainty quantifica-                                                  perform a preliminary analysis. This process yields a proba-
+tion (Gligorić et al. 2024; Farr et al. 2024). Unlike methods                                                bility distribution p over the candidate options. For white-box
+that produce a single point estimate, CP generates a predic-                                                  models, these probabilities can be directly extracted from the
+tion set containing all plausible labels. The size of this set                                                output logits; for black-box models, they can be approxi-
+serves as a direct and intuitive measure of uncertainty: a                                                    mated via sampling or by parsing logit biases if available.
+larger set implies greater uncertainty. Critically, the resulting                                                                               p = Amain (x, Y),                               (4)
+set is statistically guaranteed to contain the true label with
+a user-defined probability, making CP a highly robust and                                                     where p = (p1 , . . . , pK ) is a vector of probabilities corre-
+theoretically grounded method.                                                                                sponding to each option yk ∈ Y. The initial diagnosis yinit is
+                                                                                                              then the option with the highest probability:
+                                   3        Methodology                                                                                     yinit = arg max pk .                                (5)
+                                                                                                                                                           yk ∈Y
+The proposed LLM-based multi-agent framework, ConfA-
+gents, is illustrated in Figure 1. It takes a textual disease                                                 This initial assessment serves as a baseline for the subsequent
+description as input and outputs a refined medical diagnosis                                                  confidence evaluation.
+through a potential four-stage process. Initially, a MainAgent
+performs a preliminary analysis to generate a probability dis-                                                3.2      CP Judger: Deciding Whether to Collaborate
+tribution over potential diagnoses. These probabilities are                                                   The CP Judger quantitatively assesses the model’s uncer-
+fed into a CP Judger module, which constructs a conformal                                                     tainty to determine if the initial diagnosis is reliable or if it
+prediction set to quantify diagnostic uncertainty. If the pre-                                                requires multi-agent collaboration. Following the formalism
+diction set contains more than one option, indicating high                                                    in Section 2.2, we define the non-conformity score for a given
+uncertainty, the framework triggers a collaborative consul-                                                   input x and a candidate option y as g(x, y) = 1 − p(y|x),
+where p(y|x) is the probability from the MainAgent’s initial         (2) Evidence Retrieval: For each sub-question q ∈ Qi , the
+assessment.                                                              retriever component queries the medical corpus, retriev-
+   To calibrate our uncertainty estimation, we introduce a               ing the top-k most relevant documents Dretrieved (q) based
+hyperparameter α ∈ (0, 1), which represents the permissible              on semantic similarity.
+marginal error rate. Our goal is to construct prediction sets        (3) Report Synthesis: The agent filters, extracts, and synthe-
+that contain the true label with a probability of at least 1 − α.        sizes
+To achieve this, we require a calibration dataset, Dcal . Instead        S salient information from the retrieved documents
+                                                                           q∈Qi Dretrieved (q) into a coherent evidence report, Ri .
+of using a fixed global set, we dynamically construct Dcal
+for each test sample by selecting the N most semantically                                                      [
+relevant questions from our knowledge base, ensuring the                        Ri = Synthesize(x, Qi ,              Dretrieved (q)).    (9)
+                                                                                                              q∈Qi
+calibration is tailored to the specific query.
+   The uncertainty threshold, τ , is then calculated as the (1 −
+α)-quantile of the non-conformity scores computed on Dcal ,          (4) Iterative Refinement: The agent formulates a new judg-
+following Equation 3. Finally, for a new test sample xtest , we           ment based on the synthesized report Ri . The iterative
+form a prediction set, C(xtest ), which includes all candidate            loop for agent Ai terminates if its judgment becomes
+options whose non-conformity scores are less than or equal                unambiguous or a maximum number of iterations is
+to τ :                                                                    reached. Otherwise, it refines its sub-questions and con-
+                                                                          tinues the loop.
+            C(xtest ) = {y ∈ Y | g(xtest , y) ≤ τ }.           (6)
+                                                                     Once all AssistAgents complete their iterative processes, their
+The size of this prediction set, |C(xtest )|, serves as our deci-    final reports are passed to the aggregation stage.
+sion criterion for collaboration:
+• If |C(xtest )| = 1, it signifies a high-confidence prediction.     3.4   MainAgent’s Refined Diagnosis
+  The MainAgent’s initial judgment is accepted and output
+  directly.                                                          In the final stage, the MainAgent aggregates the evidence
+                                                                     from all AssistAgents to render a conclusive diagnosis. It
+• If |C(xtest )| > 1, it indicates high uncertainty, as multiple
+                                                                     receives the set of evidence reports {R1 , R2 , . . . , Rm } and
+  options are deemed plausible under the specified coverage
+                                                                     the original query xtest as input. Rather than merely tallying
+  guarantee.
+                                                                     the agents’ suggestions, the MainAgent performs a holistic
+In cases where |C(xtest )| > 1, the CP Judger flags the sample
+                                                                     synthesis of the arguments and findings within the reports.
+as uncertain and triggers the collaborative diagnosis protocol.
+                                                                     This evidence-driven decision process is formalized as:
+3.3   AssistAgents’ Collaboration with Iterative                                 yfinal = Refine (xtest , {Ri }Ai ∈AAssist ) .          (10)
+      RAG
+When the CP Judger identifies a sample as uncertain, the             Here, the Refine function represents the agent’s complex
+system assembles a team of specialized AssistAgents for an           reasoning to produce the single, most probable diagnosis
+in-depth, collaborative analysis. This process unfolds in two        based on a comprehensive review of all collected evidence.
+main stages.
+                                                                                    4    Experimental Setups
+Dynamic agent selection. The MainAgent first analyzes
+the candidate options in the prediction set to identify the          4.1   Datasets
+relevant medical domains (e.g., cardiology, neurology). It           We evaluate our model on four multiple-choice medical ques-
+then recruits a corresponding specialist AssistAgent for each        tion answering datasets: (1) MedQA (Jin et al. 2021), a
+domain. The set of AssistAgents is dynamically formed as:            prominent benchmark derived from professional board ex-
+             
+             
+                                                    
+                                                                    ams in the United States and China; (2) MMLU (Hendrycks
+   AAssist = Agent(d) | d ∈
+                                  [
+                                         Domain(y) , (7)             et al. 2020), a massive multitask benchmark, from which
+                                                                   we use the medical-related subtasks; (3) MedBullets (Or-
+                                 y∈C(xtest )
+                                                                     thoBullets and MedBullets 2021), a question bank from
+where Domain(y) returns the set of medical domains associ-           an online platform for USMLE Step examinations; and (4)
+ated with candidate option y.                                        AfriMedQA (Adebayo et al. 2024), which contains questions
+                                                                     from South African board exams, focusing on the African
+Iterative RAG for evidence synthesis. Each AssistAgent               medical context. Following MedAgentsBench (Tang et al.
+independently executes an iterative RAG loop to build a              2025), we create specialized Test-Hard and Test-Normal sub-
+robust, evidence-based report for its assigned hypothesis. A         sets for each dataset, each with 100 samples.
+single iteration for an agent Ai investigating hypothesis yi
+involves the following steps:                                        4.2   Utilized Medical Guideline
+(1) Question Decomposition: The agent deconstructs its com-
+    plex diagnostic task into a set of precise sub-questions         We use the Merck Manual of Diagnosis and Therapy
+    designed to gather critical evidence.                            (MSD) (Porter and Kaplan 2011) as the external knowledge
+                                                                     source for our iterative RAG framework, providing agents
+       Qi = {qi,1 , . . . , qi,m } = SubQuestions(x, yi ).    (8)    with access to professional medical guidelines.
+                               MedQA                        MMLU                            MedBullets                  AfrimedQA
+  Methods
+                       ACC (↑)      P-Time (↓)       ACC (↑)         P-Time (↓)       ACC (↑)      P-Time (↓)     ACC (↑)      P-Time (↓)
+                                                               DeepSeek-V3
+  Zero-Shot           65.70±3.55    6.66±1.62       76.50±4.92     4.49±0.19          40.40±4.76    4.69±0.33     58.60±6.77     4.04±0.18
+  Few-Shot            63.60±2.91    5.45±0.34       71.80±4.04     4.65±0.19          46.00±4.31    4.90±0.36     58.00±7.14     3.60±0.11
+  Self-Consistency    69.10±3.14    23.63±1.45      75.00±5.06    21.52±0.67          42.50±4.67    24.79±1.69    57.40±6.58    19.47±0.48
+  MedAgent            68.20±3.34   126.05±4.49      84.40±3.26   112.82±6.23          57.50±4.86   109.21±2.34    59.70±6.15    96.60±3.45
+  ColaCare            71.40±3.14   140.80±7.44      82.80±2.36   116.06±6.22          54.80±7.11   177.34±42.24   60.70±4.92   118.92±6.33
+  MDAgents            67.30±4.12    94.85±3.07      76.90±3.24    41.49±2.26          47.60±4.10    94.95±1.59    61.10±6.53    35.66±4.21
+  ReConcile           66.10±3.59   189.83±13.36     71.60±3.14   153.28±5.86          54.30±5.71   191.69±6.10    53.10±6.02   149.17±8.39
+  ConfAgents          75.70±2.90    65.72±8.21      80.00±3.13    49.43±4.11          57.70±4.49    43.15±4.81    69.50±6.82    24.74±5.83
+                                                                 GPT-4o
+  Zero-Shot           56.80±3.87     1.17±0.05      68.00±4.86        1.19±0.06       45.80±3.68    1.24±0.09     47.50±6.77    1.16±0.07
+  Few-Shot            72.40±3.72     1.15±0.04      78.30±2.53        1.05±0.03       68.50±5.63    1.11±0.08     60.90±6.30    1.09±0.05
+  Self-Consistency    49.70±3.38     7.62±1.84      64.30±3.26        5.02±0.16       40.40±3.07    6.23±1.19     45.70±6.42    4.77±0.11
+  MedAgent            78.80±4.64     70.21±2.56     78.80±3.34       71.55±4.31       72.10±4.23    73.60±3.49    57.40±5.75   60.92±4.63
+  ColaCare            79.90±3.83     56.74±4.51     79.10±3.96       50.69±2.74       72.00±4.75    54.86±2.31    60.00±5.66   56.50±2.61
+  MDAgents            75.10±3.99     25.15±2.56     80.40±3.58       12.04±1.41       66.70±6.57    32.47±1.65    61.90±6.12   11.00±1.73
+  ReConcile           78.10±2.84     46.09±1.09     79.80±3.43       40.70±0.91       70.30±5.59    45.62±1.02    58.90±5.54   42.97±1.25
+  ConfAgents          80.21±3.58     9.11±2.60      80.71±4.01        6.69±1.34       70.81±5.30    30.06±3.99    64.58±5.37   15.31±3.02
+
+Table 2: Overall performance comparison on four medical benchmarks using DeepSeek-V3 and GPT-4o backbones. ConfAgents
+consistently achieves competitive or state-of-the-art accuracy while being significantly more time-efficient than other multi-agent
+frameworks, demonstrating a superior balance of performance and cost.
+
+
+4.3   Evaluation Metrics                                                   Python 3.9, PyTorch 2.3.1 (Paszke et al. 2019), and PyTorch
+We evaluate all methods on both performance and computa-                   Lightning 2.3.3 (Falcon 2019).
+tional efficiency. For readability, bold indicates the best result
+in each column of our tables.                                              Model and hyperparameters. For single-agent baselines,
+• Accuracy (ACC): The proportion of correct predictions.                   few-shot uses two examples, and self-consistency uses three
+   Higher is better.                                                       reasoning paths. For multi-agent baselines, we follow their
+                                                                           official settings, typically using 3 agents and 3 rounds of
+• Processing Time (P-Time): The end-to-end latency in sec-
+                                                                           iteration. For our ConfAgents, key hyperparameters include
+   onds per query. Lower is better.
+                                                                           the miscoverage rate α, the number of retrieval documents
+• Completion Tokens (C-Tokens): The number of tokens gen-                  k, and the maximum number of RAG iterations. Based on
+   erated by the LLM. Lower is better.                                     empirical tuning, we set α = 0.05, k = 3, and the maximum
+• Total Tokens (T-Tokens): The sum of input and output to-                 RAG iterations to 3. Performance is reported as mean±std,
+   kens. Lower is better.                                                  calculated by bootstrapping the test set 100 times.
+The behavior of our CP Judger is further analyzed in the sen-
+sitivity analysis section using standard conformal prediction
+metrics like coverage rate and average prediction set size.                       5     Experimental Results and Analysis
+
+4.4   Baseline Methods                                                     5.1    Overall Performance
+We compare ConfAgents against both single-agent (under                     As shown in Table 2, our framework demonstrates supe-
+three prompting strategies: zero-shot, few-shot, and self-                 rior or competitive accuracy compared to all baselines across
+consistency (Wang et al. 2022)) and latest advanced multi-                 both DeepSeek-V3 and GPT-4o backbones. Crucially, ConfA-
+agent baselines (MedAgents (Tang et al. 2024), ReCon-                      gents achieves these strong results with exceptional compu-
+cile (Chen, Saha, and Bansal 2024), MDAgents (Kim et al.                   tational efficiency. For instance, on MedQA with GPT-4o,
+2024), and ColaCare (Wang et al. 2025)).                                   ConfAgents attains the highest accuracy (80.21%) while be-
+                                                                           ing 2.76× to 7.71× faster than other multi-agent methods.
+4.5   Implementation Details                                               These results consistently show that our adaptive approach
+Hardware and software configuration. All experiments                       provides an excellent trade-off between accuracy and compu-
+are conducted on a single NVIDIA RTX 3090 GPU. We use                      tational cost, validating the core design of our framework.
+5.2   Cost Efficiency                                                   The results in Table 5 show that removing the iterative
+Absolute computational cost. As detailed in Table 3,                 RAG (w/o Iterative RAG) hurts accuracy, confirming that
+ConfAgents significantly outperforms other multi-agent               iterative evidence gathering is crucial for complex cases. Re-
+methods in computational cost on the MedQA benchmark.                moving the CP Judger (w/o CP Judger) leads to poor decision-
+Compared to the most time-efficient baseline, MDAgents,              making, resulting in a massive increase in processing time
+ConfAgents is 2.76× faster in processing time. Furthermore,          as it needlessly triggers collaboration. Finally, removing the
+it is exceptionally token-efficient, consuming 2.01× fewer           adaptive mechanism (w/o Adaptive) yields high accuracy but
+completion tokens and 1.22× fewer total tokens. This demon-          at a prohibitively high computational cost, highlighting the
+strates that the adaptive strategy guided by the CP Judger           necessity of our triage approach.
+effectively minimizes unnecessary computations.
+                                                                                                                MedQA
+                                                                           Methods
+                                                                                          ACC (↑)      P-Time (↓)  C-Token (↓)   T-Token (↓)
+  Method            P-Time (s) ↓   C-Tokens ↓       T-Tokens ↓        w/o Iterative RAG   65.50±3.32    10.78±2.45     11093        74552
+                                            5                    5    w/o CP Judger       67.80±4.07   109.87±11.68   153545       861917
+  MedAgent             70.21        2.07 × 10        7.11 × 10        w/o Adaptive        76.50±3.14   193.29±2.13    277204      1561235
+  ColaCare             56.74        1.78 × 105       8.57 × 105       ConfAgents          75.70±2.90    65.72±8.21     97268       556503
+  MDAgents             25.15        0.66 × 105       2.56 × 105
+  ReConcile            46.09        1.45 × 105       4.80 × 105      Table 5: Ablation study results on MedQA (DeepSeek-V3
+  ConfAgents            9.11       0.33 × 105       2.10 × 105       backbone). Each component of ConfAgents provides a signif-
+                                                                     icant contribution to its overall performance and efficiency.
+Table 3: Efficiency evaluation of different agent-based meth-
+ods on MedQA using GPT-4o. ConfAgents substantially re-
+duces latency and token consumption.                                 5.4    Sensitivity Analysis
+                                                                     We assess the robustness of ConfAgents by evaluating its
+Cost-accuracy trade-off evaluation. To holistically visu-            sensitivity to the choice of the underlying LLM and the hy-
+alize the trade-off between accuracy and cost, we introduce          perparameter α.
+the Balanced Efficiency Score (BES). This intuitive metric           Sensitivity to different LLMs. We benchmark ConfA-
+is calculated by normalizing both accuracy and processing            gents with four distinct LLMs: DeepSeek, GPT-4o, GPT-4o-
+time to a [0, 1] scale for a given dataset, and then taking their    mini, and Kimi-K2. As shown in Table 6, our framework
+difference: BES = ACCnorm − Timenorm . The resulting score           is effective across different base models. Interestingly, with
+ranges from -1 to +1, where a higher score indicates a more          ConfAgents, the more powerful GPT-4o achieves higher accu-
+favorable efficiency profile. As shown in Table 4, ConfA-            racy with less processing time than the smaller GPT-4o-mini.
+gents achieves the best or near-best score across all datasets,      This highlights ConfAgents’ ability to efficiently leverage
+confirming its superior balance of performance and cost.             powerful models by selectively applying them, making them
+                                                                     more cost-effective.
+ Methods             MedQA     MMLU    MedBullets     AfriMedQA
+ Zero-Shot            0.23      0.38      0.00           0.49                                    MedQA                    MedBullets
+                                                                      Backbone LLM
+ Few-Shot             0.00      0.01      0.32            0.44                             ACC (↑) P-Time (↓)         ACC (↑) P-Time (↓)
+ Self-Consistency     0.52      0.15      0.01            0.28        Deepseek-chat          73.00         77.62       58.00      103.02
+ MedAgent             -0.15     0.26      0.44           -0.25        GPT-4o                 77.00         9.11        66.00        7.02
+ ColaCare             -0.27     0.13      -0.14          -0.29        GPT-4o-mini            55.00         19.01       40.00       26.68
+ MDAgents             -0.08     0.16      -0.09           0.51        Kimi-K2                66.00        116.37       52.00      144.49
+ ReConcile            -0.72    -1.00      -0.22          -1.00
+ ConfAgents           0.61      0.36      0.47           0.61
+                                                                     Table 6: Sensitivity analysis of ConfAgents with different
+Table 4: Cost-performance analysis using the balanced effi-          backbone LLMs on MedQA and MedBullets. The framework
+ciency score (BES) on GPT-4o. ConfAgents achieves the best           remains effective across various models.
+or near-best score across all datasets, demonstrating superior
+overall efficiency.
+                                                                     Sensitivity to hyperparameter alpha. The hyperparam-
+                                                                     eter α sets the target miscoverage rate for our CP Judger
+                                                                     and directly controls the trade-off between accuracy and cost.
+5.3   Ablation Study                                                 A smaller α results in a more cautious system that triggers
+We conduct an ablation study to investigate the contribution         collaboration more frequently, while a larger α makes the
+of our key components on the MedQA dataset. We test three            system more aggressive in using the faster, single-agent path.
+variants: (i) w/o Iterative RAG, which uses single-round RAG;        Our analysis, shown in Figure 2, confirms this expected be-
+(ii) w/o CP Judger, which replaces our conformal judger              havior. As α increases, accuracy gradually declines while
+with a naive confidence threshold; and (iii) w/o Adaptive,           processing time drops significantly. This demonstrates that α
+which deactivates the adaptive mechanism and uses the full           is an effective and interpretable lever to tune the system’s be-
+collaborative process for all problems.                              havior for different operational needs. We chose α = 0.05 for
+our main experiments as it offers a strong balance between                                                                    chooses our method for 68.75% of the questions. This con-
+high performance and efficiency.                                                                                              sensus from human experts underscores that ConfAgents not
+                                                                                                                              only excels on automated benchmarks but also produces an-
+                85                                                                                                            swers that are significantly more coherent, trustworthy, and
+                                                                               100
+                80                                                                                                            clinically valuable, reinforcing its potential for real-world
+                75                                                             80                                             application.
+
+
+ Accuracy (%)                                                 Time (seconds)
+                70
+                                                                               60
+                65                                                                                                                                 6    Discussion
+                60                                                             40
+                                                                                                                              Limitations. While ConfAgents demonstrates a strong bal-
+                55         MedQA                                                           MedQA
+                           MMLU                                                20          MMLU
+                                                                                                                              ance of accuracy and efficiency, its practical deployment
+                50         AfriMedQA                                                       AfriMedQA
+                                                                                                                              is contingent upon addressing several key limitations. First,
+                           MedBullets                                                      MedBullets
+                45                                                              0                                             the CP Judger’s reliability hinges on a well-matched calibra-
+                     0.005 0.010          0.050 0.100 0.200                          0.005 0.010          0.050 0.100 0.200
+                                    Alpha ( )                                                       Alpha ( )                 tion dataset; for out-of-distribution cases lacking analogous
+   (a) Model accuracy vs. alpha. (b) Processing time vs. alpha.                                                               precedents in the knowledge base, the judger’s confidence
+                                                                                                                              estimates may be unreliable, leading to suboptimal triage.
+Figure 2: Sensitivity analysis of hyperparameter α on model                                                                   Second, the quality of the agents’ deliberation is fundamen-
+accuracy (a) and processing time (b) across four datasets.                                                                    tally bound by the external knowledge source. The reasoning
+The results show that α provides an effective control over the                                                                is only as sound as the retrieved data, and any inaccuracies
+accuracy-efficiency trade-off.                                                                                                or gaps in the medical corpus can propagate into the final
+                                                                                                                              diagnosis. Finally, our collaboration protocol simplifies the
+                                                                                                                              complex, interactive nature of real-world clinical consulta-
+5.5                   Human Evaluation                                                                                        tion. It lacks mechanisms for direct debate and argumentation
+                                                                                                                              among agents, which could be critical for resolving ambigu-
+To complement our automated metrics, we conduct a rigorous                                                                    ous cases with conflicting evidence.
+human evaluation to assess the practical quality of answers
+generated by ConfAgents. We develop a custom evaluation                                                                       Future work. These limitations directly inform several
+platform (see Figure 3) and enlist 14 expert evaluators—MD                                                                    promising avenues for future work. We plan to explore more
+or PhD students in AI for healthcare, bioinformatics, clinical                                                                advanced uncertainty quantification, such as class-conditional
+medicine, and biomedical engineering—for a blind, head-to-                                                                    conformal prediction for finer-grained control and explicit
+head comparison on a random subset of 16 questions, 8 from                                                                    out-of-distribution detection to ensure safety. The collabora-
+MedQA and 8 from MedBullets.                                                                                                  tion protocol could be significantly enhanced by implement-
+                                                                                                                              ing structured debate frameworks, enabling agents to critique
+                                                                                                                              and refine arguments interactively, thereby more closely em-
+                                                                                                                              ulating the dialectic process of expert teams. A crucial next
+                                                                                                                              step is developing a human-in-the-loop system, where the
+                                                                                                                              CP Judger naturally flags the most uncertain cases for esca-
+                                                                                                                              lation to a human clinician, creating a partnership that opti-
+                                                                                                                              mizes for both efficiency and safety. Finally, the framework’s
+                                                                                                                              core principle of adaptive, conformal-gated collaboration is
+                                                                                                                              highly generalizable, and we will investigate extending this
+                                                                                                                              approach to other high-stakes domains such as legal analysis
+                                                                                                                              and financial auditing.
+
+                                                                                                                                                   7   Conclusion
+                                                                                                                              This paper introduces ConfAgents, an adaptive multi-
+                                                                                                                              agent framework designed to resolve the critical efficiency-
+                                                                                                                              accuracy trade-off in AI-driven medical consultation. By
+Figure 3: The user interface for our blind human evalua-                                                                      integrating a CP Judger module based on conformal pre-
+tion. Expert evaluators are presented with medical ques-                                                                      diction, ConfAgents can reliably determine when to initiate
+tions and the anonymized, randomly ordered responses from                                                                     resource-intensive collaboration. For complex cases, its it-
+four agent methods (ConfAgents, ColaCare, MedAgent, and                                                                       erative dynamic RAG mechanism empowers agents with
+MDAgents) to mitigate bias.                                                                                                   external knowledge to enhance their reasoning. Experiments
+                                                                                                                              on four medical QA datasets demonstrate that ConfAgents
+  The results reveal an overwhelming preference for ConfA-                                                                    achieves state-of-the-art accuracy while drastically reducing
+gents. Our method achieves an average preference rate of                                                                      latency and computational overhead. By establishing a new
+95.54% across all experts and datasets. The preference is                                                                     benchmark for efficiency, ConfAgents advances the devel-
+consistent, with a median of 100.0%, and 9 out of 14 experts                                                                  opment of AI decision support systems that are not only
+(over 64%) prefer the answers from ConfAgents in all 16                                                                       powerful but also practical for real-world clinical deploy-
+cases. Even the expert with the lowest preference rate still                                                                  ment.
+                        References                                 Jin, D.; Pan, E.; Oufattole, N.; Weng, W.-H.; Fang, H.; and
+Adebayo, J.; et al. 2024. AfriMedQA: A French-English              Szolovits, P. 2021. MedQA: A Corpus for Medical Question
+Parallel Corpus for Medical Question Answering on African          Answering. In Proceedings of the 30th ACM International
+Health Realities. arXiv preprint arXiv:2402.12 AfriMedQA.          Conference on Information & Knowledge Management.
+Angelopoulos, A. N.; and Bates, S. 2021. A gentle introduc-        Kim, Y.; Park, C.; Jeong, H.; Chan, Y. S.; Xu, X.; McDuff, D.;
+tion to conformal prediction and distribution-free uncertainty     Lee, H.; Ghassemi, M.; Breazeal, C.; and Park, H. W. 2024.
+quantification. arXiv preprint arXiv:2107.07511.                   Mdagents: An adaptive collaboration of llms for medical
+                                                                   decision-making. Advances in Neural Information Process-
+Chen, J.; Saha, S.; and Bansal, M. 2024. ReConcile: Round-
+                                                                   ing Systems, 37: 79410–79452.
+Table Conference Improves Reasoning via Consensus among
+Diverse LLMs. In Ku, L.-W.; Martins, A.; and Srikumar,             Li, J.; Lai, Y.; Li, W.; Ren, J.; Zhang, M.; Kang, X.; Wang, S.;
+V., eds., Proceedings of the 62nd Annual Meeting of the            Li, P.; Zhang, Y.-Q.; Ma, W.; et al. 2024. Agent hospital: A
+Association for Computational Linguistics (Volume 1: Long          simulacrum of hospital with evolvable medical agents. arXiv
+Papers), 7066–7085. Bangkok, Thailand: Association for             preprint arXiv:2405.02957.
+Computational Linguistics.                                         Li, J.; Yuan, Y.; and Zhang, Z. 2024. Enhancing llm factual
+Chen, J. C.-Y.; Saha, S.; and Bansal, M. 2023. Reconcile:          accuracy with rag to counter hallucinations: A case study on
+Round-table conference improves reasoning via consensus            domain-specific queries in private knowledge-bases. arXiv
+among diverse llms. arXiv preprint arXiv:2309.13007.               preprint arXiv:2403.10446.
+Cherian, J.; Gibbs, I.; and Candes, E. 2024. Large language        Masic, I. 2022. Medical decision making-an overview. Acta
+model validity via enhanced conformal prediction methods.          Informatica Medica, 30(3): 230.
+Advances in Neural Information Processing Systems, 37:             Ng, K. K. Y.; Matsuba, I.; and Zhang, P. C. 2025. RAG in
+114812–114842.                                                     health care: a novel framework for improving communication
+Da, L.; Chen, T.; Cheng, L.; and Wei, H. 2024. Llm uncer-          and decision-making by addressing LLM limitations. Nejm
+tainty quantification through directional entailment graph         Ai, 2(1): AIra2400380.
+and claim level response augmentation. arXiv preprint              OrthoBullets; and MedBullets. 2021. MedBullets. https:
+arXiv:2407.00994.                                                  //www.medbullets.com. Accessed: [Your Access Date].
+dos Santos Junior, J. C.; Hu, R.; Song, R.; and Bai, Y. 2024.      Paszke, A.; Gross, S.; Massa, F.; Lerer, A.; Bradbury, J.;
+Domain-driven LLM development: insights into rag and fine-         Chanan, G.; Killeen, T.; Lin, Z.; Gimelshein, N.; Antiga, L.;
+tuning practices. In Proceedings of the 30th ACM SIGKDD            et al. 2019. Pytorch: An imperative style, high-performance
+Conference on Knowledge Discovery and Data Mining, 6416–           deep learning library. Advances in neural information pro-
+6417.                                                              cessing systems, 32.
+Falcon, W. A. 2019. Pytorch lightning. GitHub, 3.                  Porter, R. S.; and Kaplan, J. L. 2011. The Merck manual of
+Fan, Z.; Tang, J.; Chen, W.; Wang, S.; Wei, Z.; Xi, J.; Huang,     diagnosis and therapy. Merck Sharp & Dohme Corp.
+F.; and Zhou, J. 2024. Ai hospital: Benchmarking large lan-        Taberna, M.; Moncayo, F. G.; Jané-Salas, E.; Antonio, M.;
+guage models in a multi-agent medical interaction simulator.       Arribas, L.; Vilajosana, E.; Torres, E. P.; and Mesı́a, R. 2020.
+arXiv preprint arXiv:2402.09742.                                   The multidisciplinary team (MDT) approach and quality of
+Farr, D.; Cruickshank, I.; Manzonelli, N.; Clark, N.; Star-        care. Frontiers in oncology, 10: 85.
+bird, K.; and West, J. 2024. Llm confidence evaluation             Tang, X.; Shao, D.; Sohn, J.; Chen, J.; Zhang, J.; Xiang,
+measures in zero-shot css classification. arXiv preprint           J.; Wu, F.; Zhao, Y.; Wu, C.; Shi, W.; et al. 2025. Meda-
+arXiv:2410.13047.                                                  gentsbench: Benchmarking thinking models and agent frame-
+Feng, Y.; Htut, P. M.; Qi, Z.; Xiao, W.; Mager, M.; Pappas,        works for complex medical reasoning. arXiv preprint
+N.; Halder, K.; Li, Y.; Benajiba, Y.; and Roth, D. 2024. Di-       arXiv:2503.07459.
+verseagententropy: Quantifying black-box llm uncertainty           Tang, X.; Zou, A.; Zhang, Z.; Li, Z.; Zhao, Y.; Zhang, X.;
+through diverse perspectives and multi-agent interaction.          Cohan, A.; and Gerstein, M. 2023. Medagents: Large lan-
+arXiv preprint arXiv:2412.09572.                                   guage models as collaborators for zero-shot medical reason-
+Gligorić, K.; Zrnic, T.; Lee, C.; Candès, E. J.; and Jurafsky,   ing. arXiv preprint arXiv:2311.10537.
+D. 2024. Can unconfident LLM annotations be used for               Tang, X.; Zou, A.; Zhang, Z.; Li, Z.; Zhao, Y.; Zhang, X.; Co-
+confident conclusions? arXiv preprint arXiv:2408.15204.            han, A.; and Gerstein, M. 2024. MedAgents: Large Language
+Hendrycks, D.; Burns, C.; Basart, S.; Zou, A.; Mazeika,            Models as Collaborators for Zero-shot Medical Reasoning.
+M.; Song, D.; and Steinhardt, J. 2020. Measuring mas-              In Ku, L.-W.; Martins, A.; and Srikumar, V., eds., Findings
+sive multitask language understanding. arXiv preprint              of the Association for Computational Linguistics ACL 2024,
+arXiv:2009.03300.                                                  599–621. Bangkok, Thailand and virtual meeting: Associa-
+Hong, S.; Xiao, L.; Zhang, X.; and Chen, J. 2024. ArgMed-          tion for Computational Linguistics.
+Agents: explainable clinical decision reasoning with LLM           Wang, C.; Long, Q.; Xiao, M.; Cai, X.; Wu, C.; Meng, Z.;
+disscusion via argumentation schemes. In 2024 IEEE In-             Wang, X.; and Zhou, Y. 2024. Biorag: A rag-llm frame-
+ternational Conference on Bioinformatics and Biomedicine           work for biological question reasoning. arXiv preprint
+(BIBM), 5486–5493. IEEE.                                           arXiv:2408.01107.
+Wang, X.; Wei, J.; Schuurmans, D.; Le, Q.; Chi, E.; Narang,         • MedQA (Jin et al. 2021): A prominent benchmark featur-
+S.; Chowdhery, A.; and Zhou, D. 2022. Self-consistency                ing questions from professional medical board exams in
+improves chain of thought reasoning in language models.               the United States (USMLE) and China, designed to test
+arXiv preprint arXiv:2203.11171.                                      high-level medical knowledge.
+Wang, Z.; Zhu, Y.; Zhao, H.; Zheng, X.; Sui, D.; Wang, T.;          • MMLU (Hendrycks et al. 2020): A massive multitask
+Tang, W.; Wang, Y.; Harrison, E.; Pan, C.; et al. 2025. Co-           benchmark intended to measure knowledge acquired dur-
+lacare: Enhancing electronic health record modeling through           ing pre-training. We utilize the medical-related subtasks,
+large language model-driven multi-agent collaboration. In             including anatomy, clinical knowledge, and professional
+Proceedings of the ACM on Web Conference 2025, 2250–                  medicine.
+2261.                                                               • MedBullets (OrthoBullets and MedBullets 2021): A ques-
+Yadkori, Y. A.; Kuzborskij, I.; György, A.; and Szepesvári, C.      tion bank sourced from an online educational platform for
+2024. To believe or not to believe your llm. arXiv preprint           the USMLE Step 1, 2, and 3 examinations, commonly used
+arXiv:2406.02543.                                                     for medical student training and assessment.
+Ye, F.; Yang, M.; Pang, J.; Wang, L.; Wong, D.; Yilmaz, E.;         • AfriMedQA (Adebayo et al. 2024): A recently developed
+Shi, S.; and Tu, Z. 2024. Benchmarking llms via uncertainty           dataset comprising questions from South African medical
+quantification. Advances in Neural Information Processing             board exams, specifically designed to evaluate reasoning
+Systems, 37: 15356–15385.                                             within the African medical context.
+Zhou, X.; Chen, B.; Gui, Y.; and Cheng, L. 2025. Conformal
+prediction: A data perspective. ACM Computing Surveys.                           C    Implementation Details
+Zhu, Y.; Gao, J.; Wang, Z.; Liao, W.; Zheng, X.; Liang, L.;         C.1    Computing Infrastructure
+Wang, Y.; Pan, C.; Harrison, E. M.; and Ma, L. 2024. Is larger      All experiments are conducted on a single Nvidia RTX 3090
+always better? Evaluating and prompting large language              GPU with CUDA 12.5. The server’s RAM size is 128GB.
+models for non-generative medical tasks. arXiv preprint             We implement the model in Python 3.8.18, PyTorch 2.0.0,
+arXiv:2407.18525.                                                   PyTorch Lightning 2.4.0. All calls to online LLM APIs (e.g.,
+                                                                    DeepSeek, Kimi, and GPT) use their respective official plat-
+                 A    Ethical Statement                             forms. For models that support it, we leverage an OpenAI-
+Our research exclusively utilizes publicly available and fully      compatible API interface for standardized communication.
+de-identified datasets, such as MedQA, ensuring that no Pro-
+tected Health Information (PHI) was handled and posing no
+                                                                    C.2    Implementation of Baseline Methods
+risk to patient privacy. The ConfAgents framework is de-            For a fair and rigorous comparison, all baseline methods
+veloped strictly as a research tool to augment the reasoning        are configured to the best of our ability according to their
+process of healthcare professionals and is not intended for         original papers and public implementations. Unless otherwise
+direct clinical use, to provide medical advice, or to substitute    specified, all agent frameworks are powered by the DeepSeek-
+for professional judgment. Given the nature of the data and         V3 model to normalize for the effect of the backbone LLM
+the intended research-focused application, we do not foresee        and isolate the performance of the agentic architecture itself.
+any direct ethical risks associated with this work.                 LLM-based single-agent baselines. For single-agent base-
+                                                                    lines, we employ three distinct prompt strategies: zero-shot,
+         B     Data Availability and Details                        few-shot, and self-consistency. The few-shot approach sim-
+B.1    Motivation for Dataset Selection                             ulates two sample examples, one positive and one negative,
+We select four diverse, multiple-choice question-answering          following the approach in previous work(Zhu et al. 2024).
+benchmarks for real-world clinical scenarios. Critically, we        The self-consistency method selects three possible reason-
+adopt the sampling strategy from MedAgentsBench (Tang               ing paths, followed by a consistency evaluation (Wang et al.
+et al. 2025). This decision is driven by its provision of high-     2022).
+quality, curated question sets, with a particular focus on diffi-   LLM-based multi-agent baselines. Additionally, we in-
+cult cases. Such challenging problems serve as a better proxy       clude four multi-agent collaboration approaches: MedA-
+for the complex scenarios where synergistic expert consulta-        gents (Tang et al. 2024) firstly enhances the model’s medical
+tion is required, thereby providing a more effective evaluation     expertise through multidisciplinary collaboration and role-
+of our framework’s capabilities.                                    playing. ReConcile (Chen, Saha, and Bansal 2024) facilitates
+                                                                    multi-round discussions among diverse LLM agents. MDA-
+B.2    Dataset Descriptions and Availability                        gents (Kim et al. 2024) classify each medical query into
+For each of the four datasets, we create specialized Test-          different categories and design different expert consultation
+Hard and Test-Normal subsets, containing 100 samples, to            modes. ColaCare (Wang et al. 2025) integrates multi-agent
+facilitate a nuanced evaluation of performance on problems          methodologies targeted at structured electronic health record
+of varying difficulty. All datasets employed in this paper are      data.
+publicly available and are used under their respective data            We primarily use the official repositories for the four multi-
+use agreements.                                                     agent collaboration approaches, reproducing results accord-
+ing to the instructions provided in their README files. Sup-
+                                                                       The options are: {{options}}
+plementarily, the input of ColaCare is modified from EHR
+structured data to textual description in order to fit for our         Please analyze this question carefully and
+tasks. ReConcile is set to instruct agents to provide confi-           provide the following two objects:
+dence scores, and the final prediction is weighted based on            (1) your only answer option
+these confidence scores. To ensure a fair comparison, all              (2) your confidence in each option. Note: The
+frameworks are configured to use DeepSeek-V3 as their pri-             confidence indicates how likely you think the
+mary execution model. The number of agents is uniformly                option is true. Your confidence level, please
+set to 3, with 3 rounds of iteration.                                  only include the numerical number in the range of
+                                                                       0-1. The sum of the confidence values for all
+C.3    Evaluation Details                                              options should equal 1.
+
+Overall evaluation and absolute cost efficiency. We eval-              Make sure the output is in JSON format like this:
+uate all methods based on a suite of metrics assessing both            { "Answer": "C", "conf_each_option": { "A": 0.02,
+QA performance and computational efficiency. For perfor-               "B": 0.03, "C": 0.85, "D": 0.03, "E": 0.07 } }
+mance, we use Accuracy. For efficiency, we measure pro-
+cessing time and token consumption, which are critical for
+deploying LLMs in practice. Lower values are desirable for
+all efficiency-related metrics.                                      D.2   RAG Decompose Question Prompt
+• Accuracy (ACC): This metric measures the proportion of
+  correct predictions for the multiple choice tasks. A higher          RAG Decompose Question Prompt.
+  ACC value indicates superior model performance.
+• Processing Time (P-Time): This metric quantifies the end-            You are an assistant doctor helper. Your task is
+                                                                       to help analyze a multiple-choice question
+  to-end latency, measured from the start of processing a
+                                                                       comprehensively.
+  query to the delivery of the final result. It serves as a direct     Here is the question: {{main_question}},Options:
+  indicator of the method’s efficiency.                                {{options}}
+• Completion Tokens (C-Token): This metric counts the
+  number of tokens generated by the model to complete a                Please generate three distinct and critical
+  task. The volume of generated tokens is a primary factor             questions that would help provide a thorough
+  influencing both inference latency and costs.                        analysis of this question from your perspective
+                                                                       as {{field}}. The questions should be probing and
+• Total Tokens (T-Token): This metric represents the sum               aim to uncover key information related to the
+  of tokens in the input prompt and the LLM response. It               main question and all options.
+  measures the overall computational workload.
+                                                                       Return your response as a JSON object with a
+Cost-accuracy trade-off evaluation. To provide a holis-
+                                                                       single key "questions" which is a list of the
+tic evaluation that considers both predictive accuracy and             three generated questions. The questions are then
+computational cost, we introduce the Balanced Efficiency               fed into a retrieval system to retrieve relevant
+Score (BES). This metric quantifies the trade-off between              information, so they should be formatted as
+the performance gain a method achieves and the time cost it            queries for an embedding model/BM25 index, like
+incurs, relative to other methods on a given dataset. The score        search engine queries.
+is derived by first normalizing accuracy (ACCnorm ) and time           Example format: {"questions": ["question 1",
+(Timenorm ) to the [0, 1] scale. ACCnorm captures the achieved         "question 2", "question 3"]
+performance gain, while Timenorm represents the relative time
+cost. The final BES is calculated as their difference:
+                BES = ACCnorm − Timenorm                     (11)    D.3   RAG Analysis Prompt
+The resulting score ranges from -1 to +1. A higher BES
+                                                                       RAG Analysis Prompt.
+indicates a more favorable efficiency profile.
+                                                                       Please analyze the following multiple-choice
+                   D     Prompt Details                                question based on the provided retrieved context.
+D.1    MainAgent Initial Judgment Prompt                               Original Question: {{question}}
+                                                                       Options: {{options}}
+    MainAgent Initial Judgment Prompt.
+                                                                       Retrieval Query:
+    You are an experienced medical expert, proficient                  {{retrieve_query}}
+    in field {{field}}. Now, please answer the
+    following QA questions.                                            Retrieved Context:
+                                                                       {{formatted_context}}
+    The questions is: {{question}}
+  Your task is to provide a comprehensive analysis      Provide your analysis in the following JSON
+  of the question and all options using the given       format:
+  context from your perspective as field {{field}}.     { "reasoning": ["Analysis step 1 (incorporating
+  Please be aware that the retrieved information        retrieved knowledge where relevant)", "Analysis
+  (RAG) may be irrelevant or contain inaccuracies,      step 2 (evaluating options against standards)",
+  so you must think critically and evaluate the         "Analysis step 3 (final decision rationale)"],
+  information's reliability.                            "answer": "A/B/C/D" }
+  Provide your analysis focusing on:
+  1. Understanding of the question
+  2. Evaluation of each option
+  3. Your reasoning process                           D.5   MainAgent Refined Judgment Prompt
+  Output your analysis as structured paragraphs.
+                                                        MainAgent Refined Judgment Prompt.
+
+                                                        You are an expert in logical reasoning, critical
+D.4   AssistAgent Judgment Prompt                       thinking, and decision analysis. Your task is to
+                                                        analyze a given question along with several
+  AssistAgent Judgment Prompt.                          candidate answers. Each candidate answer is
+                                                        accompanied by a preliminary analysis and
+  Please act as a meticulous and objective analysis     additional detailed reasoning.
+  expert. Your task is to conduct an in-depth
+  evaluation of a multiple-choice question and          **Question:**
+  determine the best answer. Your analysis should       {{question}}
+  be rigorous, evidence-based, and strictly
+  confined to the information presented.                **Initial Judgement:**
+                                                        {{initial_judgement}}
+  **Question:**
+  {{question}}                                          ** Assist Information**
+                                                        {{assist_infos}}
+  **Options:**
+  {{options}}                                           **Instructions:**
+                                                        Carefully review the question, initial answer,
+  **Retrieved Knowledge Analysis:**                     and all supporting analyses. Consider the
+  {{rag_analysis}}                                      following factors:
+
+
+  **Analysis Standards:**                               1. **Consensus Among Analyses**: Do most analyses
+  1. **Accuracy**: Is the option factually correct      point to the same answer?
+  and scientifically sound?                             2. **Quality of Reasoning**: Which analyses
+  2. **Completeness**: Does the option fully            provide the most sound and logical reasoning?
+  address what the question is asking?                  3. **Evidence Strength**: Which option has the
+  3. **Relevance**: Is the option directly related      strongest supporting evidence across analyses?
+  to the question's core focus?                         4. **Initial Answer Validation**: Does the
+  4. **Precision**: Is the option specific enough       initial answer align with the analytical
+  and not overly vague or general?                      evidence?
+  5. **Context Appropriateness**: Does the option       5. **Contradictions Resolution**: How do you
+  fit the context and scope of the question?            resolve any conflicting viewpoints in the
+  6. **Logical Consistency**: Is the option             analyses?
+  internally consistent and free of contradictions?     6. **Overall Coherence**: Which answer creates
+  7. **Best Fit**: Among correct options, which one     the most coherent and complete solution?
+  best answers the question?
+  8. **Knowledge Support**: How well does each          **Output Format:**
+  option align with the retrieved knowledge             Provide your final decision in the following JSON
+  analysis?                                             format:
+                                                        {
+  **Instructions:**                                         "best_answer": "A or B or C or D",
+  Apply the above standards to evaluate each option         "confidence_level": "high/medium/low",
+  systematically, incorporating insights from the           "reasoning": "detailed explanation of why
+  retrieved knowledge analysis. The retrieved               this answer is the best by fully considering
+  analysis provides additional context and expert           the given analyses"
+  knowledge that should inform your evaluation, but     }
+  you should also apply critical thinking to assess     Please ensure your analysis is objective,
+  its relevance and accuracy.                           detailed, and based on evidence and logic.
+

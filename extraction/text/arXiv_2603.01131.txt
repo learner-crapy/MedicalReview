@@ -1,0 +1,713 @@
+                                              MedCollab: IBIS-Guided Multi-Agent
+                                         Collaboration with Hierarchical Disease Relation
+                                                  Chains for Clinical Diagnosis
+
+                                              Yuqi Zhan1∗ , Xinyue Wu1∗ , Tianyu Lin1 , Yutong Bao1 , Xiaoyu Wang1 ,
+                                                 Weihao Cheng1 , Huangwei Chen2† , Feiwei Qin1† , and Zhu Zhu3†
+
+
+
+
+arXiv:2603.01131v4 [cs.MA] 11 Sep 2026
+                                                                      1
+                                                                        Hangzhou Dianzi University
+                                                                          2
+                                                                            Zhejiang University
+                                             3
+                                               Children’s Hospital, Zhejiang University School of Medicine, National Clinical
+                                                   Research Center for Children and Adolescents’ Health and Diseases
+                                              huangwei_chen@zju.edu.cn, qinfeiwei@hdu.edu.cn, zhuzhu_cs@zju.edu.cn
+                                                             ∗
+                                                               Equal contribution † Corresponding author
+
+
+
+                                                 Abstract. Clinical diagnosis is a gradual process of evidence integra-
+                                                 tion, in which physicians move from symptoms and medical history to
+                                                 examinations, competing hypotheses, disease relations, and treatment
+                                                 decisions. Large language models have advanced medical text under-
+                                                 standing and generation. Yet their clinical use remains limited by weak
+                                                 evidence grounding, opaque reasoning, and inconsistent links among dif-
+                                                 ferential diagnosis, final diagnosis, diagnostic basis, and treatment plan-
+                                                 ning. We introduce MedCollab, a multi-agent framework for full-cycle
+                                                 clinical diagnosis and report generation. MedCollab coordinates special-
+                                                 ist and examination agents according to patient records. It structures
+                                                 agent deliberation with an Issue-Based Information System (IBIS) pro-
+                                                 tocol, so that each diagnostic position is supported by patient-specific
+                                                 evidence and medical knowledge. It also builds Hierarchical Disease Re-
+                                                 lation Chains (HDRC) to connect accepted hypotheses through progres-
+                                                 sion, complication, and comorbidity relations. During multi-round delib-
+                                                 eration, a verifier-guided consensus module evaluates evidence support,
+                                                 medical plausibility, and logical conflicts. It then adjusts agent contribu-
+                                                 tions and filters unsupported reasoning. Experiments on ClinicalBench
+                                                 and MIMIC-IV show that MedCollab outperforms leading LLMs and
+                                                 medical multi-agent baselines in diagnostic accuracy, evidence consis-
+                                                 tency, and clinical reasoning quality. These results indicate that struc-
+                                                 tured and auditable collaboration can produce more faithful and clini-
+                                                 cally coherent diagnostic reports.
+
+                                                 Keywords: Clinical NLP · Multi-Agent · Disease Relation Modeling
+
+
+                                         1     Introduction
+
+                                         Clinical diagnosis is a full-cycle reasoning process rather than a single-step pre-
+                                         diction task, encompassing differential diagnosis, preliminary diagnosis, final
+2              Y. Zhan et al.
+
+
+    Ｃｌｉｎｉｃａｌ Ｒｅｃｏｒｄ                       Ｓｔｒｕｃｔｕｒｅｄ Ｅｘａｍ Ｒｅｐｏｒｔｓ          →Ｔｈｅｒａｐｅｕｔｉｃ Ｐｒｉｎｃｉｐｌｅｓ ＆ Ｔｒｅａｔｍｅｎｔ Ｐｌａｎｓ                   Ｔｈｅｒａｐｅｕｔｉｃ Ｐｒｉｎｃｉｐｌｅ
+                       Ｅｘａｍ Ａｇｅｎｔｓ                                                                                           ＧＰ         ａｎｄ Ｔｒｅａｔｍｅｎｔ Ｐｌａｎ
+Ｃｈｉｅｆ Ｃｏｍｐｌａｉｎｔ                           Ｄｉｆｆｅｒｅｎｔｉａｌ Ｄｉａｇｎｏｓｅｓ            Ｄｉｆｆｅｒｅｎｔｉａｌ Ｄｉａｇｎｏｓｉｓ       Ｓｐｅｃｉａｌｉｓｔ Ａｇｅｎｔｓ
+Ｍｅｄｉｃａｌ Ｈｉｓｔｏｒｙ                                                     ＧＰ                                                                               Ｒｅｖｉｅｗ
+Ｐｈｙｓｉｃａｌ Ｅｘａｍ                             Ｐｒｅｌｉｍｉｎａｒｙ Ｄｉａｇｎｏｓｅｓ             Ｄｉｓｅａｓｅ            ｏ     Ｄｉｓｅａｓｅ Ｒｅｌａｔｉｏｎ Ｃｈａｉｎ                            ａｎｄ
+ Ｅｘａｍ Ｒｅｓｕｌｔｓ                                                            Ｒｅｌａｔｉｏｎ Ｃｈａｉｎｓ              ａｎｄ Ｄｉａｇｎｏｓｔｉｃ Ｂａｓｉｓ        Ｃｏｍｐｌｉａｎｃｅ Ｓｐｅｃｉａｌ Ｃｏｒｒｅｃｔｉｏｎ
+                      Ｓｐｅｃｉａｌｉｓｔ Ａｇｅｎｔｓ                             ＧＰ                     ＧＰ－Ｌｅｄ                                   Ｒｅｖｉｅｗ Ａｇｅｎｔ
+
+
+Fig. 1. Generation dependencies of the final diagnostic report in MedCollab. Key gen-
+erated report sections are highlighted in red.
+
+
+decision-making, and treatment planning. For clinical NLP, this process requires
+models to comprehend heterogeneous clinical texts, extract evidence from medi-
+cal records, conduct multi-step reasoning, and generate coherent, complete, and
+evidence-faithful diagnostic reports [7,4,27]. Despite the strong text understand-
+ing and generation abilities of LLMs, most only support isolated diagnosis pre-
+diction or partial report generation, lacking comprehensive coverage of the full
+diagnostic workflow from evidence interpretation and reasoning to treatment
+planning.
+    This problem is acute in online consultations with fragmented, unstructured
+medical data. Reliable diagnostic reports must identify possible diseases, ground
+them in patient evidence, and connect diagnoses to treatment. Existing LLM-
+based clinical systems often suffer from insufficient evidence grounding, incom-
+plete transitions across diagnostic stages, and weak consistency among the di-
+agnostic basis, differential diagnosis, and treatment plan [18,15].
+    To address these challenges, we propose MedCollab, an IBIS-guided multi-
+agent framework with Hierarchical Disease Relation Chains for full-cycle clinical
+diagnosis and report generation. It treats diagnosis as evidence-grounded clini-
+cal text reasoning and report generation, dynamically deploys agents based on
+patient records and fuses their outputs for report generation (Fig. 1). Leverag-
+ing the IBIS protocol, MedCollab links each diagnostic hypothesis to traceable
+evidence [5,10], while HDRC organize accepted hypotheses into clinically mean-
+ingful progression and comorbidity relations, turning disconnected outputs into
+structured, evidence-grounded reports.
+    In summary, our contributions are as follows:
+    – We formulate full-cycle clinical diagnosis as an evidence-grounded clinical
+      NLP task. Unlike isolated disease prediction, this task requires models to
+      connect differential diagnosis, preliminary diagnosis, final diagnosis, and
+      treatment planning in a coherent report.
+    – We design MedCollab, an IBIS-guided multi-agent framework that constrains
+      each diagnostic hypothesis with traceable evidence and structured clinical
+      arguments.
+    – We introduce Hierarchical Disease Relation Chains to organize diagnostic hy-
+      potheses with disease progression and comorbidity relations, boosting logical
+      consistency and evidence faithfulness of generated clinical reports.
+    – We evaluate MedCollab on ClinicalBench and MIMIC-IV. Results reveal it
+      surpasses mainstream LLMs and medical multi-agent methods in diagnostic
+      accuracy, evidence consistency, and clinical reasoning quality.
+                               MedCollab for Clinical Diagnostic Reasoning       3
+
+2     Related Work
+Clinical LLMs have improved medical QA, diagnostic dialogue, and clinical text
+generation via biomedical pretraining, instruction tuning, and retrieval augmen-
+tation [21,19,3,22]. AMIE further explores diagnostic conversation and differen-
+tial diagnosis [14]. Yet most methods focus on isolated QA, dialogue, or single-
+step diagnosis, with limited modeling of consistency among diagnostic evidence,
+differential/final diagnosis, and treatment planning. This motivates a full-cycle
+diagnostic framework to compile multi-step clinical reasoning into consistent,
+evidence-based reports.
+     Medical multi-agent systems simulate collaborative clinical reasoning through
+role-specialized agents and multi-round discussion [20,9], department collabo-
+ration [23], virtual multidisciplinary reasoning [2], modular differential diagno-
+sis [17], tool-use and multimodal reasoning [11], and contradiction reduction [12].
+However, their intermediate reasoning is often free-form or task-specific, not uni-
+fied and evidence-traceable. They also seldom model disease progression, com-
+plications, and comorbidities as explicit relations among hypotheses. These gaps
+motivate a more structured, clinically consistent framework.
+
+
+3     Methodology: MedCollab
+Overview. As shown in Fig. 2, the framework first dynamically recruits rele-
+vant specialist agents and exam agents (Sec. 3.1). Active agents apply IBIS rules
+to standardize reasoning and produce reliable structured judgments (Sec. 3.2).
+These results are arranged into HDRC to resolve logical conflicts and reflect
+disease progression (Sec. 3.3). Finally, a General Practitioner (GP)-led consen-
+sus module evaluates reasoning logic and adjusts agent weights to optimize the
+overall system (Sec. 3.4).
+
+3.1   Preliminaries: Dynamic Agent Recruitment
+Given patient case S with complaint, history, physical exam, and raw findings,
+the GP agent performs coarse-grained triage to recruit two types of agents: spe-
+cialist agents and exam agents. The specialist pool Aspec contains 23 common
+clinical department agents, while the exam-agent pool Aexam contains pathology,
+laboratory medicine, and radiology agents. Specialist agents are selected by rele-
+vance ranking, whereas exam agents are recruited according to the examination
+items available in S.
+    The GP agent assigns each specialist agent a relevance score p(Ai | S) ∈ [0, 1]
+based on S; higher p(Ai | S) indicates a closer domain–case match. The top five
+specialist agents form the initial pool:
+
+                         A0 = Top5,Ai ∈Aspec p(Ai | S),                        (1)
+
+where Aspec denotes the specialist-agent pool and p(Ai | S) is the GP-estimated
+relevance of specialist agent Ai to the patient case.
+4                     Y. Zhan et al.
+
+                                                                                                     ⑤ Ｃｏｎｓｅｎｓｕｓ Ｆｏｒｍａｔｉｏｎ：                                               ＣＯＮＳＴＲＡＩＮＴ ＦＲＡＭＥＷＯＲＫ
+         ① Ｃｌｉｎｉｃａｌ Ｄａｔａ Ａｎａｌｙｓｉｓ ａｎｄ Ｔｒｉａｇｅ                                                         Ｍｕｌｔｉｐｌｅ ｒｏｕｎｄｓ ｏｆ ｄｉｓｃｕｓｓｉｏｎ                                     Ｅｖｉｄｅｎｃｅ－Ｏｎｌｙ
+     Ｃｌｉｎｉｃａｌ Ｒｅｃｏｒｄ   Ｔｒｉａｇｅ Ａｇｅｎｔ      Ｎｅｕｒｏｌｏｇｙ                                                                                                                     Ｒｉｇｉｄ ｓｏｕｒｃｅ ｔｒａｃｅａｂｉｌｉｔｙ ｆｏｒ ａｌｌ ｄｉａｇｎｏｓｔｉｃ
+· Ｃｈｉｅｆ Ｃｏｍｐｌａｉｎｔ                                                                             Ａｒｇ．             Ｉｒｒｅｌｅｖａｎｔ                                              ａｒｇｕｍｅｎｔｓ．
+· Ｍｅｄｉｃａｌ Ｈｉｓｔｏｒｙ                                      ＇ＳＰｕｌｍｏｎｏｌｏｇｙ
+· Ｐｈｙｓｉｃａｌ Ｅｘａｍ                                                                                                                                                        Ｌｏｇｉｃ－Ｗｅｉｇｈｔｅｄ
+· Ｅｘａｍ Ｒｅｓｕｌｔｓ              Ｄｙｎａｍｉｃ Ｒｅｃｒｕｉｔｍｅｎｔ                                          Ａｒｇ． ６ｏ                                                                       ＧＰ－ａｕｄｉｔｅｄ ｖｏｔｉｎｇ ｐｏｗｅｒ ａｄｊｕｓｔｅｄ ｂｙ
+                                                                                                         Ｉｒｒｅｌｅｖａｎ
+                                                                                                                                                                       ｒｅａｓｏｎｉｎｇ ｑｕａｌｉｔｙ．
+                ②Ｅｘａｍｉｎａｔｉｏｎ Ｉｎｔｅｒｐｒｅｔａｔｉｏｎ                                                                                                                            ＲＡＧ
+Ｅｘａｍｉｎａｔｉｏｎ                                                                                                                                                            Ａｃｃｅｓｓ ｔｈｅ ｍｅｄｉｃａｌ ｋｎｏｗｌｅｄｇｅ ｂａｓｅ ｗｈｅｎ
+    ｒｅｓｕｌｔｓ              Ｅｘａｍ      Ｉｎｔｅｒｐｒｅｔａｔｉｏｎ      Ｓｔｒｕｃｔｕｒｅｄ                                                                                                      ｇｅｎｅｒａｔｉｎｇ ｅｖｉｄｅｎｃｅ
+                         Ａｇｅｎｔ                        Ｅｘａｍ Ｒｅｐｏｒｔｓ
+Ｅｖｉｄｅｎｃｅ－Ｏｎｌｙ Ｐｒｏｔｏｃｏｌ                                                                                                                                                     ⑥ Ｔｒｅａｔｍｅｎｔ Ｐｌａｎ Ｄｅｖｅｌｏｐｉｎｇ
+                                                                                                                                                         Ｄｉｓｃｕｓｓｉｏｎ
+                  ③ Ｐｒｅｌｉｍｉｎａｒｙ Ｄｉａｇｎｏｓｉｓ                                 Ａｒｇ                                                                                             Ｈｏｓｐｉｔａｌｉｚａｔｉｏｎ     Ｓｕｒｇｉｃａｌ
+                                                                                                                                                                               Ｐｌａｎ       Ｒｅｃｏｍｍｅｎｄａｔｉｏｎｓ
+Ｒｅｌｅｖａｎｃｅ Ｆｉｌｔｅｒｉｎｇ    ｄ Ｅｖｉｄｅｎｃｅ Ｃｈａｉｎ Ｃｏｎｓｔｒｕｃｔｉｏｎ                      ｄ                                                                                             Ｐｈａｒｍａｃｏｌｏｇｉｃａｌ      Ｄｉｅｔａｒｙ ＆
+                                            ６６６                                                                                                                              Ｔｈｅｒａｐｙ
+                                    Ｄｉａｇｎｏｓｉｓ＝Ｉｓｓｕｅ＋Ｐｏｓｉｔｉｏｎ＋
+                                                                                                                                                                                                          Ｌｉｆｅｓｔｙｌｅ
+                      ｄｗｏ                                                                                                                            ６
+                                   Ａｒｇｕｍｅｎｔ（Ｋｎｏｗｌｅｄｇｅ，Ｅｖｉｄｅｎｃｅｓｃｏｒｅ）
+    Ｓｐｅｃｉａｌｉｓｔ Ｅｘｉｔ                  Ｐｒｅｌｉｍｉｎａｒｙ＋Ｄｉｆｆｅｒｅｎｔｉａｌ ｄｉａｇｎｏｓｉｓ                                                             ＶＯＴＥ                  古           目       ⑦ Ｆｉｎａｌ ｒｅｐｏｒｔ ｇｅｎｅｒａｔｉｏｎ
+                                                                              Ｏｐｔｉｏｎａｌ                                                               Ｗｅｉｇｈｔ
+                                                                              Ｃｈｇｉｎ
+                                                                                                                              Ｙｅｓ                    Ｕｐｄａｔｅ                Ｍｅｄｉｃａｌ                自
+               ④ Ｑｕａｌｉｔｙ Ｃｏｎｔｒｏｌ ａｎｄ Ｌｏｇｉｃ Ａｕｄｉｔ                                                                         ａｄ                ＶＯＴＥ                       ｃｏｍｐｌｉａｎｃｅ ｒｅｖｉｅｗ Ｃｌｉｎｉｃａｌ Ｃａｓｅ Ｓｕｍｍａｒｙ
+                                                                                                                                                                        ａｎｄ ｃｏｒｒｅｃｔｉｏｎ
+              Ｌｏｇｉｃ Ｓｃｏｒｉｎｇ                         Ｒｅｌａｔｉｏｎ Ｍｏｄｅｌｉｎｇ                                                ∠   ７２
+                                                                                                                                                                                         Ｄｉｆｆｅｒｅｎｔｉａｌ ｄｉａｇｎｏｓｉｓ
+    Ｑ（ｚμ）＝ａＥＳ（ｚ）                                  Ｄ？→Ｄ？→…．→Ｄｎ                                                                 Ｙｅｓ                                                               Ｄｉｓｅａｓｅ Ｒｅｌａｔｉｏｎ Ｃｈａｉｎ
+                                   ｄｖ                                                                                Ｌｅａｄ                     ＶＯＴＥ                                                 Ｄｉａｇｎｏｓｉｓ Ｂａｓｉｓ
+    ＋ａ？ＫＳ（ｚ，ｕ）＋ａ，ＨＰ（ｚμ）             ＧＰ                                                                           ≤１？                                                                            Ｔｈｅｒａｐｅｕｔｉｃ Ｐｒｉｎｃｉｐｌｅ
+    ＋ａ ＣＳ（ｚμ）                                                                                                 Ｅｘａｍ Ｙｅｓ                                                Ｃｏｍｐｌｉａｎｃｅ Ｓｐｅｃｉａｌ           Ｔｒｅａｔｍｅｎｔ Ｐｌａｎ
+                                                                                                             Ｒｅｐｏｒｔｓ                                                      Ｒｅｖｉｅｗ Ａｇｅｎｔ
+
+
+
+Fig. 2. The pipeline of MedCollab. The framework supports full-cycle clinical diag-
+nosis through dynamic agent recruitment, IBIS-guided argumentation for traceable
+reasoning, and the construction of HDRC optimized by multi-round consensus.
+
+   The recruited exam agents convert raw findings into structured exam reports,
+which are merged with the original record as evidence base E. Each specialist
+agent then self-verifies: it remains active only if it identifies at least one in-domain
+condition supported by evidence spans in E; otherwise, it exits. The remaining
+specialists form the active deliberation set:
+                                                                 Aact = {Ai ∈ A0 | Output(Ai ) ̸= ∅}.                                                                                                                 (2)
+This two-stage design favors recall during initial triage while reducing irrelevant
+arguments in subsequent multi-agent deliberation.
+
+3.2               IBIS-Structured Argumentation for Diagnostic Reasoning
+MedCollab represents each specialist’s diagnostic output using the Issue-Based
+Information System (IBIS) protocol. For each active specialist agent Ai ∈ Aact ,
+the diagnostic output is defined as a set of structured IBIS tuples:
+                                               Di = {zik }K
+                                                          k=1 ,
+                                                           i
+                                                                                             zik = (Iik , Pik , Argik , Eik , Rik ),                                                                                  (3)
+where Ki is the number of diagnostic hypotheses proposed by agent Ai .
+Issue (Iik ) denotes the clinical question under investigation, such as what ex-
+plains a patient’s symptom, abnormal exam result, or disease progression.
+Position (Pik ) denotes a proposed diagnostic hypothesis, such as “rib fracture”
+or “hemothorax”.
+Argument (Argik ) provides the clinical rationale that connects the diagnostic
+hypothesis with patient-specific evidence and medical knowledge.
+Evidence (Eik ) is a subset of the evidence base E, including traceable patient-
+specific evidence spans from the chief complaint, history, physical examination,
+laboratory results, imaging findings, or structured exam reports.
+                                  MedCollab for Clinical Diagnostic Reasoning             5
+
+Reference knowledge (Rik ) contains both parametric medical knowledge
+elicited from the backbone LLM and external medical evidence retrieved from
+PubMed. It is used to support the diagnostic argument and to check whether
+the proposed position is medically plausible.
+    A diagnostic position is considered valid by the verifier only when its key
+claims in Argik are linked to at least one patient-specific evidence span in Eik
+and one medical knowledge span in Rik .
+
+3.3   Hierarchical Disease Relation Chain Construction
+Flat diagnostic labels can identify possible diseases but often fail to express the
+relations among primary conditions, downstream complications, and co-existing
+diseases. MedCollab constructs a Hierarchical Disease Relation Chain.
+    Let P be the accepted diagnostic positions after evidence verification:
+
+                   P = {Pik | Ai ∈ Aact , zik ∈ Di , Q(zik ) ≥ τz },                   (4)
+
+where Q(zik ) is the verifier score defined in Sec. 3.4, and we set τz to 0.7.
+    HDRC uses two explicit relation operators: disease progression or down-
+stream pathological relation (→), and comorbidity or co-existing disease relation
+(+). HDRC candidate chains H are generated from the accepted diagnostic po-
+sitions by constructing a candidate relation graph. Candidate HDRCs are then
+enumerated from this relation graph.
+    A candidate disease relation chain Hj is defined as:
+
+                   Hj = d1 r1 d2 r2 · · · rLj −1 dLj ,    rℓ ∈ {→, +},                 (5)
+
+where dℓ ∈ P is a diagnostic position and Lj is the number of diagnostic positions
+in the chain. For example, a trauma-related case may be represented as:
+
+               Trauma → Rib Fracture → Hemothorax → Anemia.                            (6)
+
+    The operator → denotes a clinically plausible disease progression, compli-
+cation, or downstream pathological relation supported by patient evidence and
+medical knowledge. The operator + denotes comorbid or co-existing conditions
+that should be jointly considered in diagnosis and treatment planning.Multiple
+co-existing conditions can be represented in one HDRC through repeated +
+operators.
+    The confidence score of a candidate HDRC is computed by aggregating
+verifier-supported relation evidence:
+                                     Lj −1
+                                      X          X
+                      Score(Hj ) =                            wi · qi,ℓ,j ,            (7)
+                                      ℓ=1 Ai ∈Adℓ ,dℓ+1 ,rℓ
+
+
+where Adℓ ,dℓ+1 ,rℓ is the set of agents that propose or support the relation (dℓ , dℓ+1 , rℓ ),
+wi is the current weight of agent Ai , and qi,ℓ,j is the verifier-supported relation-
+level quality score computed by the unified verifier scoring function in Sec. 3.4.
+6       Y. Zhan et al.
+
+   The final HDRC is selected as the highest-scoring chain under evidence cov-
+erage and contradiction constraints:
+
+                                 H ∗ = arg max Score(Hj ).                                   (8)
+                                                Hj ∈H
+
+
+
+3.4   Verifier-Guided Consensus Optimization and Logic Auditing
+MedCollab employs a verifier-guided consensus mechanism to optimize multi-
+agent diagnostic reasoning. The GP agent coordinates multi-round deliberation
+and aggregates verifier scores computed from evidence support, medical knowl-
+edge support, plausibility, and contradiction detection.
+   The verifier applies a unified scoring function to both diagnostic positions
+and HDRC relations:
+                      αe ES(x) + αk KS(x) + αp P S(x) + αc (1 − CS(x))
+          V(x) =                                                       .                     (9)
+                                     αe + αk + αp + αc
+
+where x can be either an IBIS tuple or a candidate disease relation. ES(x) mea-
+sures patient-evidence support, KS(x) measures medical-knowledge support,
+P S(x) measures plausibility, and CS(x) measures contradiction with patient
+evidence or medical knowledge. For IBIS tuples, P S(x) denotes hypothesis plau-
+sibility; for HDRC relations, it denotes relation plausibility. The coefficients αe ,
+αk , αp , and αc regulate the relative contribution of these components, and all
+are initialized to 1. All component scores are assigned by the verifier agent under
+a fixed scoring rubric and normalized to [0, 1].
+    For each IBIS tuple zik , the diagnostic quality score is computed as:
+
+                                      Q(zik ) = V(zik ).                                    (10)
+
+    For each candidate HDRC relation (dℓ , dℓ+1 , rℓ ) supported by agent Ai , the
+relation-level quality score is computed as:
+
+                                 qi,ℓ,j = V(Ai , dℓ , dℓ+1 , rℓ ).                          (11)
+
+   For each active specialist agent Ai ∈ Aact , the logical inconsistency score at
+round t is defined as:
+                                            i   K
+                           (t)           1 X
+                          σi     =1−          clip(Q(zik ), 0, 1),                          (12)
+                                         Ki
+                                                k=1
+
+                  (t)
+where a higher σi indicates weaker evidence grounding, poorer knowledge sup-
+port, lower plausibility, or stronger contradiction.
+                                                           (0)
+   All active agents are initialized with uniform weights wi = 1. Agent weights
+are updated through a normalized exponential penalty:
+                                                                          (t+1)
+              (t+1)       (t)             (t)           (t+1)           w̃i
+            w̃i       = wi exp(−λσi ),                wi        =P              (t+1)
+                                                                                        ,   (13)
+                                                                     Am ∈Aact w̃m
+                                MedCollab for Clinical Diagnostic Reasoning       7
+
+where λ = 0.8 is the penalty coefficient. This update downweights agents with re-
+peated unsupported or contradictory arguments while preserving those grounded
+in patient evidence and medical knowledge.
+    The consensus process iterates until the selected HDRC and final diagno-
+sis remain unchanged for two consecutive rounds or the maximum number of
+deliberation rounds (T = 4) is reached. The final report is generated from the
+accepted IBIS tuples and the selected HDRC, covering the diagnostic basis, dif-
+ferential diagnosis, final diagnosis, therapeutic principle, and treatment plan.
+
+
+4     Experiments and Results
+
+4.1    Experimental Setup
+
+Datasets and Data Processing. We evaluate MedCollab on two clinical
+datasets: (1) ClinicalBench [23], which contains 1,500 bilingual English–Chinese
+clinical cases. This bilingual setting supports evaluation in Chinese clinical diag-
+nostic scenarios while preserving cross-lingual comparability. (2) MIMIC-IV [8],
+from which we curated 983 cases. To ensure cross-dataset consistency, MIMIC-IV
+records were reformatted into a standardized clinical-case schema aligned with
+ClinicalBench. DeepSeek-V4-Pro was utilized as an auxiliary processing tool to
+map content to the target schema. After processing, a randomly sampled subset
+of the processed MIMIC-IV cases was further reviewed by human clinicians for
+consistency. The construction and audit procedure is detailed in Appendix A.1.
+Evaluation Metrics. We assess model performance across two primary dimen-
+sions: diagnostic precision and clinical reasoning quality.
+    For diagnostic precision, we evaluate triage routing using Department Classi-
+fication Accuracy (DCA) and monitor hallucination suppression via Medical Fac-
+tual Consistency (Entity-F1) [13]. The core diagnostic performance is measured
+by Accuracy (ACC), which assesses whether the primary diagnosis pi generated
+
+
+Table 1. Comparison of Diagnostic Precision on ClinicalBench (CB) and MIMIC-IV.
+Values are scaled by 100 (%). Results are presented as ValueCB / ValueM IM IC .
+
+      Method                 ACC      CDR Entity-F1 DCA               Cdept
+      Leading LLMs
+      HuatuoGPT-o1-8B [3] 42.9/32.6 32.7/23.9 29.1/26.6 76.7/59.8   80.8/82.5
+      Baichuan4-Turbo [25] 53.9/47.1 41.3/29.1 35.1/39.7 77.4/59.7  98.0/98.0
+      GPT-4o [16]          65.5/53.4 56.5/36.6 32.3/33.7 86.2/64.9 100.0/100.0
+      Gemini-3-Flash [6]   66.1/55.0 57.0/41.8 37.2/36.3 87.6/71.6 100.0/100.0
+      GLM-4.7 [1]          66.9/51.6 59.3/37.6 30.5/32.8 88.5/68.4 100.0/100.0
+      Qwen3-Max [24]       66.9/54.1 56.7/37.1 27.8/31.7 84.5/64.0 100.0/100.0
+      Qwen3-8B [24]        52.9/44.9 39.6/28.6 31.8/37.8 72.6/65.5  97.6/98.1
+      Multi-Agents
+      MedLA [12]           63.4/49.6 54.3/35.0 32.1/35.8 85.7/64.7 99.9/100.0
+      ClinicalAgent [23]   68.7/51.6 51.3/29.2 25.6/28.8 75.6/54.3 100.0/100.0
+      MEDDxAgent [17]      36.9/31.8    -/-    26.8/26.0    -/-        -/-
+      MedCollab(Ours) 76.9/57.7 72.4/48.3 36.7/37.8 94.3/83.7 100.0/100.0
+8       Y. Zhan et al.
+
+Table 2. Clinician-involved Deepseek-V4-Pro-assisted evaluation of generated diag-
+nostic reports. Results are presented as ValueCB / ValueMIMIC .
+
+ Model                   Fluency     Relevance    Completeness   Medical Correctness
+ Leading LLMs
+ HuatuoGPT-o1-8B [3]     4.60/4.91   3.25/3.30      2.60/2.91         2.40/2.55
+ Baichuan4-Turbo [25]    4.89/4.98   3.72/3.73      3.06/3.27         2.96/3.11
+ GPT-4o [16]             5.00/5.00   4.53/4.14      3.89/3.68         3.83/3.32
+ Gemini-3-Flash [6]      4.51/4.84   4.23/4.61      4.09/4.43         3.17/3.80
+ GLM-4.7 [1]             4.96/5.00   4.36/4.66      4.04/4.27         3.77/4.05
+ Qwen3-Max [24]          5.00/5.00   4.62/4.50      4.51/4.48         4.17/3.86
+ Qwen3-8B [24]           4.94/4.89   3.57/3.43      3.19/3.18         2.79/2.57
+ Multi-Agents
+ MedLA [12]              5.00/5.00    4.51/4.52     4.17/4.14          3.96/4.02
+ ClinicalAgent [23]      5.00/5.00    4.91/4.82     4.55/4.16          4.66/4.41
+ MedCollab(Full)         5.00/5.00   4.93/4.87     4.67/4.63          4.81/4.66
+
+
+
+by the system matches the normalized ground truth Gi,1 :
+                                 N
+                             1 X
+                   ACC =           I(N orm(pi ) = N orm(Gi,1 )),                   (14)
+                             N i=1
+
+where N orm(·) denotes medical synonym normalization. To evaluate the frame-
+work’s ability to simultaneously predict the correct department routing and dis-
+ease diagnosis in complex cases involving multiple comorbidities, we also report
+Comprehensive Diagnostic Rate (CDR):
+                              PN
+                                    Sguide (i) × Sdiagnosis (i)
+                     CDR = i=1                                  ,           (15)
+                                             N
+where Sguide (i) and Sdiagnosis (i) are indicator functions for correctness of the
+i-th sample in the guide and diagnosis tasks, respectively, taking value 1 if the
+prediction is correct and 0 otherwise, and N is the total number of test samples.
+We also report Department Consistency (Cdept ), which measures whether the
+department predicted by the system matches a pre-defined valid department,
+serving as a complementary indicator of triage routing reliability.
+    Moving beyond flat labels, we assess the logical coherence of generated reports
+across four structured sections: Diagnostic Basis (DB), Differential Diagnosis
+(DD), Therapeutic Principle (TP), and Treatment Plan (TX). Standard lexical
+overlap metrics such as BLEU and ROUGE-L are reported for textual similar-
+ity, but they often fail to capture medical synonyms or critical negations. We
+therefore prioritize RaTEScore [26], an entity-aware semantic metric designed
+to assess causal logic and clinical truthfulness in reasoning chains.
+Multi-Agent Baseline Evaluation. For agent baselines, we adapt each frame-
+work to our evaluation protocol. MEDDxAgent is evaluated using its top-1 ex-
+tracted diagnosis and final DDx rationale, while MedLA is adapted from its
+original multiple-choice setting. Metrics unavailable under the original task de-
+sign are reported as missing.
+                                                       MedCollab for Clinical Diagnostic Reasoning                                                              9
+
+          ＣｌｉｎｉｃａｌＢｅｎｃｈ－ＢＬＥＵ                             ＣｌｉｎｉｃａｌＢｅｎｃｈ－ＲＯＵＧＥ－Ｌ                                     ＣｌｉｎｉｃａｌＢｅｎｃｈ－ＲａＴＥＳｃｏｒｅ
+                        ＤＤ                                                 ＤＤ                                                        ＤＤ
+                        ２．０                                                １４．０                                                      ５１．０
+                        １．５                                                １２．９                                                      ４８．６
+                        １．０                                                １１．８                                                      ４６．２
+                        ０．５                                                １０．６                                                      ４３．９
+ＴＸ １．０—０．９－０．８－－０．６ ３．５—５．５—７．５ ９．５ ＤＢ            ＴＸ１３．０－１１．８－１０．５－９．２            １８．０－２０．０－２２．０ ２４．０ ＤＢ    ＴＸ ３８．０－３６．９－３５．８ ３４．６          ５２．２ ５５．５－５８．８－６２．０ ＤＢ
+                        ０．８                                                １３．６                                                      ３９．９
+                        １．０                                                １４．８                                                      ４１．８
+                        １
+                        １．２                                                １５．９                                                      ４３．６
+                        １．５                                                １７．０                                                      ４５．５
+                        ＴＰ                                                 ＴＰ                                                        ＴＰ
+            ＭＩＭＩＣ－ＩＶ－ＢＬＥＵ                                  ＭＩＭＩＣ－ＩＶ－ＲＯＵＧＥ－Ｌ                                          ＭＩＭＩＣ－ＩＶ－ＲａＴＥＳｃｏｒｅ
+                        ＤＤ                                                 ＤＤ                                                        ＤＤ
+                        １．０                                                ８．５                                                       ２３．０
+                        ０．８                                                ７．１                                                       ２２．２
+                        ０．５                                                ５．８                                                       ２１．５
+                        ０．２                                                ４：４                                                       ２０．８
+ＴＸ １．５—１－．２—４１．０—０．８－         ２．８３．５－４．２—５．０ ＤＢ   ＴＸ１７．５－１５．４－１３．２－１１．１－          １５．５－１８．０－２０．５－２３．０ ＤＢ    ＴＸ３８．０－３６．５－３５．０－３３．５           ４８．０－４９．５－５１．０－５２．５ ＤＢ
+                        １．０                                                １６．１                                                      ３８．９
+                        １．５                                                １８．２                                                      ３９．８
+                        ２．０                                                ２０．４                                                      ４０．６
+                        ２．５                                                ２２．５                                                      ４１．５
+                        ＴＰ                                                 ＴＰ                                                        ＴＰ
+        ＨｕａｔｕｏＧＰＴ－０１－８Ｂ                    Ｂａｉｃｈｕａｎ４－Ｔｕｒｂｏ                  ＧＰＴ－４ｏ                     Ｇｅｍｉｎｉ－３－Ｆｌａｓｈ                     ＧＬＭ－４．７
+        Ｑｗｅｎ３－Ｍａｘ                          Ｑｗｅｎ３－８Ｂ                         ＭｅｄＬＡ                      ＣｌｉｎｉｃａｌＡｇｅｎｔ                        ＭｅｄＣｏｌｌａｂ（Ｏｕｒｓ）
+
+
+Fig. 3. Radar chart comparison of multidimensional report quality metrics (BLEU,
+ROUGE-L, and RaTEScore) across four clinical dimensions (DB, DD, TX, and TP)
+on ClinicalBench and MIMIC-IV.
+
+
+Clinician-involved LLM-assisted Evaluation. We evaluate generated re-
+ports with clinician and LLM assistance using a 1–5 rubric (Fluency, Relevance,
+Completeness, Medical Correctness) . We sampled up to 6 cases per department,
+yielding 144 ClinicalBench cases and 160 MIMIC-IV cases with anonymized
+model identities. For each department, two chief physicians independently rated
+two few-shot cases with criterion-level rationales; DeepSeek-V4-Pro then used
+these physician-provided rationales to score the remaining cases.
+
+4.2        Main Results and Analysis
+We evaluate MedCollab against leading LLMs and specialized medical multi-
+agent systems across both datasets. For fair comparison, all multi-agent baselines
+and MedCollab are implemented with GPT-4o as the backbone LLM, while
+the GPT-4o baseline represents direct single-model inference. All methods use
+temperature 0, a maximum output length of 4096 tokens, the same evidence
+access, and consistent report specifications where applicable.
+Diagnostic Precision. As shown in Table 1, MedCollab gains top ACC on
+ClinicalBench and MIMIC-IV, surpassing the best baselines by 8.2 and 2.7 per-
+centage points respectively. It also achieves optimal CDR and DCA, reflecting
+10       Y. Zhan et al.
+
+Table 3. Ablation study on the ClinicalBench and MIMIC-IV dataset. Results are
+presented as ValueCB / ValueM IM IC .
+
+    Method                   ACC       Entity-F1    DB RaTE      DD RaTE      TX RaTE
+    w/o Logic Auditing     49.7/41.5    29.6/32.9    51.7/46.8    46.6/22.0   37.5/34.9
+    w/o HDRC               52.9/40.2    31.0/32.6    51.7/45.3    46.2/21.9   37.0/35.0
+    MedCollab (Full)      76.9/57.7    36.7/37.8    62.0/52.1    50.8/23.0    37.6/36.6
+
+
+
+better combined diagnosis-department judgment and stable agent allocation.
+MedCollab achieves competitive Entity-F1 while substantially improving ACC,
+CDR, and DCA, suggesting that IBIS-guided reasoning helps preserve entity-
+level factual consistency while improving diagnostic decision quality.
+Clinical Reasoning Quality. Fig. 3 shows that MedCollab achieves strong
+RaTEScore performance across diagnostic basis, differential diagnosis, thera-
+peutic principle, and treatment plan, especially on evidence-sensitive reasoning
+dimensions. Although some LLMs obtain competitive BLEU scores, their lower
+RaTEScore indicates that surface overlap does not necessarily reflect clinically
+faithful reasoning. Table 2 further confirms that MedCollab achieves the best
+overall relevance, completeness, and medical correctness under clinician-involved
+LLM-assisted evaluation.
+    After quantitative assessment, Fig. 4 displays a qualitative case of diagnostic
+report generation. In the case study, MedCollab can generate standardized re-
+ports matching reference results and provides additional treatment suggestions
+that were marked as acceptable by clinicians during case review.
+
+4.3     Ablation Study
+To evaluate the contribution of each core component, we conducted an abla-
+tion study on ClinicalBench and MIMIC-IV, with results presented in Table 3.
+Impact of Logic Auditing. Removing the Logic Auditing mechanism yields
+the largest degradation, with ACC dropping from 76.9% to 49.7% on Clinical-
+Bench, suggesting that verifier-guided logic auditing contributes to more consis-
+tent inter-specialist reasoning.
+Impact of Relation Chain. Removing HDRC reduces ACC from 76.9% to
+52.9% and DB RaTEScore from 62.0% to 51.7%, suggesting that relation mod-
+eling contributes to diagnostic coherence.
+
+
+5     Conclusion
+We presented MedCollab, an IBIS-guided multi-agent framework for full-cycle
+clinical diagnosis and diagnostic report generation. By combining dynamic spe-
+cialist recruitment, evidence-traceable IBIS argumentation, Hierarchical Disease
+Relation Chains, and verifier-guided logic auditing, it transforms fragmented
+diagnostic predictions into structured and pathology-aware clinical reasoning.
+Experiments on ClinicalBench and MIMIC-IV show that MedCollab consis-
+tently improves diagnostic accuracy, evidence consistency, and clinical reasoning
+                                                       MedCollab for Clinical Diagnostic Reasoning                                         11
+
+quality over leading LLMs and medical multi-agent baselines. Ablation results
+further suggest that both Logic Auditing and HDRC contribute to coherent
+disease-relation reasoning. The bilingual English–Chinese evaluation also makes
+the benchmark setting more aligned with Chinese clinical NLP scenarios while
+preserving cross-lingual comparability.
+
+
+Acknowledgments. We gratefully acknowledge support from the National Key Re-
+search and Development Program of China (No. 2023YFC2706400).
+
+
+Disclosure of Interests. The authors declare no competing interests.
+
+
+
+   ＭｅｄＣｏｌｌａｂ
+   （ａ） Ｄｉａｇｎｏｓｉｓ Ｒｅｓｕｌｔ                            （ｂ） Ｄｉａｇｎｏｓｔｉｃ Ｂａｓｉｓ                                （ｃ） ＤＤ ａｎｄ Ｔｒｅａｔｍｅｎｔ
+     【Ｃｌｉｎｉｃａｌ Ｄｅｐａｒｔｍｅｎｔ】             ｛ｐｏｓｉｔｉｏｎ：Ｉｎｖａｓｉｖｅ ｂｒｅａｓｔ ｃａｎｃｅｒ，ｎｏｎ－ｓｐｅｃｉａｌ ｔｙｐｅ，          【Ｄｉｆｆｅｒｅｎｔｉａｌ Ｄｉａｇｎｏｓｉｓ】
+    Ｂｒｅａｓｔ Ｄｅｐａｒｔｍｅｎｔ，                 Ａｒｇｕｍｅｎｔｓ ｓｕｍｍａｒｙ： ｛ｃｏｒｅ ｒｅａｓｏｎｉｎｇ：１．Ｔｈｅ ｐａｔｉｅｎｔ            １．Ｂｅｎｉｇｎ ｂｒｅａｓｔ ｃｏｎｄｉｔｉｏｎｓ：
+   Ｏｎｃｏｌｏｇｙ，Ｇｅｒｉａｔｒｉｃｓ，                ｐｒｅｓｅｎｔｓ ｗｉｔｈ ａ ｒａｐｉｄｌｙ ｇｒｏｗｉｎｇ ｂｒｅａｓｔ ｌｕｍｐ， ｐｅａｕ           Ｅｘｃｌｕｄｅｄ ｄｕｅ ｔｏ ｒａｐｉｄ ｇｒｏｗｔｈ，．．ａｎｄ
+   Ｎｅｕｒｏｌｏｇｙ                           ｄ＇ｏｒａｎｇｅ， ａｎｄ ｎｉｐｐｌｅ ｒｅｔｒａｃｔｉｏｎ， ｗｈｉｃｈ ａｒｅ ｃｌｉｎｉｃａｌ         ｉｍａｇｉｎｇ ｆｉｎｄｉｎｇｓ ｓｕｇｇｅｓｔｉｖｅ ｏｆ
+                                       ｓｉｇｎｓ ｓｔｒｏｎｇｌｙ ｓｕｇｇｅｓｔｉｖｅ ｏｆ ｂｒｅａｓｔ ｃａｎｃｅｒ…．，               ｍａｌｉｇｎａｎｃｙ．
+                                       ｋｅｙ ｅｖｉｄｅｎｃｅ：［｛ｓｏｕｒｃｅ： ｃｌｉｎｉｃａｌ ｃａｓｅ ｓｕｍｍａｒｙ： Ｔｈｅ           ２．Ｍａｓｔｉｔｉｓ ｏｒ ｂｒｅａｓｔ ａｂｓｃｅｓｓ：．．
+   ＜ＧＴ＞ Ｂｒｅａｓｔ Ｓｕｒｇｉｃａｌ                ｌｕｍｐ ｇｒｅｗ ｒａｐｉｄｌｙ ａｎｄ ｉｓ ｎｏｗ ａｂｏｕｔ ｔｈｅ ｓｉｚｅ ｏｆ ａｎ           ＜ＧＴ＞ １．Ｍａｍｍａｒｙ ｇｌａｎｄ ａｄｅｎｏｍａ：
+   Ｄｅｐａｒｔｍｅｎｔ                          ｅｇｇ． Ｔｈｅ ｓｋｉｎ ｏｆ ｔｈｅ ｌｅｆｔ ｂｒｅａｓｔ ｗａｓ ｅｄｅｍａｔｏｕｓ，ｗｉｔｈ         Ｔｈｅｒｅ ａｒｅ ｎｏ ｅｎｌａｒｇｅｄ ｌｙｍｐｈ ｎｏｄｅｓ
+                                       ｖｉｓｉｂｌｅ ｐｅａｕｄ＇ｏｒａｎｇｅ．．．｝］｝，
+                                       ｛ｐｏｓｉｔｉｏｎ：Ｈｙｐｅｒｔｅｎｓｉｏｎ．．．． ，．…．｝                            ｉｎ ｔｈｅ ａｒｍｐｉｔ， ａｎｄ ｔｈｅ ｄｅｆｉｎｉｔｉｖｅ
+    【Ｐｒｅｌｉｍｉｎａｒｙ Ｄｉａｇｎｏｓｉｓ】                                                                        ｄｉａｇｎｏｓｉｓ ｒｅｌｉｅｓ ｏｎ ｐａｔｈｏｌｏｇｉｃａｌ
+    Ｉｎｖａｓｉｖｅ ｂｒｅａｓｔ ｃａｎｃｅｒ，            ｒｅｌａｔｉｏｎ＿ｒｅａｓｏｎ：Ｈｙｐｅｒｔｅｎｓｉｏｎ ａｎｄ ｖｅｒｔｉｇｏ ａｒｅ                ｅｘａｍｉｎａｔｉｏｎ．
+    ｎｏｎ－ｓｐｅｃｉａｌ ｔｙｐｅ．                  ｃｈｒｏｎｉｃ， ｃｏｅｘｉｓｔｉｎｇ ｃｏｎｄｉｔｉｏｎｓ ｔｈａｔ ａｒｅ ｎｏｔ ｄｉｒｅｃｔｌｙ        ２．Ｍａｍｍａｒｙ ｈｙｐｅｒｐｌａｓｉａ：．．
+   ＋ Ｈｙｐｅｒｔｅｎｓｉｏｎ ＋ Ｖｅｒｔｉｇｏ            ｉｎｆｌｕｅｎｃｅｄ ｏｒ ｃａｕｓｅｄ ｂｙ ｔｈｅ ｂｒｅａｓｔ ｃａｎｃｅｒ．．．                【Ｔｒｅａｔｍｅｎｔ Ｐｌａｎ】
+    ｄｏｃｔｏｒ ：ｄｉａｇｎｏｓｉｓ ｉｓ               ＜ＧＴ＞１．Ｔｈｅ ｐａｔｉｅｎｔ ｄｉｓｃｏｖｅｒｅｄ ａ ｌｕｍｐ ｉｎ ｈｅｒ ｌｅｆｔ             １．Ｓｕｒｇｉｃａｌ ｉｎｔｅｒｖｅｎｔｉｏｎ：
+    ｍｏｒｅ ｓｐｅｃｉｆｉｃ                      ｂｒｅａｓｔ ｆｏｒ ３ ｍｏｎｔｈｓ．                                        Ｃｏｎｓｉｄｅｒａｔｉｏｎ ｆｏｒ ｍａｓｔｅｃｔｏｍｙ ｏｒ
+                                       ２．Ｔｈｅ ｐａｔｉｅｎｔ ｗａｓ ｓｉｔｔｉｎｇ ｗｉｔｈ ｅｄｅｍａ ｏｆ ｔｈｅ ｌｅｆｔ            ｌｕｍｐｅｃｔｏｍｙ ｗｉｔｈ ｂｉｏｐｓｙ ．．
+                                       ｂｒｅａｓｔ ｓｋｉｎ， ｖｉｓｉｂｌｅ ｐｅａｕ ｄ＇ｏｒａｎｇｅ， ｒｅｔｒａｃｔｉｏｎ ｏｆ           ６．Ｍａｎａｇｅｍｅｎｔ ｏｆ ｈｙｐｅｒｔｅｎｓｉｏｎ：．．．
+    ＜ＧＴ＞                                                                                           ７．Ｍａｎａｇｅｍｅｎｔ ｏｆ ｖｅｒｔｉｇｏ： ．．．
+    １．Ｍａｌｉｇｎａｎｔ ｂｒｅａｓｔ ｔｕｍｏｒ           ｔｈｅ ｌｅｆｔ ｎｉｐｐｌｅ…．ｓｗｏｌｌｅｎ ｌｙｍｐｈ ｎｏｄｅｓ ｃｏｕｌｄ ｂｅ
+    ２． Ｈｙｐｅｒｔｅｎｓｉｏｎ                    ｐａｌｐａｔｅｄ ｉｎ ｔｈｅ ｌｅｆｔ ａｘｉｌｌａ， ａｂｏｕｔ １．５×１ｃｍ ｉｎ ｓｉｚｅ．         ＜ＧＴ＞ Ｅｘｃｌｕｄｅ ｃｏｎｔｒａｉｎｄｉｃａｔｉｏｎｓ，
+                                       ３． Ｃｏｌｏｒ Ｄｏｐｐｌｅｒ ｕｌｔｒａｓｏｕｎｄ ｓｈｏｗｓ： ｉｒｒｅｇｕｌａｒ ｓｏｌｉｄ          ｐｅｒｆｏｒｍ ａ ｂｉｏｐｓｙ ｏｆ ｔｈｅ ｌｅｆｔ
+    ３．Ｖｅｒｔｉｇｏ ｓｙｎｄｒｏｍｅ                 ｎｏｄｕｌｅ ｉｎ ｔｈｅ ｌｅｆｔ ｂｒｅａｓｔ（ＢＩ－ＲＡＤＳ ４ａ）．                      ｂｒｅａｓｔ ｍａｓｓ．
+           Ｃｏｒｒｅｃｔ ａｎｄ ｓｐｅｃｉｆｉｃ            １． Ｃｌｅａｒ ａｎｄ ｓｔｒｕｃｔｕｒｅｄ ｒｅａｓｏｎｉｎｇ．                        ＭｅｄＣｏｌｌａｂ ｐｒｏｖｉｄｅｓ ｉｎｓｐｅｃｔｉｏｎ
+           ｄｅｐａｒｔｍｅｎｔ                      ２． Ｔｈｅ ｄｉａｇｎｏｓｔｉｃ ｐｒｏｃｅｓｓ ｉｎｖｏｌｖｅｄ ｐｈｙｓｉｃａｌ
+           ｃｌａｓｓｉｆｉｃａｔｉｏｎ ａｎｄ              ｅｘａｍｉｎａｔｉｏｎ，ｉｍａｇｉｎｇ ｓｔｕｄｉｅｓ， ａｎｄ ｐａｔｈｏｌｏｇｙ， ｗｈｉｃｈ         ｓｕｇｇｅｓｔｉｏｎｓ ａｎｄ ｔｈｅｎ ｏｆｆｅｒｓ ｍｏｒｅ
+           ｄｉａｇｎｏｓｉｓ ｒｅｓｕｌｔｓ               ｗａｓ ｉｎ ｌｉｎｅ ｗｉｔｈ ｃｌｉｎｉｃａｌ ｌｏｇｉｃ．                          ｃｏｍｐｒｅｈｅｎｓｉｖｅ ｔｒｅａｔｍｅｎｔ ｐｌａｎｓ．
+                                              Ｗｒｏｎｇ        Ｗｒｏｎｇ                                               Ｅｖｉｄｅｎｃｅ       Ｗｒｏｎｇ
+   ＨｕａｔｕｏＧＰＴ－０１－８Ｂ           Ｍｉｓｓｉｎｇ
+                               Ｐａｒｔｓ          Ａｎｓｗｅｒ        ｅｖｉｄｅｎｃｅ   Ｑｗｅｎ３－Ｍａｘ                             Ｅｘｔｒａｐｏｌａｔｉｏｎ   Ａｎｓｗｅｒ
+   【Ｐｒｅｌｉｍｉｎａｒｙ Ｄｉａｇｎｏｓｉｓ】                                                 【Ｐｒｅｌｉｍｉｎａｒｙ Ｄｉａｇｎｏｓｉｓ】
+   １．Ｂｒｅａｓｔ Ｃａｎｃｅｒ ２．Ｅｌｅｖａｔｅｄ ＣＡ１５－３ Ｌｅｖｅｌｓ                               １．Ｉｎｖａｓｉｖｅ ｂｒｅａｓｔ ｃａｒｃｉｎｏｍａ， ｎｏｎ－ｓｐｅｃｉａｌ ｔｙｐｅ（ｌｅｆｔ ｂｒｅａｓｔ）
+   【Ｄｉｆｆｅｒｅｎｔｉａｌ ｄｉａｇｎｏｓｉｓ】Ｎｏｎｅ                                           ２．Ｈｙｐｅｒｔｅｎｓｉｏｎ（ｗｅｌｌ－ｃｏｎｔｒｏｌｌｅｄ）．
+   【Ｄｉａｇｎｏｓｔｉｃ Ｂａｓｉｓ】                                                     ３．Ｖｅｒｔｉｇｏ （ｈｉｓｔｏｒｙ， ｃｕｒｒｅｎｔｌｙ ｓｔａｂｌｅ）．
+   １．Ｒａｐｉｄ ｇｒｏｗｔｈ ｏｆ ｔｈｅ ｂｒｅａｓｔ ｌｕｍｐ．                                     ４．Ｍｉｌｄ ｈｙｐｏａｌｂｕｍｉｎｅｍｉａ．          ５．Ｈｙｐｅｒｃｈｏｌｅｓｔｅｒｏｌｅｍｉａ．
+   ２．Ｓｕｓｐｉｃｉｏｕｓ ｉｍａｇｉｎｇ ｆｉｎｄｉｎｇｓ ｏｎ ｕｌｔｒａｓｏｕｎｄ， ｍａｍｍｏｇｒａｍ．                ６．Ｔｈｒｏｍｂｏｃｙｔｏｓｉｓ．
+   ３．Ｅｌｅｖａｔｅｄ ｔｕｍｏｒ ｍａｒｋｅｒ ＣＡ１５－３．                                         【Ｔｒｅａｔｍｅｎｔ Ｐｌａｎ】
+   ｄｏｃｔｏｒ ：Ｔｒｅａｔｓ ＣＡ１５－３ ｅｌｅｖａｔｉｏｎ ａｓ ｄｉａｇｎｏｓｉｓ，Ｆａｉｌｓ                     ．．．．．Ｈｏｎｉｔｏｒ ｐｌａｔｅｌｅｔ ｃｏｕｎｔ ｔｏ ａｓｓｅｓｓ ｆｏｒ ｒｅａｃｔｉｖｅ
+   ｔｏ ｇｅｎｅｒａｔｅ ｄｉｆｆｅｒｅｎｔｉａｌ ｄｉａｇｎｏｓｉｓ ａｎｄ Ｔｈｅ ｄｉａｇｎｏｓｔｉｃ                  ｔｈｒｏｍｂｏｃｙｔｏｓｉｓ ｖｓ． ｏｔｈｅｒ ｃａｕｓｅｓ； ｌｉｋｅｌｙ ｒｅａｃｔｉｖｅ ｇｉｖｅｎ
+                                                                          ｍａｌｉｇｎａｎｃｙ．．．
+   ｂａｓｉｓ ｉｓ ｏｖｅｒｌｙ ｓｉｍｐｌｉｓｔｉｃ ａｎｄ ｆａｉｌｓ ｔｏ ｉｎｃｌｕｄｅ
+   ｃｒｕｃｉａｌ ｅｖｉｄｅｎｃｅ ｓｕｃｈ ａｓ ｐａｔｈｏｌｏｇｉｃａｌ ｃｏｎｆｉｒｍａｔｉｏｎ，                    ｄｏｃｔｏｒ ：ｍｏｄｅｌ ｉｎｃｌｕｄｅｄ Ｍｉｌｄ ｈｙｐｏａｌｂｕｍｉｎｅｍｉａ，
+   ｐｈｙｓｉｃａｌ ｅｘａｍｉｎａｔｉｏｎ， ａｎｄ ｓｐｅｃｉｆｉｃ ｉｍａｇｉｎｇ ｆｅａｔｕｒｅｓ．                   Ｈｙｐｅｒｃｈｏｌｅｓｔｅｒｏｌｅｍｉａ ａｎｄ Ｔｈｒｏｍｂｏｃｙｔｏｓｉｓ ｉｎ ｔｈｅ
+                                                                          ｏｒｉｇｉｎａｌ ｐｒｅｌｉｍｉｎａｒｙ ｄｉａｇｎｏｓｉｓ． Ａｓ ａ ｒｅｓｕｌｔ， ｔｈｅ ｆｏｃｕｓ
+                                                                          ｏｆ ｔｈｅ ｄｉａｇｎｏｓｉｓ ｓｈｉｆｔｅｄ．
+   Ｇｅｍｉｎｉ－３－ｆｌａｓｈ                                          Ｗｒｏｎｇ
+                                                          Ｅｖｉｄｅｎｃｅ
+   【Ｐｒｉｎｃｉｐａｌ Ｄｉａｇｎｏｓｉｓ】                                                  ＧＰＴ－４ｏ                                             Ｅｖｉｄｅｎｃｅ
+   Ｌｅｆｔ ｂｒｅａｓｔ ｃａｎｃｅｒ（ｃＴ４ｂＮ１Ｍｘ）                                                                                            Ｅｘｔｒａｐｏｌａｔｉｏｎ
+   【Ｄｉａｇｎｏｓｔｉｃ Ｂａｓｉｓ】                                                     【Ｄｉａｇｎｏｓｔｉｃ Ｂａｓｉｓ】
+   １．Ｕｌｔｒａｓｏｕｎｄ， ｍａｍｍｏｇｒａｐｈｙ， ａｎｄ ＭＲＩ ａｌｌ ｃａｔｅｇｏｒｉｚｅｄ ｔｈｅ                 Ｓｐｉｃｕｌａｔｉｏｎ， ｌｏｂｕｌａｔｉｏｎ， ｐｌｅｕｒａｌ ｉｎｖｏｌｖｅｍｅｎｔ， ａｎｄ ａｘｉｌｌａｒｙ
+   ｌｅｓｉｏｎ ａｓ ＢＩ－ＲＡＤＳ ５．                                                   ｌｙｍｐｈ ｎｏｄｅ ｅｎｈａｎｃｅｍｅｎｔ ｏｎ ｕｌｔｒａｓｏｕｎｄ， ｍａｍｍｏｇｒａｐｈｙ， ａｎｄ ＭＲＩ．
+   ２．３．５ｘ１ｃｍ ｐａｌｐａｂｌｅ ｌｅｆｔ ａｘｉｌｌａｒｙ ｌｙｍｐｈ ｎｏｄｅ．                           ｄｏｃｔｏｒ ：Ｔｈｅ ｏｒｉｇｉｎａｌ ｉｍａｇｅｓ ｍａｉｎｌｙ ｉｎｄｉｃａｔｅｄ ｂｒｅａｓｔ
+   ｄｏｃｔｏｒ ：Ｍｉｓｓｔａｔｅｓ ＢＩ－ＲＡＤＳ ｃａｔｅｇｏｒｉｅｓ， Ｈａｌｌｕｃｉｎａｔｅｓ                     ｌｅｓｉｏｎｓ， ｃｈｅｓｔ ｗａｌｌ ｍｅｔａｓｔａｓｉｓ ｏｒ ａｂｎｏｒｍａｌ ａｘｉｌｌａｒｙ
+   ｌｙｍｐｈ ｎｏｄｅ ｓｉｚｅ ａｎｄ Ｔｈｅ ｃＴ４ｂＮ１Ｍｘ ｓｔａｇｅ ｗａｓ ｄｉｒｅｃｔｌｙ                    ｌｙｍｐｈ ｎｏｄｅｓ， ｂｕｔ ｎｏｔ ｃｌｅａｒｌｙ ｓｈｏｗ ｐｌｅｕｒａｌ ｉｎｖｏｌｖｅｍｅｎｔ．
+   ｇｉｖｅｎ， ｂｕｔ ｔｈｅ ｏｒｉｇｉｎａｌ ｄａｔａ ｄｉｄ ｎｏｔ ｐｒｏｖｉｄｅ．                          Ｔｈｅ ｐｌｅｕｒａｌ ｉｎｖｏｌｖｅｍｅｎｔ ｉｓ ａｎ ｕｎｐｒｏｖｅｎ ｅｘｔｅｎｓｉｏｎ．
+
+
+Fig. 4. A case study on the generated diagnosis report. Green indicates content that is
+consistent with the ground truth, red indicates errors, yellow indicates more detailed
+classifications accepted by clinicians, and blue indicates supplementary information
+recognized by clinicians, but this information is not included in the ground truth.
+12      Y. Zhan et al.
+
+References
+
+ 1. AI, Z.: GLM-4.7: Advancing the Coding Capability and Complex Reasoning (2026)
+ 2. Chen, H., Li, W., Jia, J., Chen, Y., Pang, X., Chen, Y.L., Gonghui, L., Wang, H.,
+    Bu, J., Wu, L.: Beyond the Individual: Virtualizing Multi-Disciplinary Reasoning
+    for Clinical Intake via Collaborative Agents. In: Findings of the Association for
+    Computational Linguistics: ACL 2026. pp. 16074–16101. Association for Compu-
+    tational Linguistics (Jul 2026)
+ 3. Chen, J., Cai, Z., Ji, K., Wang, X., Liu, W., Wang, R., Wang, B.: Towards Medical
+    Complex Reasoning with LLMs through Medical Verifiable Problems. In: Findings
+    of ACL 2025. pp. 14552–14573 (2025)
+ 4. Choi, J.J., Gribben, J., Lin, M., Abramson, E.L., Aizer, J.: Using an experiential
+    learning model to teach clinical reasoning theory and cognitive bias: an evalua-
+    tion of a first-year medical student curriculum. Medical Education Online 28(1),
+    2153782 (2023)
+ 5. Conklin, J., Begeman, M.L.: gIBIS: a hypertext tool for exploratory policy discus-
+    sion. ACM Transactions on Information Systems 6(4), 303–331 (1988)
+ 6. DeepMind, G.: Gemini 3: Frontier Intelligence Built for Speed and Reasoning
+    (2025)
+ 7. Donroe, J.H., Egger, E., Soares, S., Sofair, A.N.: Clinical Reasoning: Perspectives
+    of Expert Clinicians on Reasoning Through Complex Clinical Cases. Cureus 16(1)
+    (2024)
+ 8. Johnson, A.E., Bulgarelli, L., Shen, L., Gayles, A., Shammout, A., Horng, S.,
+    Pollard, T.J., Hao, S., Moody, B., Gow, B., et al.: MIMIC-IV, a freely accessible
+    electronic health record dataset. Scientific Data 10(1), 1 (2023)
+ 9. Kim, Y., Park, C., Jeong, H., Chan, Y.S., Xu, X., McDuff, D., Lee, H., Ghassemi,
+    M., Breazeal, C., Park, H.W.: MDAgents: An Adaptive Collaboration of LLMs for
+    Medical Decision-Making. In: NeurIPS 2024. vol. 37, pp. 79410–79452 (2024)
+10. Kuntz, W., Ter Horst, R.J.: Issues as Elements of Information Systems (1970)
+11. Li, B., Yan, T., Pan, Y., Luo, J., Ji, R., Ding, J., Xu, Z., Liu, S., Dong, H., Lin,
+    Z., Wang, Y.: MMedAgent: Learning to use medical tools with multi-modal agent.
+    In: Findings of EMNLP 2024. pp. 9815–9833 (2024)
+12. Ma, S., Huang, J., Zhang, F., Wu, J., Shen, Y., Fan, G., Zhang, Z., Zang, Z.:
+    MedLA: A logic-driven multi-agent framework for complex medical reasoning with
+    large language models. In: Proceedings of AAAI 2026. vol. 40, pp. 845–853 (2026)
+13. Manning, C.D.: Introduction to Information Retrieval. Syngress Publishing (2008)
+14. McDuff, D., Schaekermann, M., Tu, T., Palepu, A., Wang, A., Garrison, J., Sing-
+    hal, K., Natarajan, V., Matias, Y., Liu, Y., et al.: Towards accurate differential
+    diagnosis with large language models. Nature 642(8067), 451–457 (2025)
+15. Meyer, A.N., Giardina, T.D., Khawaja, L., Singh, H.: Patient and clinician expe-
+    riences of uncertainty in the diagnostic process: Current understanding and future
+    directions. Patient Education and Counseling 104(11), 2606–2615 (2021)
+16. OpenAI: Hello GPT-4o (2024)
+17. Rose, D.P., Hung, C.C., Lepri, M., Alqassem, I., Gashteovski, K., Lawrence, C.:
+    MEDDxAgent: A Unified Modular Agent Framework for Explainable Automatic
+    Differential Diagnosis. In: Proceedings of ACL 2025. pp. 13803–13826 (2025)
+18. Rutter, P.: The importance of clinical reasoning in differential diagnosis for non-
+    medical prescribers, nurses and pharmacists. Clinics in Integrated Care 31, 100271
+    (2025)
+                                MedCollab for Clinical Diagnostic Reasoning        13
+
+19. Singhal, K., Tu, T., Gottweis, J., Sayres, R., Wulczyn, E., Amin, M., Hou, L.,
+    Clark, K., Pfohl, S., Cole-Lewis, H., et al.: Toward expert-level medical question
+    answering with large language models. Nature Medicine 31, 943–950 (2025)
+20. Tang, X., Zou, A., Zhang, Z., Li, Z., Zhao, Y., Zhang, X., Cohan, A., Gerstein,
+    M.: MedAgents: Large Language Models as Collaborators for Zero-shot Medical
+    Reasoning. In: Findings of ACL 2024. pp. 599–621 (2024)
+21. Wu, C., Lin, W., Zhang, X., Zhang, Y., Xie, W., Wang, Y.: PMC-LLaMA: to-
+    ward building open-source language models for medicine. Journal of the American
+    Medical Informatics Association 31(9), 1833–1843 (2024)
+22. Xiong, G., Jin, Q., Lu, Z., Zhang, A.: Benchmarking Retrieval-Augmented Gener-
+    ation for Medicine. In: Findings of ACL 2024. pp. 6233–6251 (2024)
+23. Yan, W., Liu, H., Wu, T., Chen, Q., Wang, W., Chai, H., Wang, J., Zhao, W.,
+    Zhang, Y., Zhang, R., et al.: ClinicalLab: Aligning Agents for Multi-Departmental
+    Clinical Diagnostics in the Real World. arXiv:2406.13890 (2024)
+24. Yang, A., Li, A., Yang, B., Zhang, B., Hui, B., Zheng, B., Yu, B., Gao, C., Huang,
+    C., Lv, C., et al.: Qwen3 Technical Report. arXiv:2505.09388 (2025)
+25. Zhang, H., Qiu, B., Feng, Y., Li, S., Ma, Q., Zhang, X., Ju, Q., Yan, D., Xie, J.:
+    Baichuan4-Finance Technical Report. arXiv:2412.15270 (2024)
+26. Zhao, W., Wu, C., Zhang, X., Zhang, Y., Wang, Y., Xie, W.: RaTEScore: A Metric
+    for Radiology Report Generation. In: Proceedings of EMNLP 2024. pp. 15004–
+    15019 (2024)
+27. Zhu, Z., Chen, H., Yan, Z., Zhang, D., Wu, Y., Zhan, Y., Cheng, W., Zhao, M.,
+    Gu, W., Chen, Y., Qin, F., Yu, G.: PathLens: A lightweight multimodal reasoner
+    for in-depth pathology insights. Knowledge-Based Systems 348, 116261 (2026)
+
+
+A     Additional Evaluation Details
+A.1    Dataset Construction
+DeepSeek-V4-Pro was used only to map source content into the unified schema;
+its prompt explicitly prohibited rewriting, completion, inference, and unsup-
+ported additions. Two clinical physicians reviewed a department-stratified ran-
+dom sample of 10% of cases, with at least five cases per department. No prohib-
+ited additions were identified in the reviewed samples.
+
+
+
+
+    Fig. 5. Prompt used for DeepSeek-V4-Pro-based clinical case schema mapping.
+

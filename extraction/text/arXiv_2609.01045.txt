@@ -1,0 +1,745 @@
+                                            AgentFactory: Towards Automated Agentic
+                                                System Design and Optimization
+
+                                                 Enci Zhang, Haofeng Wang, Yuesheng Zhu, Xiaole Cui, and
+                                                                      Guibo Luo
+
+                                                Peking University Shenzhen Graduate School , Shenzhen, China
+                                            eczhang@stu.pku.edu.cn, hfwang@stu.pku.edu.cn, zhuys@pku.edu.cn,
+                                                          cuixl@pkusz.edu.cn, luogb@pku.edu.cn
+
+
+
+
+arXiv:2609.01045v1 [cs.AI] 1 Sep 2026
+                                              Abstract. Large Language Models (LLMs) have demonstrated remark-
+                                              able capabilities as powerful components in agentic systems, enabling
+                                              sophisticated reasoning and complex task execution. However, current
+                                              approaches to manually designing and optimizing agentic systems heavily
+                                              rely on manual effort, limiting their adaptability and scalability. Recent
+                                              work has explored the automated optimization of workflow designs. How-
+                                              ever, these approaches often overlook the crucial role of model capabili-
+                                              ties and focus on single performance metrics, failing to address real-world
+                                              deployment constraints. In this paper, we present AgentFactory, a frame-
+                                              work that jointly optimizes both foundation models and workflow struc-
+                                              tures in agentic systems while considering multiple objectives includ-
+                                              ing performance, cost, and efficiency. AgentFactory leverages advanced
+                                              LLMs as optimizers to navigate the vast search space of possible config-
+                                              urations, employing a three-stage optimization pipeline to automatically
+                                              discover effective combinations of fine-tuned models and optimized work-
+                                              flows. Through an iterative optimization process, our framework system-
+                                              atically explores and evaluates different agentic system designs, adapting
+                                              to task-specific requirements while maintaining operational efficiency.
+                                              We evaluate AgentFactory across eight benchmarks spanning five do-
+                                              mains, including general reasoning, coding, mathematics, medicine, and
+                                              finance. Our experiments demonstrate that AgentFactory consistently
+                                              outperforms both manually designed methods and existing automated
+                                              approaches, achieving an average improvement of 9.1% across all bench-
+                                              marks, with particularly significant gains in domain-specific tasks (19.6%
+                                              on MedQA and 18.7% on FinEval). These results establish AgentFactory
+                                              as a promising approach for developing more capable and efficient agentic
+                                              systems through automated optimization.
+
+                                              Keywords: Large language model · Agent framework · LLM fine-tuning
+                                              · Automated agentic optimization
+
+
+                                        1   Introduction
+
+                                        Large Language Models (LLMs) such as GPT-4o, Claude-3.5-sonnet, and DeepSeek
+                                        V3 have demonstrated remarkable capabilities as powerful components in agen-
+2      Enci et al.
+
+tic systems, enabling sophisticated reasoning and complex task execution. How-
+ever, the effective deployment of LLM-based agentic system heavily depends
+on manual design and tuning. For instance, frameworks like ChatDev [24] and
+MetaGPT [14] predefine various roles, workflow structures, and their correspond-
+ing responsibilities, manually assigning distinct profiles to each agent to facil-
+itate collaboration. This approach, while functional, is labor-intensive and re-
+lies heavily on empirical experience, often leading to sub-optimal solutions and
+making it challenging to explore the vast solution space and discover optimal
+configurations. The history of artificial intelligence reveals a consistent pattern
+where learned solutions supersede manual engineering—from features in com-
+puter vision to model architectures themselves via Neural Architecture Search
+(NAS) [26]. This historical precedent strongly suggests that automating the de-
+sign of agentic systems could yield more effective and scalable solutions than
+current manual approaches.
+
+    Given the impressive capabilities of Large Language Models in understand-
+ing complex instructions and generating creative solutions, recent efforts have
+begun exploring their potential as optimizers for automated agentic system op-
+timization, primarily focusing on prompt engineering and workflow design. Ini-
+tial approaches like PromptBreeder [11] and TextGrad [35] have demonstrated
+success in automated prompt optimization. However, optimizing prompts alone
+may not be sufficient for complex tasks that require coordinated interactions
+between multiple components. Recognizing this limitation, more comprehensive
+frameworks like ADAS [17] and AFlow [36] have extended automation to work-
+flow design and optimization. However, these approaches face two significant
+limitations. First, they concentrate solely on workflow optimization while ne-
+glecting model-level enhancements, which particularly limits their effectiveness
+in specialized domains where workflow optimization alone cannot bridge the do-
+main adaptation gap. Second, these methods typically optimize for single metrics
+like accuracy or F1 scores, overlooking crucial real-world considerations such as
+inference costs and response latency.
+
+    To address these limitations, we present AgentFactory, a framework designed
+for automated agentic system generation and optimization. Given a task specifi-
+cation, AgentFactory first generates a basic agentic system and then iteratively
+optimizes it until all constraints are satisfied. The optimization process operates
+in the joint space of model parameters and workflow representations, subject
+to multiple constraints. Unlike previous approaches that only focus on workflow
+optimization, AgentFactory expands the optimization search space by incorpo-
+rating foundation model fine-tuning, enabling more comprehensive system opti-
+mization. By incorporating fine-tuning into the optimization process and lever-
+aging powerful LLMs as optimizers, our framework simultaneously optimizes
+multiple objectives including performance, cost, and efficiency. Our extensive
+experiments across 5 domains and 8 benchmarks show an average performance
+improvement of 9.1% over existing methods, with particularly significant im-
+provements in specialized domains, achieving 19.6% and 18.7% improvements
+AgentFactory: Towards Automated Agentic System Design and Optimization            3
+
+on MedQA [18] and FinEval [37] benchmarks respectively, while maintaining
+lower inference costs.
+   Overall, our contributions can be summarized as follows:
+ – We propose AgentFactory, a comprehensive framework for automated agen-
+   tic system design and optimization.
+ – We use optimization theory to formalize the problem of agentic system opti-
+   mization and develop algorithms to solve it. We further introduce model fine-
+   tuning into the automated agent design process and pioneer multi-objective
+   optimization considering accuracy, cost, and latency.
+ – We conduct extensive experiments across diverse domains, demonstrating
+   superior performance compared to both manual designs and state-of-the-art
+   automated approaches.
+
+
+2     Related Work
+2.1   LLM-powered Agentic Systems
+Agent systems have evolved through distinct phases, from early symbolic ar-
+chitectures emphasizing expressiveness but lacking flexibility, to reinforcement
+learning approaches that achieved task-specific success but struggled with long-
+term planning. These limitations highlighted the need for more sophisticated
+architectures.
+    The integration of LLMs has brought unprecedented opportunities to this
+field. With their extensive general knowledge and logical reasoning capabilities,
+LLMs can serve as flexible components in complex problem-solving systems -
+functioning similarly to humans’ automatic thinking (System 1), while the overall
+agent architecture enables deliberate reasoning (System 2) [19]. This has sparked
+numerous innovations in agent design: Tree of Thoughts (ToT) [33] and Graph
+of Thoughts (GoT) [5] implement structured reasoning frameworks, Hugging-
+GPT [27] demonstrate effective tool integration, while Generative Agents [23]
+and Reflexion [28] explore memory mechanisms for experience accumulation.
+    Recent research has further expanded these capabilities through multi-agent
+frameworks and system optimizations. Works like Camel [21], and MetaGPT [14]
+leverage inter-agent discussions and role-playing to enhance reasoning and co-
+ordination. Meanwhile, platforms like AutoGPT [1] focus on autonomous task
+decomposition and execution. While these advances show promise, significant
+challenges remain in standardizing architectures and ensuring reliable perfor-
+mance across diverse tasks.
+
+2.2   Automated Agentic System Optimization
+The automation of agentic system design has emerged as a critical research di-
+rection, with existing approaches broadly falling into three categories: prompt
+optimization, hyperparameter tuning, and workflow structure optimization. The
+first category, represented by recent works [11] [35] [20] [32], explores techniques
+4       Enci et al.
+
+to automatically refine prompts while maintaining the original workflow struc-
+ture. The second category [25] focuses on optimizing predefined parameters.
+Despite their contributions to performance enhancement, both approaches face
+challenges in adapting to diverse tasks and still necessitate substantial task-
+specific manual intervention.
+    The third category focuses on comprehensive workflow structure optimiza-
+tion, attracting significant research attention [38] [39] [17] [36]. Among these
+efforts, GPTSwarm [39] pioneered the application of graph-based representa-
+tions combined with reinforcement learning, though its effectiveness is hampered
+by limitations in handling complex conditional logic. ADAS made progress by
+adopting code-based workflow representations, but its potential is not fully real-
+ized due to constraints in its search methodology. Building upon these founda-
+tions, AFlow introduced a more sophisticated approach through its named node
+architecture and specialized MCTS-based optimization strategy, enabling more
+nuanced workflow representations and efficient search capabilities.
+    However, a common limitation across all these approaches is their exclusive
+focus on workflow optimization while keeping the underlying models fixed. This
+constraint significantly limits the potential performance improvements, as model
+capabilities play a crucial role in agent behavior. Our work addresses this lim-
+itation by introducing AgentFactory, a framework that jointly optimizes both
+foundation models and workflow designs. Through an iterative search over the
+joint space of model parameters and workflow representations, our approach
+demonstrates superior performance compared to methods that optimize work-
+flow alone, establishing a new paradigm for comprehensive agent optimization.
+
+
+3     Method
+
+
+3.1   Problem Formulation
+We formalize the automated agentic system optimization problem as follows:
+Given a task T and a set of evaluation functions G = {G1 , G2 , ..., Gp } corre-
+sponding to different objectives (such as accuracy, cost, and latency), Agent-
+Factory iteratively generates a sequence of agentic systems {s0 , s1 , . . . , sn } ∈ S,
+which can be represented as:
+
+                           S = {(m, w)|m ∈ M, w ∈ W},                               (1)
+
+where M denotes the space of LLM-based models, formulated as:
+
+                       M = {ϕ(b, d, h)|b ∈ B, d ∈ D, h ∈ H},                        (2)
+
+where B denotes the available foundation models, D represents the instruc-
+tion fine-tuning datasets, and H encompasses the hyperparameters during fine-
+tuning, such as batch size and learning rate. ϕ denotes the tuning method, which
+could be LoRA [15], QLoRA [8] or full-parameter fine-tuning. For third-party
+AgentFactory: Towards Automated Agentic System Design and Optimization             5
+
+Algorithm 1 LLM-guided Multi-Objective Optimization for Agentic Systems
+Require: Task T , evaluation functions G, model space M, LLM optimizer Lθ , meta-
+    prompt Imeta , maximum steps Kmax , target scores Gtarget and scalarization func-
+    tion F
+Ensure: Optimal Agentic System s∗
+ 1: Initialize optimization trajectory O0 ← ∅
+ 2: Generate initial system s0 ← Lθ (O0 , M, Imeta )
+ 3: Evaluate G(s0 , T )
+ 4: O0 ← {(s0 , G(s0 , T ))}
+ 5: for k ← 1 to Kmax do
+ 6:    sk ← Lθ (Ok−1 , M, Imeta )
+ 7:    Evaluate G(sk , T )
+ 8:    Ok ← Ok−1 ∪ {(sk , G(sk , T ))}
+ 9:    if G(sk , T ) ⪰ Gtarget then
+10:       return sk
+11:    end if
+12: end for
+13: s∗ = arg maxs∈Ok F(G(s, T )),
+14: return s∗
+
+
+
+models where local fine-tuning is not feasible, we set d = ∅ and h = ∅ to indicate
+the use of the original model.
+    The workflow space W can be represented in various forms, such as graph-
+based structures like GPTSwarm, neural architectures like DyLAN [22], or exe-
+cutable code like ADAS.
+    At the k-th evolution step, let the optimization trajectory Ok−1 be defined
+as a sequence of solution-evaluation pairs:
+
+                            Ok−1 = {(si , G(si , T ))}k−1
+                                                      i=0 ,                      (3)
+
+where si ∈ S represents the i-th Agentic System and
+
+                 G(si , T ) = {G1 (si , T ), G2 (si , T ), ..., Gp (si , T )}    (4)
+
+denotes a vector of evaluation metrics on task T .
+   From an optimization theory perspective, this formulation represents a com-
+plex multi-objective optimization problem over non-differentiable and partially
+observable spaces M and W, traditional optimization methods like gradient de-
+scent or evolutionary algorithms may not be directly applicable. One feasible
+approach is to leverage LLMs as optimizers [31]. Specifically, a LLM optimizer
+Lθ with parameters θ can be employed to generate the next solution using meta-
+prompt Imeta :
+                           sk = Lθ (Ok−1 , M, Imeta ).                      (5)
+   The optimization process terminates under either of the following conditions:
+
+                         G(sk , T ) ⪰ Gtarget or k = Kmax ,                      (6)
+6       Enci et al.
+
+
+
+
+Fig. 1. The AgentFactory framework. The process begins with defining Objectives
+(specifying performance targets and constraints), proceeds through the Optimization
+stage, and concludes with Deployment of the optimized agentic system. During the cen-
+tral Optimization phase, AgentFactory employs a three-stage pipeline (planning, tun-
+ing, and workflow design) to iteratively optimize both foundation models and workflow
+structures until meeting the specified requirements, at which point the system becomes
+ready for deployment on the target task.
+
+
+where Gtarget represents the vector of target thresholds for each evaluation met-
+ric, ⪰ denotes component-wise comparison (i.e., each metric meets or exceeds
+its corresponding target), and Kmax is the maximum number of optimization
+steps. The final objective is to find the Pareto-optimal agentic system s∗ that
+represents the best trade-off among competing objectives:
+
+                             s∗ = arg max F(G(s, T )),                            (7)
+                                      s∈Ok
+
+where OK represents the final optimization trajectory and F is a scalarization
+function that aggregates multiple objectives according to user preferences. The
+end-to-end algorithm is formally presented in Algorithm 1.
+
+
+3.2   AgentFactory Overview
+
+We propose AgentFactory, a comprehensive framework for automated agentic
+system design and optimization. As illustrated in Fig.1, current approaches to
+agentic system design either rely on manual design processes or restrict their
+focus to workflow optimization alone. AgentFactory addresses these limitations
+AgentFactory: Towards Automated Agentic System Design and Optimization           7
+
+by introducing a three-stage Optimization Pipeline (planning, tuning, and work-
+flow design) that simultaneously optimizes both model parameters and workflow
+structures in the joint search space, enabling more comprehensive system opti-
+mization.
+    For a given task and associated performance targets, AgentFactory formal-
+izes the optimization process as a multi-objective search over the joint space of
+model parameters and workflow structures. The optimization trajectory shown
+in the bottom right of Fig.1 demonstrates how the system progressively converges
+toward solutions that satisfy all predetermined performance target.
+    At the core of AgentFactory is a sophisticated three-stage optimization pipeline
+that systematically decomposes the complex search problem. This structured ap-
+proach enables efficient navigation of the optimization landscape while ensuring
+thorough exploration of the solution space. As shown in Fig.1, the process pro-
+gresses from objective definition through iterative optimization and ultimately
+to deployment once all performance, cost, and efficiency targets are met.
+
+3.3   Optimization Pipeline
+From an optimization theory perspective, the joint search over model parame-
+ters and workflow structures presents a challenging multi-objective optimization
+problem with a vast and complex solution space. To address this complexity,
+AgentFactory employs a three-phase decomposition strategy that balances ex-
+ploration of diverse solutions with exploitation of promising directions.
+     The decomposition into distinct phases—planning, tuning, and workflow de-
+sign—rather than attempting simultaneous optimization of all components, is
+essential for managing the inherent complexity of agentic system design. This
+structured approach allows precise control over format-sensitive outputs while
+maintaining system coherence through a unified optimization framework. Fur-
+thermore, this decomposition reduces coupling between different optimization
+aspects, enabling focused improvements in each dimension of the search space.
+     Planning: The planning phase serves as the cornerstone of our optimization
+framework, where the LLM optimizer synthesizes comprehensive optimization
+strategies based on multiple information sources. During each iteration, the op-
+timizer integrates the meta-prompt with task descriptions, model configurations,
+workflow design frameworks, and previous optimization trajectories to generate
+a structured optimization plan. This plan comprises three essential components:
+(1) Insights that articulate the strategic rationale behind the proposed opti-
+mizations, (2) Model specifications encompassing all model-related configura-
+tions, including foundation model selection, appropriate datasets, fine-tuning
+approaches, and specific hyperparameter settings , and (3) Workflow designs
+outlining the systematic implementation approach. As shown in Figure 2, we
+developed a specialized prompt template that guides the LLM optimizer in gen-
+erating these structured plans.
+     Tuning: Based on the optimization plan, the LLM optimizer generates spe-
+cific tuning configurations, encompassing dataset selection, data samples require-
+ments, fine-tuning methodologies, and hyperparameter specifications. These con-
+8       Enci et al.
+
+
+    Main prompt for the LLM optimizer
+    ROLE: You are an Agentic System optimization expert specialized in improving
+    LLM-based agent architectures and workflows. You understand the intricacies of
+    agent coordination, task decomposition, and the dynamic adaptation of agent
+    behaviors based on performance feedback and system requirements.
+    TASK: Your task is to optimize the Agentic System to enhance its performance
+    on {TASK_NAME}. Based on the provided optimization trajectory, propose an
+    improved system design by selecting appropriate models and designing efficient
+    workflows.
+    {Task Description}
+    {Model Configuration}
+    {Workflow Specification}
+    {Optimization Trajectory}
+    Based on the above information, please provide your solution in three parts:
+        Insights: Explain your design rationale and key optimization strategies.
+        Model: Specify the model selection and fine-tuning configurations.
+        Workflow: Detail the implementation of your optimized workflow design.
+
+
+Fig. 2. The main prompt template for the LLM optimizer Lθ in AgentFactory frame-
+work. The content within curly braces represents variable components, including the
+meta-prompt Imeta that guides the optimization process, the optimization trajectory
+Ok−1 containing historical solutions and their performance, and specifications of the
+LLM-based model space M.
+
+
+
+figurations are then executed by the tuning backend to modify the founda-
+tion models. The separation of tuning from the planning phase provides en-
+hanced control over the fine-tuning process, which is particularly crucial given
+the resource-intensive nature of LLM fine-tuning. In practice, the initial tun-
+ing configurations may require iterative refinement due to hardware constraints
+or computational limitations. Our framework accommodates this reality by en-
+abling dynamic adjustment of tuning parameters through LLM-guided optimiza-
+tion, such as batch size reduction or adoption of more efficient fine-tuning ap-
+proaches, ensuring robust performance within available computational resources.
+    Workflow Design: During the workflow design phase, the system generates
+executable code representations based on the optimization plan. Our choice of
+code-based workflow representation offers several key advantages over alterna-
+tive approaches. First, the Turing-completeness of programming languages en-
+ables the representation of arbitrary computational processes and control flows,
+providing superior expressiveness and flexibility in system design. For example,
+compared to graph-based approaches, code-based representations can more nat-
+urally express complex control structures and dynamic behaviors. Second, this
+approach leverages the strong code generation capabilities of modern LLMs,
+allowing for more sophisticated and nuanced workflow implementations. Follow-
+ing ADAS’s foundational work, we adopt code-based workflow representations
+AgentFactory: Towards Automated Agentic System Design and Optimization            9
+
+
+
+
+Fig. 3. An example workflow generated by AgentFactory for the GSM8K mathematical
+reasoning task, guided by the optimization plan. The implementation incorporates a
+Reflexion-based approach with specialized models and tool augmentation for numerical
+calculations, demonstrating the realization of optimized workflow in code space.
+
+
+that can capture complex agent behaviors, including prompting strategies, tool
+utilization, and control flow mechanisms. As shown in Figure 3, based on our
+provided code templates, the LLM optimizer generates structured code that is
+seamlessly integrated into the agentic system.
+
+
+4     Experiment Setup
+4.1   Benchmarks
+We evaluated AgentFactory across five distinct domains using eight carefully se-
+lected public benchmarks. For general domain evaluation, we randomly selected
+1,000 test instances each from MMLU [12] and DROP [10]. For the coding do-
+main, we utilized the complete test sets of HumanEval [6] and MBPP [4]. In
+mathematical reasoning, we employed the full GSM8K [7] test set and, follow-
+ing [14], selected 617 problems from MATH [13] at difficulty level 5, spanning
+four representative problem types (Combinatorics & Probability, Number The-
+ory, Pre-algebra and Pre-calculus). To assess domain-specific capabilities, we
+included the complete test sets of MedQA [18] and FinEval [37] for medical and
+financial domains, respectively.
+
+4.2   Compared Methods
+We conducted comprehensive comparisons between AgentFactory and various
+existing agent design approaches. For manually designed methods, we compared
+10      Enci et al.
+
+against direct LLM invocation (IO), Chain-of-Thought [30], Self-Consistency
+CoT [29]with 5 samples, Reflexion with 3 rounds, and LLM Debate [9] with 3
+rounds. For automated workflow optimization, we included two state-of-the-art
+baselines: ADAS and AFlow.
+    To ensure fair comparison, we conducted experiments across two settings with
+different foundation models. In the first setting, all methods utilized Llama-3.1-
+8B-Instruct as the foundation model. In the second setting, GPT-4o-mini served
+as the foundation model. Given AgentFactory’s capability for automatic model
+selection and multi-objective optimization, we allowed it to dynamically lever-
+age both Llama-3.1-8B-Instruct and GPT-4o-mini to achieve optimal balance
+between performance and cost efficiency.
+
+
+4.3   Implementation Details
+
+The performance of AgentFactory’s fine-tuning process heavily depends on data
+quality, thus we carefully curated a diverse collection of datasets including train-
+ing splits from our evaluation benchmarks, CodeBagel’s [3] Python-specific seg-
+ments for programming tasks, MathInstruct [34] for mathematical reasoning,
+and IndustryInstruction’s [2] Health-Medicine and Finance-Economics subsets
+for domain-specific knowledge. These datasets are presented to AgentFactory
+as descriptive triples containing dataset name, size, and characteristics, enabling
+automated selection and configuration based on optimization objectives. We em-
+ployed Llama-3.1-8B-Instruct as our base model for fine-tuning, utilizing Open-
+RLHF [16] as the backend framework. To maintain computational efficiency
+while ensuring stable performance, we imposed constraints of 20K samples max-
+imum and 4-hour time limit per fine-tuning session, with experiments conducted
+on 4 A6000 GPUs (48GB each). A caching mechanism was implemented to store
+fine-tuned models, preventing redundant training under identical parameters.
+For the LLM optimizer component, we evaluated several models including GPT-
+4o1 (2024-08-06), GPT-4o-mini (2024-07-18), Claude-3.5-sonnet2 (2024-10-22),
+Gemini Pro 1.53 and DeepSeek V34 , with optimization iterations limited to 20
+steps to balance exploration and computational resources.
+
+
+5     Experiment Results
+
+5.1   Main Result
+
+We conducted extensive experiments across eight benchmarks, with each exper-
+iment repeated three times to ensure statistical reliability. Table 1 presents our
+comprehensive results, where "Avg" represents the mean performance across all
+1
+  https://openai.com/
+2
+  https://claude.ai/
+3
+  https://gemini.google.com/
+4
+  https://www.deepseek.com/
+AgentFactory: Towards Automated Agentic System Design and Optimization                                   11
+
+Table 1. Performance Comparison Across Different Base Models and Methods on
+Multiple Benchmarks
+
+                                              Benchmarks
+FMa          Method                                                                               Avg. Cost($)d
+                                Human                                                    Fin
+                      MMLU DROP       MBPP GSM8K MATH MedQA
+                                 Eval                                                    Eval
+
+             IO       66.5    49.0   67.0    44.7      65.1     14.5      41.5          33.8      43.5 0.03
+             CoT      69.4    58.2   72.6    51.4      82.3     23.5      45.7          39.6      51.9 0.07
+             CoT-SC   68.3    59.8   71.3    53.7      85.7     23.8      45.1          38.2      52.1 0.15
+         b   Reflexion 72.1   64.5   73.1    58.8      87.4     28.7      47.3          41.2      56.0 0.19
+Llama
+             Debate   70.3    62.3   68.9    48.2      81.2     22.5      44.8          37.1      52.3 0.17
+             ADAS     73.2    63.8   73.8    59.9      88.3     28.4      46.7          40.3      56.7 0.36
+             AFlow    72.9    66.2   75.0    62.3      89.4     31.1      45.8          39.8      59.8 0.29
+             Ours     79.8    67.4   84.4    70.8      92.2     44.6      65.4          58.5      68.9 0.26
+             IO       70.3    67.7   79.3    69.3      78.8     48.6      66.8          65.9      67.7 0.34
+             CoT      74.6    78.9   81.7    71.6      91.8     62.7      74.9          66.2      74.8 0.72
+             CoT-SC   75.8    76.3   81.7    72.8      91.9     63.5      73.5          65.8      74.7 1.43
+     c       Reflexion 77.9   78.4   83.5    76.3      93.1     67.7      78.9          67.1      77.4 1.62
+GPT
+             Debate   72.3    75.8   80.0    72.4      90.5     59.8      77.3          65.4      73.7 1.59
+             ADAS     78.9    76.3   83.5    77.8      92.9     63.0      77.5          67.3      76.7 2.37
+             AFlow    78.7    79.9   86.6    78.6      92.6     68.6      79.3          66.8      78.5 2.13
+             Ours     81.7    79.3   91.4    84.4      95.8     75.4      86.8          78.2      83.9 0.68
+
+ a
+   FM: foundation Model.
+ b
+   Llama: Llama3.1-8B-Instruct.
+ c
+   GPT: GPT-4o-mini.
+ d
+   For the GPT-4o-mini model, we adopted OpenAI’s official pricing ($0.15/M input tokens and
+   $0.6/M output tokens); for the Llama-3.1-8B-Instruct model, we referenced the pricing from
+   OpenRouter ($0.02/M input tokens and $0.05/M output tokens).
+
+
+Table 2. Performance Comparison Across Different Optimizers on Multiple Bench-
+marks
+
+                                                    Benchmarks
+Optimizer                                                                                              Avg.
+                                       Human                                                    Fin
+                       MMLU DROP             MBPP        GSM8K MATH              MedQA
+                                        Eval                                                    Eval
+
+GPT-4o-mini            69.2   62.8    73.8     52.7      82.5      31.3          57.8          50.7    58.0
+GPT-4o                 79.8   67.4    83.5     69.8      92.2      44.6          65.4          58.5    68.7
+Claude-3.5-sonnet 78.7        65.7    84.8     70.8      90.3      43.8          60.3          55.7    67.1
+Gemini Pro 1.5         76.8   65.9    81.7     70.0      89.7      42.8          58.8          56.8    66.3
+DeepSeek V3            77.4   64.5    75.7     62.3      88.3      36.5          62.2          54.6    63.3
+
+
+
+
+benchmarks and "Cost" indicates the total inference cost. The results demon-
+strate two significant findings. First, AgentFactory consistently outperforms both
+manually designed methods and existing automated agentic system design ap-
+proaches across nearly all benchmarks, with an average performance improve-
+ment of 9.1% over current automated design methods. This superior performance
+is particularly pronounced in domain-specific tasks, with notable improvements
+12     Enci et al.
+
+
+
+
+Fig. 4. The optimization process on the    Fig. 5. Ablation study results across dif-
+FinEval benchmark, where dashed lines      ferent benchmarks, where dashed lines in-
+indicate the target performance and cost   dicate the average performance
+
+
+of 19.6% in MedQA and 18.7% in FinEval, where traditional workflow-only opti-
+mization methods showed limited effectiveness. This performance gap can be at-
+tributed to AgentFactory’s unique capability to jointly optimize both foundation
+models and workflow structures, enabling enhanced domain adaptation through
+targeted fine-tuning. Second, AgentFactory achieves these performance improve-
+ments while maintaining competitive operational costs, particularly when using
+GPT-4o-mini as the base model, reducing average costs by up to 68%. This cost
+efficiency stems from our multi-objective optimization strategy, which actively
+balances performance requirements against computational expenses by strategi-
+cally incorporating more cost-effective models when possible.
+     To investigate the impact of different LLM optimizers on system performance,
+we conducted comparative analyses across multiple powerful language models, as
+shown in Table 2. Our findings reveal two key insights: First, the optimization
+effectiveness correlates with the underlying LLM’s capabilities, with more so-
+phisticated models like GPT-4o consistently achieving better results compared to
+their smaller counterparts (e.g., GPT-4o-mini). Second, LLMs of comparable ca-
+pabilities (such as GPT-4o and Claude-3.5-Sonnet) produce similar optimization
+outcomes, suggesting that AgentFactory’s effectiveness is robust across different
+LLM implementations of similar capability levels. This consistency validates the
+framework’s generalizability and independence from specific LLM models.
+
+5.2   Case Study: Optimizing Performance on FinEval
+To demonstrate AgentFactory’s optimization capabilities, we conducted a de-
+tailed analysis of the optimization process on the FinEval benchmark, as illus-
+trated in Figure 4. The experiment utilized both GPT-4o-mini and Llama3.1-8B-
+Instruct as available foundation models. Starting from a basic IO approach with
+an initial accuracy of 62.3%, AgentFactory evolved through several key stages:
+ – Workflow Optimization (Iterations 1-4): The system discovered a Multi-
+   expert Cross-validation Workflow, improving accuracy to 66.7%.
+AgentFactory: Towards Automated Agentic System Design and Optimization        13
+
+ – Model Fine-tuning Integration (Iteration 5): AgentFactory introduced
+   domain-specific fine-tuning on financial datasets, resulting in a significant
+   performance jump to 72.5%.
+ – Cross-domain Enhancement (Iteration 11): A crucial breakthrough
+   occurred when the optimizer identified mathematical components within
+   FinEval tasks and strategically incorporated mathematical instruction data
+   into the fine-tuning process, pushing accuracy to 74.6%.
+ – Multi-objective Optimization (Iterations 13-17): The system devel-
+   oped a Multi-Reasoning approach that exceeded the target accuracy thresh-
+   old of 75%. Subsequently, AgentFactory focused on cost optimization, suc-
+   cessfully reducing operational expenses from $1.14 to the target of $0.60
+   through workflow refinement while maintaining performance. The optimiza-
+   tion process terminated at iteration 17 after meeting both accuracy and cost
+   targets.
+   This case study demonstrates AgentFactory’s capability to automatically dis-
+cover optimal agent architectures through systematic exploration, eliminating
+the need for manual trial-and-error in agent design.
+
+5.3   Ablation Study
+To validate the effectiveness of AgentFactory’s optimization in the joint space
+of model parameters and workflow representations, we conducted ablation stud-
+ies using Llama3.1-8B-Instruct as the base model, with results shown in Figure
+5. Direct LLM invocation (IO) serves as the baseline, while "w/o fine-tuning"
+and "w/o workflow design" represent optimization solely through workflow de-
+sign and model fine-tuning, respectively. The results demonstrate that both
+individual components improve performance over the baseline IO approach,
+with the full AgentFactory pipeline surpassing the fine-tuning-only approach by
+12.7% and the workflow-design-only approach by 8.2% on average. Notably, fine-
+tuning shows particularly significant improvements on domain-specific bench-
+marks (MedQA and FinEval), validating the importance of incorporating fine-
+tuning in AgentFactory’s framework. The full AgentFactory pipeline, which com-
+bines both optimization strategies, achieves the best overall performance across
+all benchmarks.
+
+
+6     Conclusion
+In this paper, we presented AgentFactory, a framework that advances automated
+agentic system design. Prior approaches have been limited by their singular focus
+on workflow optimization, neglecting the potential benefits of model fine-tuning
+and typically optimizing for a single objective. In contrast, our work formulates
+automated agentic system design as an optimization problem with LLMs serv-
+ing as the optimizer across a joint search space of both foundation models and
+workflow structures. Through our three-stage optimization pipeline, AgentFac-
+tory significantly expands the solution space while supporting multi-objective
+14      Enci et al.
+
+optimization across multiple dimensions. Our extensive experiments across eight
+benchmarks spanning five domains demonstrated significant improvements over
+existing methods, achieving an average performance gain of 9.1% and partic-
+ularly impressive improvements in specialized domains (19.6% on MedQA and
+18.7% on FinEval) while maintaining lower inference costs. These results es-
+tablish AgentFactory as a promising approach for developing more capable and
+efficient agentic systems through automated optimization.
+
+Acknowledgments
+This work was supported by the National Natural Science Foundation of China
+(NSFC) under Grant No. 92373206, the National Key Research and Develop-
+ment Program of Ministry of Science and Technology under Grant No. 2024YF
+B3614200, the Shenzhen Science and Technology Program under Grants No. JC
+YJ20220818100814033, No. SGDX20230116093303006, No. KJZD202310231002
+01003 and No. KQTD20200820113105004 and by the "Intelligent Chip" Inter-
+disciplinary Exploration Program from the School of Electronic and Computer
+Engineering, Peking University.
+
+References
+ 1. Autogpt. https://github.com/Significant-Gravitas/AutoGPT (2023)
+ 2. Industryinstruction · Datasets at Hugging Face (2024), https://huggingface.co/
+    datasets/BAAI/IndustryInstruction
+ 3. Rombodawg/code_bagel · Datasets at Hugging Face (2024), https://
+    huggingface.co/datasets/rombodawg/code_bagel
+ 4. Austin, J., Odena, A., Nye, M., Bosma, M., Michalewski, H., Dohan, D., Jiang, E.,
+    Cai, C., Terry, M., Le, Q., et al.: Program synthesis with large language models.
+    arXiv preprint arXiv:2108.07732 (2021)
+ 5. Besta, M., Blach, N., Kubicek, A., Gerstenberger, R., Podstawski, M., Giani-
+    nazzi, L., Gajda, J., Lehmann, T., Niewiadomski, H., Nyczyk, P., et al.: Graph
+    of thoughts: Solving elaborate problems with large language models. In: Proceed-
+    ings of the AAAI Conference on Artificial Intelligence. vol. 38, pp. 17682–17690
+    (2024)
+ 6. Chen, M., Tworek, J., Jun, H., Yuan, Q.: Evaluating large language models trained
+    on code (2021)
+ 7. Cobbe, K., Kosaraju, V., Bavarian, M., Chen, M., Jun, H., Kaiser, L., Plappert,
+    M., Tworek, J., Hilton, J., Nakano, R., et al.: Training verifiers to solve math word
+    problems. arXiv preprint arXiv:2110.14168 (2021)
+ 8. Dettmers, T., Pagnoni, A., Holtzman, A., Zettlemoyer, L.: Qlora: Efficient fine-
+    tuning of quantized llms. Advances in Neural Information Processing Systems 36
+    (2024)
+ 9. Du, Y., Li, S., Torralba, A., Tenenbaum, J.B., Mordatch, I.: Improving factual-
+    ity and reasoning in language models through multiagent debate. arXiv preprint
+    arXiv:2305.14325 (2023)
+10. Dua, D., Wang, Y., Dasigi, P., Stanovsky, G., Singh, S., Gardner, M.: Drop: A
+    reading comprehension benchmark requiring discrete reasoning over paragraphs.
+    arXiv preprint arXiv:1903.00161 (2019)
+AgentFactory: Towards Automated Agentic System Design and Optimization               15
+
+11. Fernando, C., Banarse, D., Michalewski, H., Osindero, S., Rocktäschel, T.: Prompt-
+    breeder: Self-referential self-improvement via prompt evolution. arXiv preprint
+    arXiv:2309.16797 (2023)
+12. Hendrycks, D., Burns, C., Basart, S., Zou, A., Mazeika, M., Song, D., Steinhardt,
+    J.: Measuring massive multitask language understanding. Proceedings of the In-
+    ternational Conference on Learning Representations (ICLR) (2021)
+13. Hendrycks, D., Burns, C., Kadavath, S., Arora, A., Basart, S., Tang, E., Song, D.,
+    Steinhardt, J.: Measuring mathematical problem solving with the math dataset.
+    arXiv preprint arXiv:2103.03874 (2021)
+14. Hong, S., Zheng, X., Chen, J., Cheng, Y., Wang, J., Zhang, C., Wang, Z., Yau,
+    S.K.S., Lin, Z., Zhou, L., et al.: Metagpt: Meta programming for multi-agent col-
+    laborative framework. arXiv preprint arXiv:2308.00352 (2023)
+15. Hu, E.J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L.,
+    Chen, W.: Lora: Low-rank adaptation of large language models. arXiv preprint
+    arXiv:2106.09685 (2021)
+16. Hu, J., Wu, X., Zhu, Z., Xianyu, Wang, W., Zhang, D., Cao, Y.: Openrlhf:
+    An easy-to-use, scalable and high-performance rlhf framework. arXiv preprint
+    arXiv:2405.11143 (2024)
+17. Hu, S., Lu, C., Clune, J.: Automated design of agentic systems. arXiv preprint
+    arXiv:2408.08435 (2024)
+18. Jin, D., Pan, E., Oufattole, N., Weng, W.H., Fang, H., Szolovits, P.: What disease
+    does this patient have? a large-scale open domain question answering dataset from
+    medical exams. Applied Sciences 11(14), 6421 (2021)
+19. Kahneman, D.: Thinking, fast and slow. Farrar, Straus and Giroux (2011)
+20. Khattab, O., Singhvi, A., Maheshwari, P., Zhang, Z., Santhanam, K., Haq, S.,
+    Sharma, A., Joshi, T.T., Moazam, H., Miller, H., et al.: Dspy: Compiling declarative
+    language model calls into state-of-the-art pipelines. In: The Twelfth International
+    Conference on Learning Representations (2024)
+21. Li, G., Hammoud, H., Itani, H., Khizbullin, D., Ghanem, B.: Camel: Communica-
+    tive agents for" mind" exploration of large language model society. Advances in
+    Neural Information Processing Systems 36, 51991–52008 (2023)
+22. Liu, Z., Zhang, Y., Li, P., Liu, Y., Yang, D.: A dynamic llm-powered agent network
+    for task-oriented agent collaboration (2024)
+23. Park, J.S., O’Brien, J., Cai, C.J., Morris, M.R., Liang, P., Bernstein, M.S.: Gener-
+    ative agents: Interactive simulacra of human behavior. In: Proceedings of the 36th
+    annual acm symposium on user interface software and technology. pp. 1–22 (2023)
+24. Qian, C., Liu, W., Liu, H., Chen, N., Dang, Y., Li, J., Yang, C., Chen, W., Su,
+    Y., Cong, X., Xu, J., Li, D., Liu, Z., Sun, M.: Chatdev: Communicative agents for
+    software development. arXiv preprint arXiv:2307.07924 (2023)
+25. Saad-Falcon, J., Lafuente, A.G., Natarajan, S., Maru, N., Todorov, H., Guha, E.,
+    Buchanan, E.K., Chen, M., Guha, N., Ré, C., et al.: Archon: An architecture search
+    framework for inference-time techniques. arXiv preprint arXiv:2409.15254 (2024)
+26. Shen, X., Wang, Y., Lin, M., Huang, Y., Tang, H., Sun, X., Wang, Y.: Deepmad:
+    Mathematical architecture design for deep convolutional neural network. In: Pro-
+    ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recogni-
+    tion. pp. 6163–6173 (2023)
+27. Shen, Y., Song, K., Tan, X., Li, D., Lu, W., Zhuang, Y.: Hugginggpt: Solving ai
+    tasks with chatgpt and its friends in hugging face. Advances in Neural Information
+    Processing Systems 36 (2024)
+16      Enci et al.
+
+28. Shinn, N., Cassano, F., Gopinath, A., Narasimhan, K., Yao, S.: Reflexion: Lan-
+    guage agents with verbal reinforcement learning. Advances in Neural Information
+    Processing Systems 36 (2024)
+29. Wang, X., Wei, J., Schuurmans, D., Le, Q., Chi, E., Narang, S., Chowdhery, A.,
+    Zhou, D.: Self-consistency improves chain of thought reasoning in language models.
+    arXiv preprint arXiv:2203.11171 (2022)
+30. Wei, J., Wang, X., Schuurmans, D., Bosma, M., Xia, F., Chi, E., Le, Q.V., Zhou,
+    D., et al.: Chain-of-thought prompting elicits reasoning in large language models.
+    Advances in neural information processing systems 35, 24824–24837 (2022)
+31. Yang, C., Wang, X., Lu, Y., Liu, H., Le, Q.V., Zhou, D., Chen, X.: Large lan-
+    guage models as optimizers. In: The Twelfth International Conference on Learning
+    Representations (2024)
+32. Yang, L., Yu, Z., Zhang, T., Cao, S., Xu, M., Zhang, W., Gonzalez, J.E., Cui,
+    B.: Buffer of thoughts: Thought-augmented reasoning with large language models.
+    arXiv preprint arXiv:2406.04271 (2024)
+33. Yao, S., Yu, D., Zhao, J., Shafran, I., Griffiths, T., Cao, Y., Narasimhan, K.: Tree
+    of thoughts: Deliberate problem solving with large language models. Advances in
+    Neural Information Processing Systems 36 (2024)
+34. Yue, X., Qu, X., Zhang, G., Chen, W.: Mammoth: Building math generalist models
+    through hybrid instruction tuning. arXiv preprint arXiv:2309.05653 (2023)
+35. Yuksekgonul, M., Bianchi, F., Boen, J., Liu, S., Huang, Z., Guestrin, C., Zou, J.:
+    Textgrad: Automatic" differentiation" via text. arXiv preprint arXiv:2406.07496
+    (2024)
+36. Zhang, J., Xiang, J., Yu, Z., Teng, F., Chen, X., Chen, J., Zhuge, M., Cheng, X.,
+    Hong, S., Wang, J., et al.: Aflow: Automating agentic workflow generation. arXiv
+    preprint arXiv:2410.10762 (2024)
+37. Zhang, L., Cai, W., Liu, Z., Yang, Z., Dai, W., Liao, Y., Qin, Q., Li, Y., Liu, X.,
+    Liu, Z., et al.: Fineval: A chinese financial domain knowledge evaluation benchmark
+    for large language models. arXiv preprint arXiv:2308.09975 (2023)
+38. Zhu, Y., Du, S., Li, B., Luo, Y., Tang, N.: Are large language models good statis-
+    ticians? arXiv preprint arXiv:2406.07815 (2024)
+39. Zhuge, M., Wang, W., Kirsch, L., Faccio, F., Khizbullin, D., Schmidhuber, J.:
+    Gptswarm: Language agents as optimizable graphs. In: Forty-first International
+    Conference on Machine Learning
+

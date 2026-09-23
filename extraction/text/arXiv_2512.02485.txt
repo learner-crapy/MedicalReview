@@ -1,0 +1,1449 @@
+                                                UCAgents: Unidirectional Convergence for Visual Evidence Anchored
+                                                             Multi-Agent Medical Decision-Making
+
+                                                      Qianhan Feng1 , Zhongzhen Huang2 , Yakun Zhu2,3 , Xiaofan Zhang2,3 *, Qi Dou1 *
+                                                            1
+                                                              The Chinese University of Hong Kong, Hong Kong SAR, China
+                                                                    2
+                                                                      Shanghai Jiao Tong University, Shanghai, China
+                                                                     3
+                                                                       Shanghai Innovation Institute, Shanghai, China
+                                                                      qianhan.feng@link.cuhk.edu.hk, qidou@cuhk.edu.hk
+
+
+
+
+arXiv:2512.02485v1 [cs.CV] 2 Dec 2025
+                                                                   Abstract                              (a) Previous Method                                                 (b) UCAgents
+                                                                                                                                                                                               Q: You mentioned
+                                            Vision-Language Models (VLMs) show promise in medi-                                                         It is ...
+                                                                                                                                                                                                xxx..., why ...?
+                                                                                                                           I think
+                                        cal diagnosis, yet suffer from reasoning detachment, where                                      If ...
+                                                                                                                                                                             A: The feature
+                                        linguistically fluent explanations drift from verifiable im-                                                                          represents ...
+                                                                                                                                     I am sure
+
+                                        age evidence, undermining clinical trust. Recent multi-                                                                                                                     A: In image ...
+                                                                                                                                              since...         I don’t ...
+                                                                                                                     What’s ...
+                                                                                                                                            therefore ..
+                                        agent frameworks simulate Multidisciplinary Team (MDT)                                                                                                       Leader
+                                        debates to mitigate single-model bias, but open-ended dis-                                           I still
+                                                                                                                                            think ...
+                                                                                                                                                                                                 Q: Please explain ...
+                                        cussions amplify textual noise and computational cost while         Leader
+                                        failing to anchor reasoning to visual evidence, the corner-
+                                        stone of medical decision-making. We propose UCAgents,
+                                        a hierarchical multi-agent framework enforcing unidirec-         Figure 1. Unlike redundant discussion in previous multi-agent sys-
+                                                                                                         tem, UCAgents uses one-round unidirectional inquiry to cut down
+                                        tional convergence through structured evidence auditing.
+                                                                                                         textual noise and help focus on visual evidence.
+                                        Inspired by clinical workflows, UCAgents forbids position
+                                        changes and limits agent interactions to targeted evidence
+                                        verification, suppressing rhetorical drift while amplifying      generalization in open-domain tasks. However, when ap-
+                                        visual signal extraction. In UCAgents, a one-round inquiry       plied to medical Visual Question Answering (VQA), a key
+                                        discussion is introduced to uncover potential risks of visual-   benchmark for reliable AI-assisted diagnosis, their relia-
+                                        textual misalignment. This design jointly constrains visual      bility sharply declines. The limitation lies in the fragile
+                                        ambiguity and textual noise, a dual-noise bottleneck that        coupling between visual evidence and diagnostic reasoning.
+                                        we formalize via information theory. Extensive experiments       Even a subtle misinterpretation can reverse a clinical con-
+                                        on four medical VQA benchmarks show UCAgents achieves            clusion, exposing the need for reasoning that remains tightly
+                                        superior accuracy (71.3% on PathVQA, +6.0% over state-           anchored to verifiable image evidence. Medical reasoning
+                                        of-the-art) with 87.7% lower token cost, the evaluation re-      fundamentally differs from general multimodal tasks: each
+                                        sults further confirm that UCAgents strikes a balance be-        inference step must be grounded in observable, clinically
+                                        tween uncovering more visual evidence and avoiding con-          meaningful visual cues. Yet, current VLMs often produce
+                                        fusing textual interference. These results demonstrate that      linguistically fluent but visually unsupported explanations,
+                                        UCAgents exhibits both diagnostic reliability and computa-       namely reasoning detachment, where textual fluency con-
+                                        tional efficiency critical for real-world clinical deployment.   ceals evidential drift and undermines clinical trust.
+                                        Code is available at https://github.com/fqhank/UCAgents.             To address this, recent works have explored multi-agent
+                                                                                                         collaboration to simulate Multidisciplinary Team (MDT)
+                                                                                                         discussions in clinical practice [10, 13]. While debate-based
+                                        1. Introduction                                                  systems such as MDAgents [10] encourage diverse reason-
+                                                                                                         ing, they suffer from an information–noise paradox: as dis-
+                                        Recent advances in Vision-Language Models (VLMs) [3,             cussion rounds increase, total information expands but tex-
+                                        7, 8, 15, 17, 21, 35, 36] have enabled unified reasoning         tual noise Nt inflates, leading to rhetorical overfitting and
+                                        across visual and textual modalities, achieving remarkable       unstable convergence. Conversely, single-agent systems
+                                          * Corresponding Author                                         avoid excessive Nt but amplify visual noise Nv due to lack
+of cross-validation. These dual sources of uncertainty form       guistically fluent but visually unsupported reasoning, while
+the dual-noise bottleneck, where suppressing one inevitably       domain-specific medical foundation models [5, 22] capture
+worsens the other.                                                fine-grained features but exhibit poor generalization across
+    We propose UCAgents (Unidirectional Convergence               modalities or question types.
+Agents), a hierarchical multi-agent framework that replaces          To improve reliability, researchers have explored three
+open debate with structured, entropy-reducing collabora-          directions. Prompt-engineering strategies like Chain-of-
+tion. UCAgents enforces a hierarchical flow of reason-            Thought (CoT) and Self-Consistency (SC) [29, 30] enhance
+ing through three tiers: (1) independent agents perform           logical structure but remain language-centric. Knowledge-
+controlled initial divergence to quantify uncertainties; (2)      augmented models [25] integrate medical ontologies but
+a supervisory reviewer audits visual-textual alignment to         rarely verify consistency between reasoning and visual ev-
+remove false consensus; and (3) a leader agent conducts           idence. Despite progress, existing systems fail to jointly
+evidence-anchored one-round risk inquiry by clarifying am-        constrain visual ambiguity and textual redundancy, leaving
+biguous findings and selecting the most visually consistent       diagnostic reasoning loosely anchored to image evidence.
+hypotheses. This process mirrors the clinical workflow of
+screening, verification, and adjudication, progressively fil-     2.2.   Multi-Agent Collaboration             for    Clinical
+tering noise and consolidating diagnostic consensus around               Decision-Making
+image-grounded evidence.                                          Multi-agent systems inspired by Multidisciplinary Team
+    We evaluate UCAgents on several medical benchmarks,           collaboration [6, 10, 34] have been proposed to enhance
+covering pathology, radiology, and mixed imaging modal-           robustness through structured dialogue among specialized
+ities. Across both open-source and proprietary models,            agents. Early frameworks such as CAMEL [13] and Auto-
+UCAgents consistently achieves superior visual-evidence           Gen [32] decompose tasks into fixed roles, improving inter-
+anchored performance. Our main contributions lie in:              pretability but lacking agents explicitly responsible for ver-
+• We identify and formalize the dual-noise bottleneck in          ifying visual–textual alignment. Later works, MDAgents
+   medical VQA, revealing how visual ambiguity and tex-           [10], ReConcile [4], and Reflexion [23], introduced iterative
+   tual drift jointly degrade diagnostic reliability.             debates or self-reflection to refine consensus. While these
+• We propose a hierarchical, entropy-minimizing multi-            systems simulate human-like deliberation, open-ended ex-
+   agent framework that transforms open debates into uni-         changes often amplify textual noise and rhetorical drift,
+   directional, evidence-anchored convergence.                    causing reasoning to deviate from visual evidence. Dy-
+• We demonstrate that UCAgents achieves consistent gains          namic optimization frameworks [16, 26] further adapt team
+   across four medical VQA benchmarks and various back-           size or communication depth based on task complexity, yet
+   bones, delivering clinically reliable reasoning with signif-   focus mainly on interaction efficiency rather than maintain-
+   icantly improved accuracy and interpretability.                ing evidence-centered reasoning.
+                                                                     In summary, current multi-agent methods oscillate be-
+2. Related Work                                                   tween rigid role assignments that limit perspective diversity
+                                                                  and unconstrained debates that increase linguistic entropy.
+2.1. Medical Multimodal Reasoning and Visual Ev-                  Few explicitly model how multimodal evidence should be
+      idence Grounding                                            verified and filtered during collaboration. Our framework,
+Medical VQA has become a key benchmark for evaluat-               UCAgents, addresses this gap through hierarchical, uni-
+ing multimodal understanding in medical AI [1, 9, 11, 12,         directional convergence, enforcing structured information
+14, 31, 37], requiring models to interpret fine-grained radi-     flow that stabilizes reasoning and anchors collaboration to
+ological features and integrate clinical queries into coher-      verifiable visual evidence.
+ent reasoning [9, 11, 12]. Datasets such as PathVQA [9],
+VQA-RAD [12], and SLAKE [11] provide large-scale, clin-           3. Method: UCAgents
+ically annotated image-question-answer pairs, lay the foun-
+dation for standardized evaluation across perception, inter-
+                                                                  3.1. Problem Formulation and Motivation
+pretation, and diagnostic inference.                              Medical Visual Question Answering is a critical evidence-
+    Recent advances in VLMs such as GPT-4 [21], LLaVA             driven task where diagnostic reliability depends on how
+[15], Qwen-VL [3], and Gemini [8] have achieved im-               well reasoning anchors to medical images, the core evi-
+pressive performance on open-domain multimodal reason-            dence in multimodal inputs. We formalize this task through
+ing. However, when applied to medical VQA, their vi-              an information-theoretic lens to reveal performance bot-
+sual encoders trained on natural images lack sensitivity to       tlenecks in existing methods and motivate our structured
+clinical features such as lesion texture, margin irregular-       multi-agent framework.
+ity, or enhancement patterns [18]. They often produce lin-           Formalizing Medical VQA: The Primacy of Visual-
+  Bio-Medical Visual           Tier-1: Initial Independent Diagnosis               Tier-3: Critical Analysis and 1-Round Questioning
+  Question Answering
+                                                              No→T3                               ➀ Risk of Ha
+        Image
+                                                                                       Ha              ➁ Inquiry to critic
+                                                           consistent?
+                                                                                                                             ➃ Decisions
+                                                                                                   ➂ Answer
+                                                              Yes→T2                                                          and report
+
+                                                                                                   ➂ Answer
+                                                                                       Hb
+                                                                                                       ➁ Inquiry to critic
+                                                              No→T3
+                                                                                                   ➀ Risk of Hb
+      Question                                             consistent?
+
+  “Is normal palmar                                          Yes→Out
+  creases present?”                                                                                Final Medical Answer
+                                 Tier-2: Guidance Expert Review                                    with Logical Analysis
+
+Figure 2. The overview of UCAgents. UCAgents system is composed of 3 dynamic Tiers: Initial Independent Diagnosis, Guidance Expert
+Review and Critical Analysis and Questioning. Ha , Hb : Divergent Candidate Hypotheses from previous tiers.
+
+Evidence Alignment. Given a medical image V , clinical                      limiting I(Y ; T |V ) as reasoning drifts from task-specific
+query T , the goal is to extract core visual evidence accord-               queries to biased priors.
+ing to the textual constraint, and predict the correct an-                   Recent multi-agent frameworks inspired by MDT de-
+swer Y from the diagnostic hypothesis space H. Accord-                   bates allow open, multi-round discussions. While designed
+ing to Fano’s Inequality [28], the diagnostic error rate Pe is           to enhance I(Y ; I), they introduce detrimental entropy in-
+bounded by:                                                              flation that degrades cross-modal alignment:
+                       H(Y ) − I(Y ; I) − 1                              • Unconstrained decision entropy: Agents freely revise
+                Pe ≥                        ,                 (1)           positions and explore open-ended justifications, expand-
+                             log |H|
+                                                                            ing conditional entropy H(Y |Ai ). For medical VQA
+where H(Y ) is the prior entropy of the answer space, and                   where answers are uniquely anchored to V , this diverts
+I = (V, T, M ) represents total observable information, vi-                 attention from visual-textual alignment to rhetorical per-
+sual evidence V , textual query T , and auxiliary information               suasion.
+M (e.g., agent interactions). The chain rule of mutual in-               • Mutual information interference: Lengthy debates in-
+formation yields:                                                           troduce redundant textual noise, making I(Y ; V, M ) ≤
+                                                                            I(Y ; V ). Instead of enhancing alignment, auxiliary infor-
+           I(Y ; V, T ) = I(Y ; V ) + I(Y ; T |V ),           (2)           mation M creates distraction: I(Y ; M |V ) > 0 but often
+where I(Y ; V ) captures core evidence association and                      correlates with incorrect justifications.
+I(Y ; T |V ) captures task-guided visual reasoning. This                 • Group consensus bias: Open debates enable “herd be-
+leads to a critical insight: to minimize diagnostic er-                     havior”: agents with correct thinking may be swayed by
+rors, we must maximize I(Y ; I) by prioritizing I(Y ; V )                   majority incorrect reasoning, suppressing I(Y ; V ).
+while enhancing I(Y ; T |V ), aligning with medical VQA’s                • Prohibitive computational cost: Open debates require
+evidence-centric nature where diagnoses are ultimately                      extensive tokens, but entropy inflation means cost doesn’t
+grounded in images.                                                         translate to proportional performance gains.
+    Unlike natural image tasks, Medical VQA is more dif-                     Principles of UCAgents.           Previous failures point
+ficult for VLMs because of the scarcity of high-quality                  to a clear principle: multi-agent collaboration must be
+medical data, stringent demands for accurate visual-textual              structured to serve multimodal alignment and evidence-
+alignment, and the high-stakes nature of medical decision-               centricity, not open-ended debates. To this end, we propose
+making. Single-agent VLMs for Medical VQA suppress                       a new multi-agent system for Medical VQA, UCAgents,
+I(Y ; I) through inadequate multimodal alignment:                        which is demonstrated in Fig. 2, achieves three comple-
+• Unaudited visual-textual misalignment: Small percep-                   mentary goals:
+   tual errors (e.g., misidentifying benign lesions) propagate           • Enhance visual-textual alignment: Leverage multi-
+   unchallenged, reducing I(Y ; V ) and breaking the link be-               agent collaboration to audit and refine visual feature ex-
+   tween textual arguments and visual features.                             traction directly boosting I(Y ; V ) and I(Y ; T |V ).
+• Single-point bias: Lack of cross-validation leads to                   • Suppress irrelevant textual noise: Constrain interac-
+   model biases (e.g., overdiagnosing common conditions),                   tions to avoid open debates, ensuring exchanges target
+  validating visual evidence.                                    depth discussions from experienced experts. However, con-
+• Eliminate group consensus bias: Fix agent roles and            sensus D = 0 cannot indicate reliable diagnosis, but may
+  enforce unidirectional convergence so reasoning relies         hide shared biases needing verification. We allocate the case
+  solely on visual-textual evidence.                             into different reviewing routes based on D:
+                                                                                                  (
+3.2. Overview of UCAgents Framework                                                                 Tier-3, D = 1,
+                                                                          Route(H1−1 , H1−2 ) =                            (3)
+UCAgents is a dynamic 3-Tiers system as shown in Fig. 2,                                            Tier-2, D = 0.
+it establishes a hierachical unidirectional process: diversify     Tier-1’s entropy partitioning operator P1 formalizes the
+→ verify → converge. Each Tier systematically reduces            mutual information division:
+irrelevant entropy and reinforces visual grounding through
+fixed roles and structured interactions. In UCAgents, no           I1 (Y ; V, T ) = I(Y ; V, T |D = 1) + I(Y ; V, T |D = 0),
+one single agent is allowed to change their stances, and the                                                               (4)
+opinion information provided to each one is strictly limited,    where I(Y ; V, T |D = 1) and I(Y ; V, T |D = 0) represent
+thus to reduce the distraction from the image. We introduce      high-entropy and low-entropy cases respectively. The no-
+each Tier and the special mechanism of UCAgents in detail        interaction design preserves I = (V, T ) and avoids tex-
+in the following sections.                                       tual noise, while dual-agent reasoning enhances I(Y ; V ) by
+                                                                 double-mining visual evidence.
+3.3. Tier-1: Initial Independent Diagnosis
+                                                                 3.4. Tier-2: Consensus Purification via Visual-
+Tier-1 objectively assesses the given medical case through            Textual Alignment Verification
+structured collaboration. MDAgents [10] uses a single
+                                                                 Tier-2 tries to address the potential “false consensus”, where
+agent to evaluate the difficulty of the case, thus to deter-
+                                                                 Tier-1 agents agree due to shared biases rather than accurate
+mine whether the case is given to a single expert agent to
+                                                                 visual-textual alignment. Its mission is to verify consensus
+process or to a MDT group to discuss. However, this highly
+                                                                 authenticity, filter misaligned conclusions, and either final-
+subjective and biased process often leads to inappropriate
+                                                                 ize reliable diagnoses or escalate complex cases.
+case allocations. In UCAgents, we assess the case by con-
+                                                                    Tier-2 deploys a single Guidance Expert Agent A2 , anal-
+ducting parallel independent diagnosis: two identical expert
+                                                                 ogous to a supervising physician. A2 specializes in bidirec-
+agents A1−1 and A1−2 are deployed to answer the question
+                                                                 tional validation - confirming whether consensus anchors to
+based on input image respectively. There is no communi-
+                                                                 visual evidence and identifying potential flaws. It operates
+cation between agents, thus to ensure reasoning anchors to
+                                                                 at moderate temperature (τ = 0.5) for stability and rigorous
+original input V and T , and divergence arises solely from
+                                                                 evidence checking.
+independent visual interpretation.
+                                                                    The agent’s input materials leverages Tier-1’s outputs:
+   It is important to encourage diversity between the two        original medical image V , clinical query T , and consensus
+agents in their thinking. Classical operations include im-       report from Tier-1 (including H1 = H1−1 = H1−2 and
+age data augmentations, but this would inevitably increase       justifications R1−1 , R1−2 ). Its structured workflow is for-
+the difficulty of interpreting medical image which is al-        mulated as:
+ready quite noisy. Some other method let different agents
+                                                                 1. Comprehensive Visual Scan: Identify core diagnostic
+focus on different perspective like global versus local part.
+                                                                    features in V (e.g., lesion shape, density), but without
+However, this operation explicitly ignores the textual needs,
+                                                                    providing preconceived judgments or positions. This
+while most medical case need to combine both local and
+                                                                    step solely helps Guidance Expert have an initial knowl-
+global information to give the correct diagnosis. To gener-
+                                                                    edge of the case.
+ate diversity without compromising image integrity, we in-
+                                                                 2. Evidence verification: Parse R1−1 and R1−2 to verify
+troduce asymmetry via temperature modulation (τ = 0.7).
+                                                                    each claim aligns with visual features (eliminating hal-
+This slightly higher temperature encourages exploration of
+                                                                    lucinations) and no critical features are omitted.
+subtle visual variations without drifting into unconstrained
+                                                                 3. Logic verification: Parse R1−1 and R1−2 to check
+textual reasoning. Since agents share identical setups, diver-
+                                                                    whether the visual evidence is correctly interpreted, and
+gence amplifies inherent image ambiguity (e.g., ill-defined
+                                                                    whether the logical reasoning in the reports is rigorous
+lesion boundaries) rather than introducing false differences.
+                                                                    and correct.
+Each agent outputs an initial report that includes:
+                                                                 4. Independent hypothesis generation: Produce a new di-
+• H1−i : diagnostic hypothesis.
+                                                                    agnosis H2 and report R2 based on extracted verification
+• R1−i : brief textual justification tied to visual features.
+                                                                    rather than independent reasoning.
+   The two independent initial reports, H1−1 and H1−2 , are
+                                                                    The consensus purification operator P2 in Tier-2 is:
+compared: D = I[H1−1 ̸= H1−2 ]. Disagreement D = 1
+signals high divergence and difficulty requiring further in-            I2 (Y ; V, T |D = 0) = I(Y ; V, T |H2 = H1 ),      (5)
+Guidance Expert gains access to more ideas and informa-           AL reviews them to identify areas requiring deeper investi-
+tion while conducting reviews, but this information is nei-       gation. Unlike open debates where agents freely exchange
+ther disordered nor noisy. Instead, it is confined to different   arguments, the Leader issues a single targeted question Qi
+lines of reasoning that lead to the same conclusion. When         to each Critical Analyst to probe specific ambiguities or un-
+the expert’s conclusion H2 aligns with that of Tier-1 H1 ,        derdeveloped claims in their risk assessment. This inquiry
+it indicates the conclusion has high reliability. However,        operator is formalized as:
+if they identify flaws after reviewing Tier-1’s conclusion
+and propose an alternative solution, this signifies the case                     R̂irisk = AL (Ririsk , Qi , V, T ),           (8)
+is quite high in complexity and requires further research:        where R̂irisk is the supplemented response. This step
+                          (                                       mirrors clinical practice where the MDT chairperson asks
+                            Terminates, H2 = H1 ,                 pointed questions to clarify conflicting interpretations with-
+        Route(H1 , H2 ) =                                   (6)
+                            Tier-3,         H2 ̸= H1 .            out allowing open-ended debate. The inquiry Qi acts like
+                                                                  applying attention to the logic and encourage reinforce-
+    Consensus is finalized only if hypotheses agree and           ment. If the original Hi is wrong, R̂irisk would be more
+alignment is verified, ensuring conclusions are correct           robust. In the contrast, if Hi is correct, then R̂irisk would re-
+for the right reasons. Disagreement or detected mis-              veal more flaws in Ririsk . Uniform 0.1 temperature is used.
+alignment (e.g., unsubstantiated claims, omitted features)           Step 4: Final Arbitration. Given the response from
+triggers escalation. This enhances mutual information:            both C1 and C2 , Leader agent AL is required to evaluate the
+I2 (Y ; V, T |D = 0) > I1 (Y ; V, T |D = 0) by filtering false    overall risks by comparing the reports and aggregating all
+consensus derived from shared biases.                             the information, and make the final diagnosis:
+3.5. Tier-3: Unidirectional Risk Auditing with Tar-                            Y ∗ = AL (R̂arisk , R̂brisk , R, V, T ),        (9)
+      geted Inquiry
+                                                                  and the Leader is also allowed to make a diagnosis out of
+Building upon the structured uncertainty estimation (Tier-        Ha , Hb , if enough evidence suggests that both are risky and
+1) and bias correction (Tier-2), Tier-3 conducts final adver-     identified evidences lead to a new solution.
+sarial risk auditing to ensure convergence toward evidence-          The key innovation of Tier-3 lies in its unidirectional
+grounded diagnosis. Facing this challenge, Tier-3 deploys         risk auditing mechanism: instead of having agents debate
+specialized agents with fixed, non-overlapping roles:             which diagnosis is correct, which may lead to rhetorical
+• 2 Critical Analyst Agents (C1 , C2 ): Examine the poten-        persuasion and entropy inflation, we task agents with ac-
+  tial risk of existing hypotheses.                               tively searching for reasons why one specific hypothesis
+• 1 Leader Agent (AL ): Acts as the MDT chairperson who           might be wrong, and one-round inquiry-response commu-
+  facilitates discussion and makes the final arbitration.         nication helps the unidirectional convergence of the critical
+By organizing a discussion with these agents, Tier-3 oper-        logics. This adversarial approach forces deep scrutiny of
+ates via a four-step processto establish the final diagnosis.     visual evidence while avoiding the pitfalls of open debate.
+    Step 1: Unidirectional Risk Mining. Both C1 and C2               The unidirectional auditing maximizes mutual informa-
+are exclusively assigned to challenge 1 specific hypothe-         tion I(Y ; V, T ) while suppressing irrelevant entropy from
+sis. Unlike Tier-2’s Guidance Expert who evaluates whether        textual debates M . The adversarial risk reports force agents
+reasoning is sound, Critical Analysts adopt a “devil’s advo-      to extract counter-evidence from V that might invalidate
+cate” stance: actively mining potential flaws and risks that      each hypothesis, effectively amplifying signal from visual
+could invalidate the hypothesis with moderate 0.5 tempera-        features that distinguish correct from incorrect diagnoses.
+ture. Each analyst outputs a structured risk report:              By constraining communication to a single targeted inquiry
+                                                                  per agent, we prevent the entropy inflation H(Y |M ) that
+                 C(Hi , Ri , V, T ) → Ririsk ,             (7)    plagues open debate systems, where lengthy arguments in-
+                                                                  troduce noise orthogonal to visual evidence. Overall, The
+where Ririsk contains identified flaws in analysis.               framework maximizes I(Y ; I) by prioritizing I(Y ; V ) and
+   This mechanism has 2 advantages: (1) Opinions on each          I(Y ; T |V ) while suppressing textual noise from M .
+hypothesis are consolidated into one report respectively,
+avoiding herd behavior caused by discrepancies in the num-        4. Experiments
+ber of agents holding different views, (2) Targeted critical
+risk reports can offset the persuasive rhetoric of supporting     4.1. Experimental Setup
+opinions to a certain extent.                                     We conduct experiments on multiple medical VQA datasets
+   Step 2&3: Leader-Directed Inquiry and Expert Re-               and across various vision-language backbones. All experi-
+sponse. After receiving both risk reports, the Leader Agent       ments on open-source models are implemented under the
+Ollama framework [20] on a single NVIDIA H800 GPU,                    Table 1. Accuracy Results (%) based on GPT-4 model.
+with results averaged over three independent trials. For fair-
+ness, we adopt a unified temperature configuration across        Category         Method           Path-VQA      MIMIC-CXR
+all datasets and models. All agents are guided by standard-                     Zero-Shot           57.9±1.6        40.0±5.3
+ized prompt templates, which can be found in appendix                           Few-Shot            57.5±4.5        35.3±5.0
+A to ensure consistent behavior across settings, without          Single        +CoT[30]            58.6±3.1        36.2±5.2
+exemplar demonstrations. This guarantees reproducibility          Agent        +CoT-SC[29]          61.2±2.1        51.7±4.0
+while minimizing prompt engineering bias, enabling a clean                       ER[24]             61.4±4.1        50.0±0.0
+comparison between different multi-agent paradigms. All                       MedPrompt[19]         59.2±5.7        53.4±4.3
+datasets used are open-source, and the research has obtained
+the necessary licenses and certifications.                                     Reconcile[4]         57.5±3.3        33.3±3.4
+                                                                              AutoGen[33]           43.0±8.9        43.3±8.2
+4.2. Results based on GPT-4                                       Multi
+                                                                               DyLAN[16]            41.3±1.2        38.7±1.2
+                                                                             MedAgents[27]          45.4±8.1        43.3±7.0
+We first evaluate UCAgents using GPT-4 [21] as the                Agents
+                                                                             Meta-Prompt[26]        55.3±2.3        42.0±4.0
+base model. GPT-4 represents one of the advanced vi-
+                                                                              MDAgents[10]          65.3±3.9        55.9±9.1
+sion–language models, capable of joint image and text
+                                                                                UCAgents            71.3±1.3        60.3±0.5
+understanding across diverse tasks. We follow MDA-
+gents to conduct experiments on two representative medi-
+cal VQA benchmarks: PathVQA [9] and MIMIC-CXR-                      As shown in Table 2, UCAgents consistently outper-
+VQA [2]. PathVQA focuses on pathology slides involv-             forms both single-agent and SOTA multi-agent method
+ing fine-grained questions on tissue structure, cell morphol-    MDAgents across all settings. Notably, on Qwen2.5VL-3B,
+ogy, and diagnostic patterns; MIMIC-CXR-VQA contains             UCAgents achieves an average gain of 11.4%, while on the
+clinical chest X-rays paired with textual questions cover-       larger 72B model, it still provides a solid 3.5% improve-
+ing thoracic diseases such as pneumonia, effusion, and car-      ment. On SLAKE-VQA, UCAgents reaches up to 80.0%.
+diomegaly. These two datasets collectively span both mi-         Meanwhile, on VQA-RAD, UCAgents delivers +8.5% and
+croscopic and radiographic diagnostic scenarios.                 +10.6% gains on the total and closed sets respectively, fur-
+   As shown in Table 1, UCAgents achieves 71.3% on               ther validating its consistency across question types. What’s
+PathVQA and 60.3% on MIMIC-CXR-VQA, consistently                 more, with Qwen2.5VL-3B, MDAgents classifies almost all
+outperforming all baselines. Compared to the best single-        cases into ‘Basic’ category, thus performing equally as sin-
+agent baseline, UCAgents yields a 9.9% improvement.              gle agent.
+Among multi-agent methods, UCAgents surpasses the                   These results validate the proposed unidirectional con-
+MDT-based MDAgents by 6.0%, confirming the effective-            vergence strategy’s generalization across architectures and
+ness of unidirectional convergence mechanism in maintain-        modalities. Critically, UCAgents turns lightweight open-
+ing visual-textual alignment and diagnostic stability. These     source VLMs into clinically reliable assistants while boost-
+results demonstrate that even with a strong base model like      ing lightweight models to match larger models’ diagnostic
+GPT-4, structured and directed collaboration remains criti-      performance and enhancing powerful models’ stability by
+cal for reliable medical reasoning, validating UCAgents as       reducing dangerous misdiagnoses.
+a robust enhancement over existing multi-agent paradigms.
+                                                                 4.4. Ablation Study
+4.3. Results based on Open-Source Models
+                                                                 We evaluate several key components proposed in UCA-
+We further extend experiments to open-source VLMs in-            gents, and the results are reported in Table 3, which is con-
+cluding Qwen2.5VL [3] series and LLaVA [15]. In ad-              ducted based on LLaVA-7B model on VQA-RAD dataset.
+dition to the PathVQA and MIMIC-CXR-VQA, we in-                  The supervisor agent in Tier-2 provides further review on
+clude two complementary benchmarks, VQA-RAD [12]                 potential false consensus from Tier-1, and provides a 3.54%
+and SLAKE-VQA [11]. VQA-RAD integrates radiol-                   accuracy gain to the final performance. In Tier-3, which
+ogy images across CT, MRI, and X-ray modalities, while           is the core mechanism of UCAgents, there are 3 impor-
+SLAKE-VQA focuses on anatomical reasoning and multi-             tant methods ensuring the success of discussion: (1) one-
+lingual comprehension. Both datasets include a mixture of        round inquiry, (2) 2 independent Critical Analyst Agents
+closed-form and open-ended questions. For the open-ended         and (3) unidirectional critics instead of support. In Table 3,
+subset, we follow a standardized setup: GPT-4 is used to         removing the leader’s questioning step reduces overall per-
+generate 3–4 plausible answer options including the correct      formance by 15.60%, and an extreme drop of 27.23% on
+one, ensuring balanced difficulty and fair comparison. We        the accuracy of Tier-3 expert review can also be witnessed.
+thus report both full-set/closed-set scores per dataset.         Also, using one single agent (instead of two independent
+Table 2. Performance on open-source models, with accuracy reported in percentage (%). For VQA-RAD and SLAKE-VQA, the perfor-
+mances are reported in the format of full-set/closed-set. The consumed tokens are reported in the format of Input/Output token numbers.
+1: Qwen2.5VL-3B based MDAgents is not reported since the system classifies all cases into the ‘Basic’ category. 2: The running time of
+Qwen2.5VL-72B based MDAgents on Path-VQA and MIMIC-CXR-VQA largely surpasses affordable range.
+
+       Method         Path-VQA      MIMIC-CXR-VQA            VQA-RAD                  SLAKE-VQA            AVG.     API Calls      Tokens(K)
+   Qwen2.5VL-3B       37.00±16.26       44.05±1.24       40.16±7.98 /43.03±8.62   52.05±0.30 /55.78±3.59   45.35       1.00        1.02/0.06
+    w/MDAgents1           -                 -                      -                        -                -           -             -
+    w/UCAgents        61.46±1.67        53.09±2.80       52.64±1.46 /54.09±1.82   58.64±2.25 /60.58±1.00   56.75       5.38        6.49/0.40
+   Qwen2.5VL-7B       55.15±10.21       52.61±2.28       53.59±0.11 /57.37±1.13   59.66±0.78 /60.71±0.21   56.15       1.00        0.99/0.06
+    w/MDAgents        58.13±3.42        47.23±2.63       53.44±1.60 /59.05±2.23   57.60±8.60 /63.02±1.79   56.41      10.15        21.02/1.74
+    w/UCAgents        61.90±0.62        54.45±2.55       56.12±0.00 /61.35±0.00   61.45±2.93 /62.48±0.11   59.63       4.49        5.97/0.45
+  Qwen2.5VL-32B       63.12±0.08        53.30±0.62       62.37±1.91 /65.12±0.31   71.53±1.88 /69.72±0.59   64.19       1.00        0.95/0.08
+   w/MDAgents         61.80±3.13        51.68±0.28       60.59±2.06 /65.46±1.90   73.13±1.48 /69.24±2.69   63.65       8.43        23.76/2.23
+   w/UCAgents         63.96±0.28        54.14±0.40       66.34±1.73 /67.60±0.57   73.63±1.18 /73.60±1.71   66.55       4.10        5.52/0.37
+  Qwen2.5VL-72B       63.43±3.60        56.36±2.44       65.49±1.78 /74.91±1.69   73.22±0.16 /74.61±1.25   68.00       1.00        0.97/0.06
+   w/MDAgents2            -                 -            64.28±2.28 /70.31±2.68   75.22±1.34 /72.82±2.38     -         6.87        14.75/1.61
+   w/UCAgents         67.61±0.57        62.55±1.24       68.42±0.16 /75.67±1.65   74.69±0.89 /80.04±1.25   71.50       3.71        4.78/0.32
+     LLaVA-7B         47.78±1.23        44.05±1.87       44.93±1.67 /47.30±4.67   47.08±2.47 /46.69±0.69   46.31       1.00        0.84/0.07
+    w/MDAgents        50.49±5.25        44.23±3.43       47.72±5.30 /47.87±1.60   43.84±1.89 /46.05±1.20   46.70      13.39        33.57/2.86
+    w/UCAgents        54.56±1.22        54.63±1.53       61.03±3.14 /54.16±0.89   60.03±1.58 /50.04±0.95   55.74       4.48        5.78/0.45
+
+
+agents) to criticize both hypotheses reduces accuracy by                 Table 3. Ablation studies on VQA-RAD with LLaVA-7B model.
+4.58%, since the bias is inevitable. If the agents are in-
+structed to provide supportive reports on hypotheses instead                  Tier                 Method                 Performance
+of finding risks, the discussion quality also suffers, which                   -               UCAgents                       61.03%
+demonstrates that unidirectional critic is important for miti-               Tier-2      w/o Supervisor Review                57.49%
+gating the eloquence effect. To further validate UCAgents’                   Tier-3     w/o One-Round Inquiry                 45.43%
+effectiveness, we analyze the performance of different diag-                 Tier-3     w/o Independent Critics               56.45%
+nostic routes. According to the GPT-4 based experiment on                    Tier-3     w/o Critics & w/ Support              53.10%
+Path-VQA in Table 4, the validated consensus from super-
+visor in Tier-2 achieves an accuracy of 73.47%. For com-                       -           UCAgents:Tier-3                    63.21%
+plex cases where disagreements arose at the Tier-1 level, the                Tier-3     w/o One-Round Inquiry                 35.98%
+accuracy rate improved by 11.64% after consultation with                     Tier-3     w/o Independent Critics               59.07%
+Tier-3 experts, compared to using a single agent to make                     Tier-3     w/o Critics & w/ Support              49.76%
+a diagnosis directly (49.48%). Identifying consensus risks
+in Tier-2 reviews often indicates an extremely high level of            key visual evidences across all samples. As shown in Fig.
+complexity in the cases, as evidenced by the poor perfor-               3(a), UCAgents successfully recalls 79.2% important visual
+mance of using a single agent to make decisions on these                evidences, while MDAgents misses 35.8%.
+cases (43.03%). However, through the efficient expert con-                 Decision Trajectory Entropy. We quantify decision
+sultation of Tier-3, these cases can be handled with a high             stability by measuring the entropy of diagnostic hypotheses
+accuracy of 62.42%.                                                     proposed during reasoning:
+                                                                                                       K
+4.5. Visual-Anchored Diagnosis Quality Analysis                                                        X
+                                                                                         Htraj = −           p(hi ) log2 p(hi ),           (10)
+To validate UCAgents’s core design principles: visual-                                                 i=1
+evidence anchored reasoning, unidirectional convergence                 where K is the number of proposed hypotheses and p(hi )
+and entropy control of the system, we conduct a three-                  their frequency. Higher entropy indicates unstable, ex-
+dimensional quality analysis with LLaVA model on VQA-                   ploratory decision-making. According to Fig. 3(b) MDA-
+RAD dataset, comparing single agent, UCAgents and                       gents shows high entropy and 38.6% producing more than
+MDAgents. We use Gemini-2.5-pro [8] as outer assistant.                 3 competing hypotheses. Contrastively, UCAgents exhibits
+   Visual Evidence Coverage.          UCAgents enhances                 controlled low entropy of 0.214. This near-zero entropy
+visual-textual alignment through hierarchical review and                validates our “Unidirectional Convergence” design. Con-
+verification. We compute the average identified and missing             versely, MDAgents’s entropy explosion confirms the failure
+                          (a) Visual Evidence Coverage                                                  (b) Decision Trajectory Entropy                                                      (c) Textual Noise Ratio
+                 100
+                                               Missing                                          1.2                               1.07                                             5
+                                                                                                                                                                                                                   4.41
+
+
+
+
+                                                                                                                                               Noise-to-Evidence Ratio (RNt/Nv )
+                                               Verified (Recall)
+
+
+
+
+                                                                   Trajectory Entropy (Htraj)
+                 75      45.2%                                                                  1.0                                                                                4
+                                                     64.2%
+
+
+Percentage (%)
+                                     79.2%                                                      0.8
+                                                                                                                                                                                   3
+                 50                                                                             0.6
+                                                                                                                                                                                   2
+                                                                                                0.4
+                 25      54.8%                                                                                       0.21                                                                             1.06
+                                                     35.8%                                      0.2                                                                                1      0.61
+                                     20.8%                                                              0.000
+                  0                                                                             0.0                                                                                0
+                       Single Agent UCAgents      MDAgents                                            Single Agent UCAgents    MDAgents                                                Single Agent UCAgents     MDAgents
+
+Figure 3. Visual-evidence anchored diagnosis quality analysis. (a) Visual Evidence Coverage. UCAgents recalls more verified visual
+evidence than MDAgents from the image. (b) Decision Trajectory Entropy. Unidirectional Covergence mechanism reduces agents’ con-
+fusion caused by noisy decision space compared to MDAgents. (c) Textual Noise Ratio. UCAgents achieves a balance between evidence
+sentences and distractive sentences. Outer assistant processes 3 records together at one time for fairness.
+
+Table 4. Detailed accuracy of different diagnosis routes on Path-                                                        Table 5. Expense statistics of different strategies using GPT-4.
+VQA, based on GPT-4. T stands for Tier.
+                                                                                                                            AVG. Expense       Single                                     MDAgents           UCAgents
+                         Route         Accuracy              w/Single-Agent
+                                                                                                                            Num. Agents         1.00                                          6.23              3.58
+                     T1→T2              73.47%             61.43%(↓12.04%)                                                  Input Tokens       0.84K                                        37.05K             4.40K
+                     T1→T3              61.12%             49.48%(↓11.64%)                                                   Out Tokens        0.08K                                         1.49K             0.37K
+                   T1→T2→T3             62.42%             43.03%(↓19.39%)                                                   Cost (USD)        0.009                                         0.375             0.045
+
+
+mode: unconstrained debates expand H(Y |M ) as agents                                                                  from a token-intensive debate into an information-efficient
+shift allegiances based on eloquence rather than evidence.                                                             convergence process, preserving reasoning diversity while
+    Textual Noise-to-Signal Ratio.         We compute the                                                              achieving an order-of-magnitude improvement in computa-
+noise/visual-evidence sentences ratio RNt /Nv by parsing                                                               tional economy. The results reveal the potential of UCA-
+the diagnostic records. Noise includes rhetorical state-                                                               gents system being applying in real-world applications.
+ments, procedural comments, and persuasive arguments
+lacking evidence. This ratio quantifies “textual entropy in-                                                           4.7. Limitations and Discussions
+flation”: systems with high RNt /Nv bury diagnostic signals
+under irrelevant verbiage. UCAgents exhibits low noise ra-                                                             We recognize that UCAgents enhances the lower bound
+tio of 1.06, which is at the same level of single agents, and                                                          rather than the upper bound of diagnostic systems, as it
+MDAgents gives catastrophic noise of 4.41.                                                                             cannot provide medical knowledge beyond what the base
+    Fig.3 reveals that even though MDAgents excavate more                                                              model already possesses, as discussed in Eq. 1. For in-
+visual evidences than single agent, its chaotic communica-                                                             creasingly powerful models, UCAgents enables them to ef-
+tion mechanism and highly disordered system have offset                                                                ficiently and consistently deliver higher-quality diagnoses.
+this advantage. UCAgents achieves a remarkable balance
+and keeps the attention on core visual evidence.
+                                                                                                                       5. Conclusion
+4.6. Resource Consumption                                                                                              We introduces a multi-agent framework that achieves uni-
+Across all backbones, UCAgents exhibits a striking effi-                                                               directional convergence toward visual-evidence anchored
+ciency advantage. On GPT-4, UCAgents reduces token                                                                     medical reasoning. By framing collaboration as an en-
+usage by 87.7% relative to MDAgents, as shown in Ta-                                                                   tropy reduction process rather than open debate, UCAgents
+                                                                                                                       mitigates rhetorical noise and ensures evidence-grounded
+ble 5. A similar trend is observed for open-source mod-
+                                                                                                                       logic. Extensive experiments on multiple medical VQA
+els: on Qwen2.5VL-7B, UCAgents consumes only 14.8%                                                                     benchmarks validate its superior accuracy, interpretability,
+of MDAgents’ total tokens. These confirm that our directed                                                             and efficiency. Its advantages of low-noise, cost-effective,
+convergence design effectively suppresses redundant com-                                                               and visually-grounded renders it valuable for real-world
+munication without sacrificing diagnostic reasoning quality.                                                           scenarios such as offline and privacy-sensitive deploy-
+   Overall, UCAgents transforms multi-agent collaboration                                                              ments.
+References                                                           [11] Bo Lau, Yuxin Zhang, Hong-Yu Lin, and Be Yf.
+                                                                          Slake: A semantically-labeled knowledge-enhanced dataset
+ [1] Asma Ben Abacha, Sadid A Hasan, Vivek V Datla, Joey Liu,             for medical visual question answering. arXiv preprint
+     Dina Demner-Fushman, and Henning Müller. VQA-Med:                   arXiv:2303.00316, 2023. 2, 6
+     Overview of the medical visual question answering task at
+                                                                     [12] Jason J Lau, Soumya Gayen, Asma Ben Abacha, and Dina
+     ImageCLEF 2019. CLEF (Working Notes), 2(6):1–11, 2019.
+                                                                          Demner-Fushman. A dataset of clinically generated visual
+     2
+                                                                          questions and answers about radiology images. Scientific
+ [2] Seongsu Bae, Daeun Kyung, Jaehee Ryu, Eunbyeol Cho,                  Data, 5(1):1–10, 2018. 2, 6
+     Gyubok Lee, Sunjun Kweon, Jungwoo Oh, Lei Ji, Eric              [13] Guohao Li, Asli Madaan, Luke Zettlemoyer, and Gergely
+     Chang, Tackeun Kim, et al. EHRXQA: A multi-modal                     Hermann. CAMEL: Communicative agents for “mind” ex-
+     question answering dataset for electronic health records with        ploration of large language model society. arXiv preprint
+     chest x-ray images. Advances in Neural Information Pro-              arXiv:2303.17760, 2023. 1, 2
+     cessing Systems (NeurIPS), 36:3867–3880, 2023. 6
+                                                                     [14] Zhihong Lin, Donghao Zhang, Qingyi Tao, Danli Shi, Gho-
+ [3] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin              lamreza Haffari, Qi Wu, Mingguang He, and Zongyuan Ge.
+     Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun                 Medical visual question answering: A survey. Artificial In-
+     Tang, et al. Qwen2.5-VL technical report. arXiv preprint             telligence in Medicine, 143:102611, 2023. 2
+     arXiv:2502.13923, 2025. 1, 2, 6                                 [15] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee.
+ [4] Justin Chih-Yao Chen, Swarnadeep Saha, and Mohit Bansal.             Visual instruction tuning. Advances in Neural Information
+     ReConcile: Round-table conference improves reasoning via             Processing Systems (NeurIPS), 36:34892–34916, 2023. 1, 2,
+     consensus among diverse LLMs. In Proceedings of the 62nd             6
+     Annual Meeting of the Association for Computational Lin-        [16] Zijun Liu, Yanzhe Zhang, Peng Li, Yang Liu, and Diyi Yang.
+     guistics (ACL), pages 7066–7085. Association for Computa-            Dynamic LLM-agent network: An LLM-agent collaboration
+     tional Linguistics, 2024. 2, 6                                       framework with agent team optimization. arXiv preprint
+ [5] Richard J Chen, Tong Ding, Ming Y Lu, Drew FK                        arXiv:2310.02170, 2023. 2, 6
+     Williamson, Guillaume Jaume, Andrew H Song, Bowen               [17] Haoyu Lu, Wen Liu, Bo Zhang, Bingxuan Wang, Kai Dong,
+     Chen, Andrew Zhang, Daniel Shao, Muhammad Shaban,                    Bo Liu, Jingxiang Sun, Tongzheng Ren, Zhuoshu Li, Hao
+     et al. Towards a general-purpose foundation model for                Yang, et al. DeepSeek-VL: Towards real-world vision-
+     computational pathology. Nature Medicine, 30(3):850–862,             language understanding. arXiv preprint arXiv:2403.05525,
+     2024. 2                                                              2024. 1
+ [6] Xi Chen, Huahui Yi, Mingke You, WeiZhi Liu, Li Wang,            [18] Ming Y Lu, Bowen Chen, Drew FK Williamson, Richard J
+     Hairui Li, Xue Zhang, Yingman Guo, Lei Fan, Gang Chen,               Chen, Ivy Liang, Tong Ding, Guillaume Jaume, Igor
+     et al. Enhancing diagnostic capability with multi-agents con-        Odintsov, Long Phi Le, Georg Gerber, et al. A visual-
+     versational large language models. NPJ Digital Medicine, 8           language foundation model for computational pathology.
+     (1):159, 2025. 2                                                     Nature Medicine, 30(3):863–874, 2024. 2
+ [7] Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen,         [19] Harsha Nori, Yin Tat Lee, Sheng Zhang, Dean Carignan,
+     Sen Xing, Muyan Zhong, Qinglong Zhang, Xizhou Zhu,                   Richard Edgar, Nicolò Fusi, Nicholas King, Jonathan Lar-
+     Lewei Lu, Bin Li, Ping Luo, Tong Lu, Yu Qiao, and Jifeng             son, Yuanzhi Li, Weishung Liu, Renqian Luo, Scott Mayer
+     Dai. InternVL: Scaling up vision foundation models and               McKinney, Robert Osazuwa Ness, Hoifung Poon, Tao
+     aligning for generic visual-linguistic tasks. arXiv preprint         Qin, Naoto Usuyama, Christopher M. White, and Eric
+     arXiv:2312.14238, 2024. 1                                            Horvitz. Can generalist foundation models outcompete
+ [8] Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice               special-purpose tuning? case study in medicine. arXiv
+     Pasupat, Noveen Sachdeva, Inderjit Dhillon, Marcel Blis-             preprint arXiv:2311.16452, 2023. 6, 2
+     tein, Ori Ram, Dan Zhang, Evan Rosen, et al. Gemini 2.5:        [20] Ollama. Ollama search - open-source large language models,
+     Pushing the frontier with advanced reasoning, multimodality,         2025. Accessed on 2025-10-12. 6
+     long context, and next generation agentic capabilities. arXiv   [21] OpenAI.       GPT-4 technical report.        arXiv preprint
+     preprint arXiv:2507.06261, 2025. 1, 2, 7                             arXiv:2303.08774, 2023. 1, 2, 6
+ [9] Xuehai He, Yichen Zhang, Luntian Mou, Eric Xing, and            [22] Ji Seung Ryu, Hyunyoung Kang, Yuseong Chu, and Sejung
+     Pengtao Xie. PathVQA: 30000+ questions for medical vi-               Yang. Vision-language foundation models for medical imag-
+     sual question answering. In Medical Image Computing and              ing: a review of current practices and innovations. Biomedi-
+     Computer Assisted Intervention – MICCAI 2020, pages 485–             cal Engineering Letters, pages 1–22, 2025. 2
+     495. Springer, 2020. 2, 6                                       [23] Noah Shinn, Beck Labash, and Ashwin Gopinath. Reflex-
+[10] Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik S Chan,                   ion: An autonomous agent with dynamic memory and self-
+     Xuhai Xu, Daniel McDuff, Hyeonhoon Lee, Marzyeh Ghas-                reflection. arXiv preprint arXiv:2303.11366, 2023. 2
+     semi, Cynthia Breazeal, and Hae Won Park. MDAgents:             [24] Karan Singhal, Shekoofeh Azizi, Tao Tu, S. Sara Mahdavi,
+     An adaptive collaboration of LLMs for medical decision-              Jason Wei, Hyung Won Chung, Nathan Scales, Ajay Kumar
+     making. In Advances in Neural Information Processing Sys-            Tanwani, Heather Cole-Lewis, Stephen Pfohl, Perry Payne,
+     tems (NeurIPS), 2024. 1, 2, 4, 6                                     Martin Seneviratne, Paul Gamble, Chris Kelly, Nathaneal
+     Schärli, Aakanksha Chowdhery, Philip Andrew Mansfield,             et al. MMedAgent-RL: Optimizing multi-agent collabo-
+     Blaise Agüera y Arcas, Dale R. Webster, Gregory S. Cor-            ration for multimodal medical reasoning. arXiv preprint
+     rado, Yossi Matias, Katherine Chou, Juraj Gottweis, Ne-             arXiv:2506.00555, 2025. 2
+     nad Tomasev, Yun Liu, Alvin Rajkomar, Joelle K. Bar-           [35] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,
+     ral, Christopher Semturs, Alan Karthikesalingam, and Vivek          Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chen-
+     Natarajan. Large language models encode clinical knowl-             gen Huang, Chenxu Lv, Chujie Zheng, Dayiheng Liu, Fan
+     edge. arXiv preprint arXiv:2212.13138, 2022. 6, 2                   Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan
+[25] Karan Singhal, Tao Tu, Juraj Gottweis, Rory Sayres,                 Lin, Jialong Tang, Jian Yang, Jianhong Tu, Jianwei Zhang,
+     Ellery Wulczyn, Le Hou, Kevin Clark, Stephen Pfohl,                 Jianxin Yang, Jiaxi Yang, Jing Zhou, Jingren Zhou, Junyang
+     Heather Cole-Lewis, Darlene Neal, Mike Schaekermann,                Lin, Kai Dang, Keqin Bao, Kexin Yang, Le Yu, Lianghao
+     Amy Wang, Mohamed Amin, Sami Lachgar, Philip Mans-                  Deng, Mei Li, Mingfeng Xue, Mingze Li, Pei Zhang, Peng
+     field, Sushant Prakash, Bradley Green, Ewa Dominowska,              Wang, Qin Zhu, Rui Men, Ruize Gao, Shixuan Liu, Shuang
+     Blaise Aguera y Arcas, Nenad Tomasev, Yun Liu, Renee                Luo, Tianhao Li, Tianyi Tang, Wenbiao Yin, Xingzhang
+     Wong, Christopher Semturs, S. Sara Mahdavi, Joelle Bar-             Ren, Xinyu Wang, Xinyu Zhang, Xuancheng Ren, Yang Fan,
+     ral, Dale Webster, Greg S. Corrado, Yossi Matias, Shekoofeh         Yang Su, Yichang Zhang, Yinger Zhang, Yu Wan, Yuqiong
+     Azizi, Alan Karthikesalingam, and Vivek Natarajan. To-              Liu, Zekun Wang, Zeyu Cui, Zhenru Zhang, Zhipeng Zhou,
+     wards expert-level medical question answering with large            and Zihan Qiu. Qwen3 technical report. arXiv preprint
+     language models. arXiv preprint arXiv:2305.09617, 2023.             arXiv:2505.09388, 2025. 1
+     2                                                              [36] Jingyi Zhang, Jiaxing Huang, Sheng Jin, and Shijian Lu.
+[26] Mirac Suzgun and Adam Tauman Kalai. Meta-prompting:                 Vision-language models for vision tasks: A survey. IEEE
+     Enhancing language models with task-agnostic scaffolding.           TPAMI, 46(8):5625–5644, 2024. 1
+     arXiv preprint arXiv:2401.12954, 2024. 2, 6                    [37] Yuxin Zuo, Shang Qu, Yifei Li, Zhangren Chen, Xuekai Zhu,
+[27] Xiangru Tang, Anni Zou, Zhuosheng Zhang, Ziming Li,                 Ermo Hua, Kaiyan Zhang, Ning Ding, and Bowen Zhou.
+     Yilun Zhao, Xingyao Zhang, Arman Cohan, and Mark                    MedXpertQA: Benchmarking expert-level medical reason-
+     Gerstein. MedAgents: Large language models as collab-               ing and understanding. arXiv preprint arXiv:2501.18362,
+     orators for zero-shot medical reasoning. arXiv preprint             2025. 2
+     arXiv:2311.10537, 2023. 6, 2
+[28] Sergio Verdú et al. Generalizing the Fano inequality.
+     IEEE Transactions on Information Theory, 40(4):1247–
+     1251, 1994. 3
+[29] Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V. Le,
+     Ed H. Chi, Sharan Narang, Aakanksha Chowdhery, and
+     Denny Zhou. Self-consistency improves chain of thought
+     reasoning in language models. In International Conference
+     on Learning Representations (ICLR), 2023. 2, 6
+[30] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+     Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V. Le, and
+     Denny Zhou. Chain-of-thought prompting elicits reasoning
+     in large language models. In Advances in Neural Information
+     Processing Systems (NeurIPS), 2022. 2, 6
+[31] Jiageng Wu, Bowen Gu, Ren Zhou, Kevin Xie, Doug Sny-
+     der, Yixing Jiang, Valentina Carducci, Richard Wyss, Rishi J
+     Desai, Emily Alsentzer, et al. BRIDGE: Benchmarking large
+     language models for understanding real-world clinical prac-
+     tice text. arXiv preprint arXiv:2504.19467, 2025. 2
+[32] Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu,
+     Shaokun Zhang, Erkang Zhu, Beibin Li, Li Jiang, Xiaoyun
+     Zhang, and Chi Wang. AutoGen: Enabling next-gen LLM
+     applications via multi-agent conversation framework. arXiv
+     preprint arXiv:2308.08155, 2023. 2
+[33] Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin
+     Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang, Shaokun Zhang,
+     Jiale Liu, et al. AutoGen: Enabling next-gen LLM applica-
+     tions via multi-agent conversations. In First Conference on
+     Language Modeling, 2024. 6, 2
+[34] Peng Xia, Jinglu Wang, Yibo Peng, Kaide Zeng, Xian Wu,
+     Xiangru Tang, Hongtu Zhu, Yun Li, Shujie Liu, Yan Lu,
+A. Implemented Prompts                           Tier 3: Risk Analyst Initial Reprot Prompt
+Tier 1: Initial Independent Diagnosis Prompt   [Core Identity] You are an expert Critical
+                                                   Analyst, functioning as a Hypothesis
+[Core Identity] You are a professional and         Auditor. First check the input image,
+    rigorous {MEDICAL FIELD} expert                and read the question. Your task is to
+    specializing in diagnostic imaging             provide a balanced, objective, and
+    interpretation ({IMAGING MODALITIES}).         rigorous review of a proposed
+    Your core goal is to make precise,             hypothesis based on the provided source
+    evidence-based diagnoses for the given         evidence. Your goal is to assess the
+    question strictly based on the provided        overall viability and logical soundness
+    {IMAGING TYPE} image and medical case.         of the hypothesis, not to attack it.
+[Medical Case] {MEDICAL CASE}.                     You are assigned to uncover potential
+[Reasoning Requirements] Follow these              risks in option {OPTION} in the medical
+    steps in your reasoning: 1. First check        case and the supportive statements of
+    the image and read the question                option {OPTION} in [Historical
+    carefully. 2. Describe the key visual          Reports]. You should raise the risk
+    features observed in the image. 3.             that "why this hypothesis may be
+    Explain the radiological implications          wrong", and your report would be given
+    of these findings. 4. Conclude which           to a leader to make a decision.
+    option is the best fit and clarify the     [Medical Case] {MEDICAL CASE}.
+    rationale.                                 [Historical Reports] {AGGREGATED REPORT}.
+[Strict Output Format] #Reasoning: <3-5        [Output Format]#Flaws: <Describe the
+    sentences of reasoning> #Answer: <a            specific logical flaw, risk, or
+    single letter of your choice, e.g. A or        overlooked possibility in 3-5 CONCISE
+    B.>.                                           sentences.> Counter Evidence: <Cite
+                                                   specific evidence from the original
+  Tier 2: Guidance Supervisor Review Prompt
+                                                   case supporting your critique in 4
+[Core Identity] You are an authoritative           sentences.>.
+    senior {MEDICAL FIELD} expert, highly
+    proficient in {IMAGING MODALITIES}
+                                                 Tier 3: Leader Inquiry Prompt
+    interpretation and diagnostic              [Core Identity] You are the Lead
+    reasoning. Your role is to critically          Adjudicator, responsible for chairing
+    verify the consensus diagnosis made by         an expert critical analysis of
+    two prior {MEDICAL FIELD} experts,             conflicting hypotheses. You are
+    ensuring it is logically sound,                impartial, perceptive, and skilled at
+    evidence-based, and consistent with            uncovering the truth through precise
+    {IMAGING MODALITIES} image features.           inquiry.
+[Task Focus] 1. First check the input          [Task 1] First check the input image and
+    image and read the question. 2.                read the question. You have just
+    Evaluate whether the shared judgment           received the initial arguments on a
+    aligns with the observed image findings        medical case from the Critic
+    and {IMAGING MODALITIES} criteria. 3.          Specialists. Your task is not to form
+    Identify any potential                         your own opinion yet, but to act as a
+    misinterpretation or overconfidence. 4.        rigorous, impartial critic. You must
+    If their consensus is valid, reaffirm          critically analyze each review below,
+    it; if not, provide your corrected             identify its single biggest weakness,
+    final diagnosis.                               logical flaw, or unsupported
+[Current Case] {MEDICAL CASE}.                     assumption, and formulate a targeted,
+[Previous Reports] {TIER 1 REPORT}.                challenging question for each
+[Output Format] #Review Reasoning: <Write          specialist, the question should help
+    a rigorous 3-5 sentence paragraph              you solve the case.
+    explaining (1) the observed image          [Inquiry Methodology] Strictly follow
+    evidence, (2) the logic of the prior           these steps in your thinking:
+    judgments, (3) potential flaws or              1.Synthesize Critiques: Comprehensively
+    confirmations, (4) your diagnostic             read and understand the report
+    reasoning, and (5) your conclusion.>           submitted by each Hypothesis Auditor.
+    #Answer: <a single letter of your              2.Identify Core Conflict: What is the
+    choice, e.g. A or B>.                          central point of disagreement or the
+    most critical identified risk among the       other(s). Your final reasoning MUST be
+    competing audits? 3.Formulate Targeted        based on this direct comparison. 4.
+    Questions: Based on this core conflict,       Render Final Verdict: Formulate your
+    design a challenging question for each        final, reasoned judgment, you can
+    auditor that forces them to defend            choose an overlooked choice when you
+    their critique.                               are very confident after careful
+[Output Format] Inquiries:@ To Expert             thinking.
+    <Expert No., e.g 1> who reviews <The      [Strict Instruction] This is the final
+    option it reviews, e.g A>: <The single,       step. No further escalation is possible.
+    most pointed question for the Expert      [Strict Output Format] #Final Reasoning:
+    who reviews Option, based on the risks        <A report, within 6-8 sentences,
+    they identified in their report.> @ To        summarizing the comparative impact of
+    Expert <Expert No., e.g 2> who reviews        the critiques. This must explain the
+    <The option it reviews, e.g B>: <The          rationale for your final verdict.>
+    single, most pointed question for the         #Final Answer: <Only the single letter
+    Expert who reviews Option>...(until           of your choice, e.g., A or B>.
+    each expert in [Critics on Assessments]
+    is inquired, no other contents).
+[Medical Case] {MEDICAL CASE}.
+[Initial Independent Assessments]
+                                              B. Effectiveness on Text Medical QA
+    {AGGREGATED REPORT}.
+                                              Although we design UCAgents system for multimodal
+[Critics on Assessments] {RISK REPORT}.
+                                              medical VQA task, it is also useful on single-modality
+Now, begin your inquiry and output
+    strictly according to the format and      task of text-based medical QA. We conduct experiment on
+    requirements:                             MedQA dataset and MedBullets dataset based on GPT-4
+                                              model, and compare with SOTA algorithms. The result is
+  Tier 3: Risk Analyst Response Prompt        reported in Tab. 1.
+Please answer the question from the leader       UCAgents consistently achieves remarkable perfor-
+    toward your support report in 1-3         mance on these two text-based benchmarks, which further
+    sentences, do not change your             validates the effectiveness of our method. Although the im-
+    stance:{INQUIRY}.                         provement on text-based medical task is not as significant as
+  Tier 3: Leader Final Report Prompt          on medical VQA, we suggest that this is due to the strong
+                                              text reading and reasoning ability of large models. And this
+                                              comparison with the VQA task further proves the difficulty
+[Response to your inquiries] {RESPONSE}       of multimodal alignment in medical scenarios.
+[Task 2] You have received all critiques
+    and the final responses to your
+    inquiries. Your task is to render the      Table 1. Text QA accuracy results (%) based on GPT-4 model.
+    final, binding verdict on this case.
+    Your decision must be based on which       Category         Method           MedQA       MedBullets
+    hypothesis best survived the logical
+    stress test.
+                                                              Zero-Shot          75.0±1.3      67.0±1.4
+[Adjudication Methodology] Strictly follow                    Few-Shot           72.9±11.4     72.0±2.8
+    these steps in your thinking: 1. Global     Single        +CoT[30]           82.5±4.9      70.0±0.0
+    Review: Re-examine the complete record:     Agent        +CoT-SC[29]         83.9±2.7      76.0±2.8
+    the source evidence, the Critique                          ER[24]            81.9±2.1      76.0±5.7
+    Reports from each Critic Agent, your                    MedPrompt[19]        82.4±5.1      71.0±1.4
+    inquiries, and the Critics’ final
+    responses to those inquiries. 2.
+                                                             Reconcile[4]        81.3±3.0      59.5±8.7
+    Compare Critique Impact: Your primary                   AutoGen[33]          60.6±5.0      55.3±3.1
+    task is to compare the severity and                      DyLAN[16]           64.2±2.3      57.3±6.1
+    impact of the flaws identified.             Multi      Majority Voting       80.6±2.9      70.0±0.0
+    Synthesize all information to determine     Agents     MedAgents[27]         79.1±7.4      77.0±1.4
+    which hypothesis, after rigorous                       Meta-Prompt[26]       80.6±1.2      49.3±1.2
+    scrutiny, best survived its dedicated                   MDAgents[10]         88.7±4.0      80.8±1.7
+    critique. 3. Justify the Verdict: You                     UCAgents           91.2±0.7      82.3±1.5
+    must explicitly state why one
+    hypothesis survived better than the
+C. Case Examples and Analysis                                    tent with liposarcoma’s typical anatomical presentation. As
+                                                                 shown in Fig. 1(b), the Tier-2 supervisor concluded: “The
+To empirically elucidate the operational mechanisms of the       logic of the prior judgments aligns with the classical fea-
+UCAgents framework, we present representative success            tures of a liposarcoma, particularly in the retroperitoneal
+and failure cases that validate its effectiveness and delin-
+                                                                 space. No significant flaws are noted in their reasoning.”
+eate its current limitations. Rather than enumerating indi-
+                                                                     This “consensus + verification” process, unique to UCA-
+vidual examples, we identify recurring patterns to reveal
+                                                                 gents, ensures that alignment is grounded in objective visual
+the systematic advantages and boundary conditions of our
+                                                                 evidence rather than model biases. The framework success-
+approach.
+                                                                 fully implements the consensus purification operator by fil-
+C.1. Success Cases: Evidence-Anchored Conver-                    tering false agreements that may arise from shared percep-
+      gence in Practice                                          tual limitations.
+                                                                     Pattern 2: Adversarial Auditing Enforces Visual
+We analyze three success patterns that instantiate UCA-
+                                                                 Grounding. When Tier-1 agents disagree, Tier-3’s unidi-
+gents’ core design principles: controlled divergence for
+                                                                 rectional risk auditing prevents rhetorical drift by constrain-
+uncertainty quantification (Tier-1), hierarchical alignment
+                                                                 ing debates to observable visual features. This pattern is
+verification (Tier-2), and adversarial risk auditing (Tier-
+                                                                 demonstrated in the supratentorial vs. infratentorial local-
+3). These patterns collectively confirm our hypothesis that
+                                                                 ization task (Case 2, Fig. 2) and the sarcoma identification
+structured information flow outperforms open-ended de-
+                                                                 case (Case 3, Fig. 3).
+bates in maintaining visual-textual alignment.
+                                                                     In Case 2 (Fig. 2), Tier-1 divergence arose from ambigu-
+    Pattern 1: Consensus Purification via Evidence Ver-
+                                                                 ous brain imaging features: Expert 1 noted “a significant
+ification. This pattern applies to scenarios where Tier-1
+                                                                 size difference between the two hemispheres, with the right
+agents reach initial consensus, and Tier-2 experts validate
+                                                                 hemisphere appearing much larger” and concluded “Supra-
+the evidence chain to filter “false consensus”, agreement
+                                                                 tentorial”, while Expert 2 identified “an area of hypo/hy-
+driven by shared model biases rather than true visual align-
+                                                                 perdensity in the right frontal region” along with “enlarged
+ment. As illustrated in Fig. 1, two subcases including medi-
+                                                                 ventricles” and concluded “Infratentorial”. Instead of de-
+astinal widening (Fig. 1(a)) and retroperitoneal liposarcoma
+                                                                 bating which interpretation was more convincing, Tier-3 as-
+(Fig. 1(b)) exemplify this process.
+                                                                 signed two Critical Analysts to audit each hypothesis inde-
+    In Case 1(a), both Tier-1 agents independently identi-
+                                                                 pendently:
+fied “a widened mediastinum that stands out on this X-
+ray” as the key finding. The Tier-2 Supervisor Expert did        1. Critic 1 (challenging “Supratentorial”) questioned: “The
+not merely endorse this consensus but conducted rigorous             image shows a significant size difference between hemi-
+evidence verification: (1) confirming that “the space be-            spheres, but without additional context about the pa-
+tween the lungs being wider than usual” was visibly abnor-           tient’s history or symptoms, it’s difficult to determine the
+mal compared to the typically narrow mediastinum (which              exact cause of this asymmetry. The lack of detailed anal-
+houses the heart and vital organs); (2) ruling out confound-         ysis of white matter tracts and brain regions limits the
+ing factors such as patient positioning artifacts by not-            ability to make an informed decision”.
+ing the consistent mediastinal appearance across the radio-      2. Critic 2 (challenging “Infratentorial”) noted: “The image
+graph; (3) validating clinical relevance: mediastinal widen-         does not provide information about the patient’s medical
+ing is a key indicator of conditions like lymphoma, aortic           history or clinical examination findings. The presence of
+aneurysm, or tumor, aligning with the diagnostic context.            hypo/hyperdensity and enlarged ventricles requires ad-
+As documented in Fig. 1(a), the Tier-2 output explicitly             ditional context to identify the specific pathological con-
+states: “The prior agents’ consensus is valid, as their rea-         dition and its relation to infratentorial involvement”.
+soning aligns with the observed image findings and estab-            The Leader’s targeted inquiries “What specific patho-
+lished radiological criteria.”                                   logical condition could account for the hemispheric asym-
+    In Case 1(b), Tier-1 agents noted “a large, lobulated mass   metry?” to Critic 1 and “How does the hypodensity re-
+with a yellowish appearance” exhibiting “irregular borders       late to a specific condition?” to Critic 2, forces agents
+and areas of necrosis and hemorrhage.” The Tier-2 expert         to ground their reasoning in observable anatomical fea-
+cross-validated these observations against pathological cri-     tures. As shown in Fig. 2, the final arbitration converged
+teria for liposarcoma: (1) the yellowish hue was confirmed       on “Supratentorial” by prioritizing the visible cortical and
+as characteristic of adipose tissue, a hallmark of liposar-      white matter abnormalities in the frontal region over the
+coma; (2) the irregular borders and heterogeneous texture,       less definitive infratentorial evidence. This process directly
+including areas resembling necrosis or hemorrhage, distin-       instantiates the entropy reduction principle: textual noise,
+guished the mass from benign lipomas (which typically lack       e.g., speculative arguments about asymmetry significance,
+such features); (3) the retroperitoneal location was consis-     was suppressed, while visual signal “frontal lobe pathol-
+ogy” was amplified.                                              tured scrutiny. This case empirically validates our claim
+   Case 3 (Fig. 3) supplements this pattern with a sarcoma       that UCAgents “enhances the lower bound”: while it cannot
+identification task. Tier-1 agents disagreed on whether a        exceed the base model’s perceptual capacity, it reliably ex-
+“nodular tumor with yellow and white cut surface” repre-         tracts information the model can perceive but initially over-
+sented typical sarcoma features. Critic 1 challenged the         looks through redundant cross-validation.
+“Yes” hypothesis by noting that “yellow and white col-              Cross-Case Synthesis: Why Unidirectional Conver-
+oration is more typical of lipomatous tumors,” while Critic 2    gence Works. Across all success cases (Fig. 1–Fig. 3),
+challenged the “No” hypothesis by pointing out that “some        three advantages over open debates are consistent:
+sarcomas, particularly liposarcomas, can have a yellow and       1. Evidence Traceability: Every conclusion maps to spe-
+white appearance due to fatty components.” The Leader’s             cific visual features (e.g., “irregular borders,” “hemi-
+inquiry resolved this by confirming that the features align         spheric asymmetry,” “small nodule”), enabling clinical
+with liposarcoma (a sarcoma subtype), demonstrating how             interpretability, which is a critical requirement for medi-
+adversarial auditing refines diagnostic specificity by forcing      cal AI deployment.
+agents to consider subtype variations.                           2. Noise Suppression: Agents never engage in rhetorical
+   Pattern 3: Overcoming Initial Errors via Hierarchi-              persuasion (e.g., “I strongly believe this is malignant”);
+cal Review. The most compelling validation of UCAgents’             instead, they reference observable features, minimizing
+value appears in Case 4 (Fig. 4), where both Tier-1 agents          subjective bias and textual noise Nt .
+incorrectly concluded “no mass present,” yet the frame-          3. Efficient Escalation: Cases are routed to optimal review
+work ultimately output the correct answer “Yes.” This self-         depth based on Tier-1 disagreement. As shown in Ta-
+correction relied on two hierarchical mechanisms:                   ble 4, cases reaching Tier-2 consensus achieve 73.47%
+   Step 1: Tier-2’s Independent Visual Scan. The Tier-2             accuracy (vs. 61.43% for single-agent), while Tier-3-
+Supervisor Expert, conducting a comprehensive visual scan           escalated cases achieve 61.12% (vs. 49.48% for single-
+independent of Tier-1 outputs, detected “a small nodule lo-         agent), demonstrating the value of structured hierarchi-
+cated at the lung base on the right lower lobe” that was over-      cal review.
+looked by initial agents. As documented in Fig. 4, the super-       These patterns confirm that structured information flow,
+visor stated: “Upon closer examination, a small nodule is        anchored to visual evidence rather than extended discus-
+present at the lung base on the right lower lobe. This could     sion, is the key to reliable multi-agent medical reasoning.
+potentially be a lesion or a benign growth that requires fur-
+ther investigation to confirm its nature.” This demonstrates     C.2. Failure Cases: Boundary Conditions and Lim-
+the value of independent expert review (§3.3, step 1) in ex-           itations
+tracting latent visual information.                              We analyze two failure modes to clarify scenarios
+   Step 2: Tier-3’s Adversarial Formalization. Tier-3 es-        where UCAgents cannot overcome fundamental limita-
+calation formalized this oversight through structured risk       tions. These cases (Fig. 5–Fig. 6) delineate the framework’s
+auditing:                                                        boundary conditions and guide future research directions.
+1. Critic 1 (challenging “No”) identified the root cause:            Failure Mode 1: Shared Perceptual Bias Across All
+   “The prior judgments of agents 1 and 2 overlooked a           Tiers (Case F1). In the papillary structure identification
+   subtle detail, specifically the presence of a small nodule.   task (Case F1, Fig. 5), all agents including Tier-1 experts
+   This observation requires further investigation to ensure     and Tier-2 supervisor converged on an incorrect diagnosis
+   proper diagnosis and care.”                                   (“Yes”) with high confidence. The question asked whether
+2. Critic 2 (supporting “Yes”) confirmed: “The presence of       “pbf shows branching papillae having fibrovascular stalk
+   a small nodule at the lung base does not align with the       covered by a single layer of cuboidal cells having ground-
+   initial assessment of ’no mass present.’ This is a signifi-   glass nuclei.” All agents responded affirmatively, observing
+   cant finding that should be addressed by medical profes-      “branching papillae with fibrovascular cores” and “ground-
+   sionals.”                                                     glass nuclei” that matched the textbook description.
+   The Leader’s inquiry, “What specific details in the X-ray         However, the core error was a shared perceptual halluci-
+might have been overlooked that could indicate a lesion?”,       nation at the visual encoding stage: the base model misiden-
+catalyzed explicit articulation of the oversight. As shown in    tified structures in the image as having papillary architec-
+Fig. 4, the final arbitration concluded: “While agents 1 and     ture when they did not exhibit the true histological pat-
+2 correctly identified no obvious fractures, they may have       terns of branching papillae. As documented in Fig. 5, even
+missed the subtle nodule. This observation requires fur-         the Tier-2 supervisor reinforced this error by stating: “The
+ther investigation”. Notably, no agent reversed their stance     prior agents correctly identified these features, supporting
+and maintain unidirectionality thinking, but the hierarchical    their consensus on the presence of the described structures.
+structure enabled new evidence to emerge through struc-          There is no evident misinterpretation.” This demonstrates
+how shared perceptual bias propagates through all tiers              Systemic Implications: When Does UCAgents Fail?
+when every agent misinterprets the same visual features.         These cases delineate three non-negotiable boundary con-
+    This failure exposes a fundamental constraint: UCA-          ditions:
+gents enhances diagnostic process reliability, not base          1. Perceptual Capacity Ceiling: UCAgents cannot over-
+model perception capabilities. Our hierarchical auditing             come base model limitations in visual encoding. When
+can detect logical inconsistencies (e.g., claims unsupported         all agents share a perceptual bias (due to training data
+by visible features) but cannot correct perceptual hallucina-        gaps or domain shift), hierarchical review provides no
+tions that are consistently reproduced across all agents. This       corrective value. This limitation aligns with Eq. 1: the
+is analogous to a multidisciplinary team where every radi-           framework maximizes I(Y ; V, T ) given the model’s ex-
+ologist misinterprets a rare lesion due to inadequate train-         isting capacity to extract I(Y ; V ), but cannot enhance
+ing—no amount of structured discussion can overcome the              perceptual capabilities beyond the encoder’s inherent
+shared knowledge gap. The failure suggests that when the             limits.
+base VLM’s visual encoder lacks domain-specific training         2. Insufficient Visual Information: The framework as-
+(e.g., insufficient pathology data), hierarchical review pro-        sumes that diagnostically relevant features are present
+vides no benefit.                                                    and interpretable in the image. When image acquisition
+    Failure Mode 2: Ambiguous Visual Evidence Under                  quality, resolution, or contrast is inadequate, structured
+Low Image Quality (Case F2). The lung parenchyma ab-                 reasoning cannot compensate for missing data. This sug-
+normality case (Case F2, Fig. 6) illustrates failure when            gests the need for a preprocessing module to assess im-
+visual evidence itself is inherently ambiguous due to in-            age quality before diagnostic inference.
+adequate image quality. The question asked: “Is there            3. Lack of Epistemic Humility: The current design does
+evidence of any abnormalities of the lung parenchyma?”               not explicitly model uncertainty or evidence strength.
+Tier-1 agents disagreed: Expert 1 concluded “No” (“the               Agents produce definitive answers even when visual ev-
+lung parenchyma appears clear with no evidence of abnor-             idence is ambiguous (e.g., Case F2’s “Yes” despite ac-
+malities”), while Expert 2 claimed “Yes” (“increased lung            knowledged low image quality). This contrasts with
+density and interstitial markings surrounding the heart and          clinical practice, where radiologists often conclude with
+lungs”).                                                             “recommend additional imaging” when evidence is in-
+    Tier-3 failed to resolve this conflict for two reasons:          sufficient.
+1. Insufficient Visual Information: As Critic 2 correctly
+    identified: “The image provided does not appear to be of
+    high quality, which may make it difficult to accurately
+    assess the condition of the lung parenchyma”. The low
+    image resolution and limited contrast made density vari-
+    ations unverifiable, yet the framework forced a definitive
+    conclusion.
+2. Overconfident Arbitration: Despite the acknowledged
+    image quality limitations, the Leader arbitrated in favor
+    of “Yes,” stating: “There are no visible signs of density
+    variations... This suggests that the lung parenchyma ap-
+    pears normal”. This conclusion contradicted Expert 2’s
+    initial observation of “increased lung density”, yet the
+    final answer aligned with the majority view without ex-
+    plicit uncertainty quantification.
+    This failure reveals that UCAgents is optimized for cases
+where diagnostically relevant visual evidence exists but may
+be overlooked or misinterpreted as in Case 4’s successful
+nodule detection. However, when the image itself lacks
+sufficient information, adversarial auditing amplifies un-
+certainty rather than resolving it. The framework’s cur-
+rent design does not include an explicit evidence sufficiency
+check to determine whether the image quality provides ade-
+quate information for the clinical question, leading to over-
+confident conclusions when appropriate epistemic humility
+would be warranted.
+(a)
+
+
+                          Is there a widened mediastinum?
+
+      Tier-1       Answer: Yes
+                   The image appears to be an X-ray of a person's chest. There are                             Answer: Yes
+                   several key visual features observed in the image: the lungs                                The image shows an X-ray of a human chest with
+                   appear clear and without any significant opacity, which is                                  visible heart and lung structures. There are no clear
+                   indicative of normal lung function. However, there is a widened                             signs of pathology such as calcification, consolidation,
+                   mediastinum that stands out on this X-ray. The mediastinum is                               or fractures within the ribs. However, there appears to
+                   typically narrow, housing the heart and other vital organs, so its                          be a significant width between the lungs, which may
+       Expert 1                                                                                  Expert 2
+                   widening can be an indicator of certain medical conditions such                             indicate an enlarged mediastinum or perhaps an area of
+                   as a tumor or lymphoma. The presence of a mediastinal mass                                  decreased density due to fat or other soft tissue.
+                   might also suggest cardiac disease or infection.
+
+      Tier-2       Answer: Yes
+                   The image shows an X-ray of a human chest with visible heart and lung structures. There are no clear signs of pathology such as calcification,
+                   consolidation, or fractures within the ribs. However, there appears to be a significant width between the lungs, which may indicate an enlarged
+                   mediastinum or perhaps an area of decreased density due to fat or other soft tissue.
+                   Prior judgments by Agent1 and Agent2 both conclude that there is a widened mediastinum. This conclusion is based on the observation of the space
+      Supervisor
+                   between the lungs being wider than usual, which is not typical in healthy individuals. The prior agents' consensus is valid, as their reasoning aligns
+        Expert
+                   with the observed image findings and established radiological criteria.
+
+
+                                                                                    Finish
+(b)
+
+                             Is retroperitoneal liposarcoma present?
+      Tier-1
+                                                                                                              Answer: Yes
+                   Answer: Yes                                                                                The image shows a large, lobulated mass with a yellowish
+                   The image shows a large, lobulated mass with a yellowish                                   appearance, characteristic of adipose tissue, with areas of
+                   appearance, suggesting the presence of adipose tissue. The                                 necrosis and hemorrhage. These features are consistent
+                   irregular borders and the presence of areas with different textures                        with a liposarcoma, which is a malignant tumor derived
+                   indicate a malignant process. These features are consistent with a                         from adipocytes and often presents in the retroperitoneal
+       Expert 1    diagnosis of retroperitoneal liposarcoma.                                    Expert 2      space. Therefore, the visual evidence supports the
+                                                                                                              presence of a retroperitoneal liposarcoma.
+
+      Tier-2       Answer: Yes
+                   The image displays a large, lobulated mass with a yellowish hue, indicative of adipose tissue, consistent with the observations made by the
+                   previous agents. The irregular borders and heterogeneous texture, including areas resembling necrosis or hemorrhage, suggest a malignant process.
+                   The logic of the prior judgments aligns with the classical features of a liposarcoma, particularly in the retroperitoneal space. No significant flaws
+      Supervisor   are noted in their reasoning, as the visual evidence supports the presence of a retroperitoneal liposarcoma. My diagnostic reasoning concurs with
+        Expert     the initial assessments, confirming the likelihood of a retroperitoneal liposarcoma based on the observed pathological features.
+
+                                                                                    Finish
+(c)
+                         Does early ischemic injury show surface blebs, increase eosinophilia of
+                         cytoplasm, and swelling of occasional cells?
+      Tier-1        Answer: Yes                                                                                 Answer: Yes
+                    The image shows evidence of cellular injury, including surface                              The image shows a tissue section with a characteristic
+                    blebs and increased eosinophilia of cytoplasm, which are                                    pattern of cell morphology and staining. The cells exhibit
+                    characteristic features of early ischemic damage. The swelling                              surface blebs, increased eosinophilia of cytoplasm, and
+                    of occasional cells further supports this diagnosis, as it indicates                        swelling of occasional cells, which are indicative of early
+                    increased water uptake by the cells due to compromised cellular                             ischemic injury. This pathological finding is consistent
+       Expert 1     integrity. These findings collectively suggest that the tissue has           Expert 2
+                                                                                                                with the option that describes such cellular changes.
+                    experienced early ischemic injury
+
+      Tier-2       Answer: Yes
+                   The image displays cellular changes consistent with early ischemic injury, including surface blebs and increased eosinophilia of the cytoplasm.
+                   These features are indicative of cellular damage and stress, typically observed in ischemic conditions. The swelling of occasional cells, noted as
+                   increased cell size due to water uptake, further supports the diagnosis of early ischemic injury. Both prior agents correctly identified these hallmark
+      Supervisor   features, aligning their consensus with established pathological criteria for ischemic damage. Therefore, the consensus diagnosis is valid and
+        Expert     supported by the observed image evidence.
+
+                                                                                    Finish
+
+                    Figure 1. Success Case Pattern 1: Tier-2 Output for Consensus Purification via Evidence Verification.
+                         Is this supratentorial or infratentorial?
+   Tier-1
+                                                                                                              Answer: Infratentorial
+                   Answer: Supratentorial
+                                                                                                              The key visual features include the cortex, white matter tracts,
+                   The image shows a CT scan with an enlarged view of the
+                                                                                                              and various brain regions identifiable by their distinct signal
+                   brain. There is a significant size difference between the two
+                                                                                                              intensities on T1-weighted imaging. There is also an area of
+                   hemispheres, with the right hemisphere appearing much
+                                                                                                              hypo/hyperdensity in the right frontal region, which may
+                   larger than the left hemisphere. This asymmetry is not
+                                                                                                              suggest pathology such as a tumor or stroke. The ventricles
+    Expert 1       typical and could indicate some pathological condition or                  Expert 2        appear to be enlarged, possibly indicative of hydrocephalus
+                   medical issue.
+                                                                                                              or other conditions affecting fluid flow within the brain.
+
+   Tier-3                                                                                                There are potential risks in option B:
+               Flaws:
+               The image provided is of a brain scan showing a significant size                          1. The ventricles appear to be enlarged, possibly indicative of
+               difference between the two hemispheres, with the right                                    hydrocephalus or other conditions affecting fluid flow within the
+               hemisphere appearing much larger than the left hemisphere. This                           brain. However, without additional context or information, it is
+               asymmetry could indicate some pathological condition or                                   difficult to determine the significance of this finding and how it
+               medical issue. However, without additional context and                                    relates to the asymmetry in the hemispheres.
+               information about the patient's history or symptoms, it's difficult                       2. The image does not provide any information about the patient's
+               to determine the exact cause of this asymmetry. This lack of                              medical history, symptoms, or clinical examination findings that
+               context increases the risk that the hypothesis might be wrong or                          could help interpret these results accurately.
+               incomplete.                                                                               3. The image does not include a detailed analysis of the white
+                                                                                                         matter tracts and brain regions identifiable by their distinct signal
+               Counter Evidence:                                                                         intensities on T1-weighted imaging. This could limit the ability to
+               The CT scan image itself provides evidence of an abnormality in                           make an informed decision about the nature or cause of the
+               brain size distribution, which could be indicative of a medical                           observed asymmetry.
+               condition such as a tumor, stroke, or other neurological disorder.
+               However, without further information about the patient's history                     Counter Evidence:
+   Critic 1    and symptoms, it is not possible to definitively diagnose or rule           Critic 2 1. The image does not provide any information about the patient's
+               out any specific cause for this asymmetry.                                           medical history or clinical examination findings that could help
+                                                                                                    contextualize the observed asymmetry in the hemispheres.
+               The image also shows an area of hypo/hyperdensity in the right                       2. The image does not include a detailed analysis of the white
+               frontal region, which may suggest pathology such as a tumor or                       matter tracts, brain regions, and other features visible on the scan
+               stroke. The ventricles appear to be enlarged, possibly indicative                    that could help identify potential pathological conditions or
+               of hydrocephalus or other conditions affecting fluid flow within                     medical issues.
+               the brain. These observations support the likelihood that there is                   3. The image does not provide any information about the patient's
+               some underlying pathological condition affecting this patient's                      age, sex, or ethnicity, which may be important in understanding
+               brain.                                                                               the observed asymmetry and its potential implications for the
+                                                                                                    patient's health.
+
+               What specific pathological condition or medical issue could                                How does the presence of an area of hypo/hyperdensity in the
+               account for the significant size difference between the two                                right frontal region, along with the enlarged ventricles, suggest
+               hemispheres of the brain visible on this CT scan, and how does                             a specific pathological condition or medical issue affecting this
+   Leader      this asymmetry relate to the patient's history or symptoms?                 Leader         patient's brain? What additional information would be
+                                                                                                          necessary to make an informed diagnosis?
+               The image you provided is a medical scan, specifically an MRI
+               scan, showing a coronal slice of a brain. The key visual features                    The image shows a CT scan of a brain with an enlarged right
+               include the cortex, white matter tracts, and various brain regions                   hemisphere compared to the left hemisphere. This asymmetry
+               identifiable by their distinct signal intensities on T1-weighted                     may suggest a tumor, stroke, or other conditions affecting fluid
+               imaging. There is also an area of hypo/hyperdensity in the right                     flow within the brain. However, without additional context or
+               frontal region, which may suggest pathology such as a tumor or
+   Critic 1    stroke. The ventricles appear to be enlarged, possibly indicative of        Critic 2 information, it is difficult to determine the significance of this
+                                                                                                    finding and how it relates to the patient's overall health.
+               hydrocephalus or other conditions affecting fluid flow within the
+               brain.
+
+               Answer: Supratentorial
+               The critique against Hypothesis A was a minor point that was successfully rebutted, while the critique against Hypothesis B was a fatal, unaddressed
+               contradiction. The image shows an MRI scan of a brain with an enlarged right hemisphere compared to the left hemisphere. This asymmetry may
+               suggest a tumor, stroke, or other conditions affecting fluid flow within the brain. However, without additional context or information, it is difficult to
+    Leader     determine the significance of this finding and how it relates to the patient's overall health. To make an informed diagnosis, additional information
+               would be necessary, such as the patient's medical history, symptoms, results from other diagnostic tests, findings from a clinical examination, and
+               information about their lifestyle and environmental exposures.
+
+
+                                                                                     Finish
+
+Figure 2. Success Case Pattern 2: Tier-3 Output for Adversarial Visual Grounding (Tier-1 Divergence). The supratentorial vs. infratentorial
+localization case demonstrates how unidirectional risk auditing constrains debate to observable anatomical features, preventing rhetorical
+drift.
+                         Is nodular tumor cut surface natural color yellow and white
+                         typical gross sarcoma?
+   Tier-1
+                                                                                                           Answer: No
+                   Answer: Yes
+                                                                                                           The image shows a nodular tumor with a cut surface
+                   The image shows a nodular tumor with a yellow and white
+                                                                                                           exhibiting a yellow and white appearance. This coloration is
+                   cut surface. This coloration and texture are characteristic of
+                                                                                                           often indicative of a lipomatous or fatty tumor rather than a
+                   certain types of sarcomas, which often display these
+                                                                                                           typical sarcoma, which may display more varied and less
+                   features due to their fatty and fibrous tissue components.
+                                                                                                           uniform coloration. Therefore, the observed features do not
+    Expert 1       Therefore, the nodular tumor's appearance aligns with                     Expert 2      align with the typical gross appearance of a sarcoma.
+                   typical gross features of a sarcoma
+
+
+   Tier-3
+               Critique Reasoning:
+               The argument for Option A overlooks that the yellow and white
+               coloration is more typical of lipomatous tumors rather than
+               sarcomas, which can have varied appearances. There is a lack of
+               evidence provided to support the claim that these colors are                             Critique Reasoning:
+               characteristic of sarcomas specifically. Therefore, Option A may                         Agent2's argument overlooks the fact that some sarcomas,
+               be less convincing or even incorrect.                                                    particularly liposarcomas, can indeed have a yellow and white
+                                                                                                        appearance due to their fatty components.
+               Critique Reasoning:                                                                      The reasoning does not consider the possibility of sarcoma
+               Agent2's argument overlooks the fact that some sarcomas,                                 subtypes that exhibit these features, thus potentially
+   Critic 1                                                                                Critic 2
+               particularly liposarcomas, can indeed have a yellow and white                            mischaracterizing the tumor. Consequently, this option may be
+               appearance due to their fatty components. The reasoning does                             less convincing or even wrong due to the oversimplification of
+               not consider the possibility of sarcoma subtypes that exhibit                            sarcoma characteristics.
+               these features, thus potentially mischaracterizing the tumor.
+               Consequently, this option may be less convincing or even wrong
+               due to the oversimplification of sarcoma characteristics.
+
+                How do you address the critique that the yellow and white                               How do you reconcile the critique that some sarcomas,
+               coloration is more typical of lipomatous tumors rather than                              particularly liposarcomas, can have a yellow and white
+               sarcomas, and what specific evidence supports your claim that                            appearance, and why did you dismiss this possibility in your
+   Leader      these colors are characteristic of sarcomas?                                Leader       assessment?
+
+               The critique highlights a valid point that yellow and white                          The critique highlights that liposarcomas can indeed have a
+               coloration is often associated with lipomatous tumors. However,                      yellow and white appearance, which was not fully considered in
+               certain sarcomas, such as liposarcomas, can also exhibit these                       the initial assessment. This oversight could lead to a
+               colors due to their fatty tissue components. The presence of                         misclassification of the tumor as non-sarcomatous. The dismissal
+               fibrous tissue can contribute to the white appearance, aligning                      of this possibility may have stemmed from a focus on more
+   Critic 1    with some sarcomas' gross features. Therefore, while not                    Critic 2 common sarcoma presentations, which can vary widely.
+               exclusive, these colors can still be characteristic of specific                      Recognizing the diversity within sarcoma subtypes is crucial for
+               sarcoma types.                                                                       accurate evaluation.
+
+               Answer: Yes
+               The initial critiques and rebuttals reveal a central conflict regarding the typical appearance of sarcomas, particularly liposarcomas, which can present
+               with yellow and white coloration due to fatty components. Expert 1's argument acknowledges this possibility, while Expert 2's initial oversight was
+               addressed in their rebuttal, recognizing the diversity within sarcoma subtypes. Both experts agree on the potential for liposarcomas to exhibit these
+               features, reducing the risk associated with Option A. The critiques and rebuttals suggest that the presence of yellow and white coloration can indeed
+   Leader      be characteristic of certain sarcoma types, specifically liposarcomas. Thus, given the evidence and the acknowledgment of sarcoma diversity, Option
+               A carries the highest viability.
+
+                                                                                    Finish
+
+Figure 3. Success Case Pattern 2 (Supplementary): Tier-3 Output for Adversarial Visual Grounding. The sarcoma identification case shows
+how targeted inquiry resolves disagreement by examining liposarcoma as a sarcoma subtype with characteristic yellow/white appearance.
+                         Is a mass present in this xray?
+   Tier-1                                                                                                   Answer: No
+                   Answer: No                                                                               There are no obvious signs of fractures or dislocations in this
+                   The X-ray shows a view of the chest with the lungs, heart,                               image. The lungs appear clear with no focal masses or areas
+                   and ribcage clearly visible. There is no obvious mass                                    of consolidation that would suggest pneumonia or lung
+                   present in the image. The lungs appear healthy without                                   contusion. The heart appears normal, indicating no cardiac
+                   any significant abnormalities. The heart is positioned                                   abnormalities. The ribs are intact without any signs of
+    Expert 1       centrally within the chest cavity.                                         Expert 2
+                                                                                                            fractures. There is no pleural effusion visible within the lungs.
+
+   Tier-2          Answer: Yes
+                   The prior judgments of agents 1 and 2 were both correct in concluding that there are no obvious signs of fractures or dislocations. The ribs are
+                   intact without any signs of fractures. However, upon closer examination, it appears that agent 1 may have overlooked a subtle detail: the presence
+                   of a small nodule located at the lung base on the right lower lobe. This is not an overt mass but could potentially be a lesion or a benign growth,
+                   which would require further investigation to confirm its nature. In conclusion, while agents 1 and 2 correctly identified that there are no obvious
+   Supervisor      signs of fractures or dislocations in this image, they may have missed the subtle nodule present at the lung base on the right lower lobe. This
+     Expert        observation requires further investigation to ensure proper diagnosis and care.
+
+
+   Tier-3
+               Flaws:
+               The prior judgments of agents 1 and 2 overlooked a subtle detail,                         Flaws:
+               specifically the presence of a small nodule located at the lung base                      The initial assessment of agent 1 and the extra-extra expert check
+               on the right lower lobe. This could potentially be a lesion or a                          both concluded that there is no obvious mass present in the X-ray,
+               benign growth that requires further investigation to confirm its                          but they overlooked a subtle detail, which is the small nodule
+               nature.                                                                                   located at the lung base on the right lower lobe. This could
+                                                                                                         potentially be a lesion or a benign growth that requires further
+            Counter Evidence:                                                                            investigation to confirm its nature.
+            The X-ray image in question is an anterior-posterior (AP) chest
+   Critic 1 radiograph, commonly used to visualize the bones and structures of              Critic 2     Counter Evidence:
+   on ‘No’ the chest wall. In this particular image, we can observe the lungs,              on ‘Yes’     The medical case itself provides evidence of this oversight. Upon
+            heart, ribcage, and other bony structures clearly. However, upon                             closer examination, it is noted that there is a small nodule present
+            closer examination, a small nodule is present at the lung base on                            in the lungs that was not initially observed. This highlights the
+            the right lower lobe, which may not be immediately apparent                                  importance of thorough and detailed analysis when reviewing
+            without careful scrutiny. This observation requires further                                  medical images to ensure proper diagnosis and care.
+            investigation to ensure proper diagnosis and care.
+
+                What specific details in the X-ray image might have been                                  How does the presence of a small nodule at the lung base on
+                overlooked that could potentially indicate a lesion or benign                             the right lower lobe align with the initial assessment of agents
+                growth at the lung base on the right lower lobe?                                          1 and 2, which concluded that there is no obvious mass present
+                                                                                             Leader       in the X-ray?
+   Leader
+               While agents 1 and 2 correctly identified that there are no
+               obvious signs of fractures or dislocations in this image, they                          The presence of a small nodule at the lung base on the right
+               may have missed the subtle nodule present at the lung base on                           lower lobe does not align with the initial assessment of agents 1
+               the right lower lobe. This observation requires further                                 and 2, which concluded that there is no obvious mass present in
+               investigation to ensure proper diagnosis and care. , white matter                       the X-ray. This observation requires further investigation to
+               tracts, and various brain regions identifiable by their distinct
+   Critic 1                                                                                   Critic 2 ensure proper diagnosis and care. It is important to note that
+               signal intensities on T1-weighted imaging. There is also an area                        while the initial assessment did not identify this detail, it is still
+               of hypo/hyperdensity in the right frontal region, which may                             a significant finding that should be addressed by medical
+               suggest pathology such as a tumor or stroke. The ventricles                             professionals for the patient's well-being.
+               appear to be enlarged, possibly indicative of hydrocephalus or
+               other conditions affecting fluid flow within the brain.
+                Answer: Yes
+                The critique against Hypothesis A was a minor point that was successfully clarified in the Critics' final responses. In contrast, the critique against
+                Hypothesis B was a fatal, unaddressed contradiction. While both hypotheses had some flaws, Hypothesis A's critique was adequately rebutted,
+   Leader       whereas Hypothesis B's critique was not.
+
+
+                                                                                   Finish
+
+Figure 4. Success Case Pattern 3: Tier-3 Output for Correcting False Consensus (Identified by Tier-2). This case demonstrates UCAgents’
+hierarchical error correction: Tier-1 agents incorrectly concluded “no mass,” but Tier-2’s independent scan detected a subtle nodule, and
+Tier-3 formalized this oversight, ultimately producing the correct answer “Yes.”
+                                                    Does pbf show branching papillae having flbrovascular stalk covered by
+                                                    a single layer of cuboidal cells having ground-glass nuclei?
+    Tier-1           Answer: Yes                                                                                                 Answer: Yes
+                     The image on the left shows structures resembling branching                                                 The image on the left displays branching papillae with a
+                     papillae with fibrovascular cores, covered by a single layer of                                             fibrovascular core covered by a single layer of cuboidal
+                     cuboidal cells that have nuclei with a ground-glass appearance.                                             cells, and these cells appear to have ground-glass nuclei.
+                     This pattern is consistent with a papillary architecture, where the                                         These features are indicative of papillary structures with a
+                     cellular and nuclear features match the described characteristics.                                          fibrovascular stalk, commonly seen in certain benign or
+      Expert 1       Therefore, the findings indicate the presence of the described                              Expert 2        malignant lesions. Based on these observations, Option A
+                     structures, supporting the option that matches the description.                                             fits best as the description matches the visual findings.
+
+    Tier-2           Answer: Yes
+                     The image displays structures that align with branching papillae, featuring fibrovascular stalks covered by a single layer of cuboidal cells. The nuclei
+                     of these cells exhibit a ground-glass appearance, which is consistent with the description provided in the question. The prior agents correctly
+                     identified these features, supporting their consensus on the presence of the described structures. There is no evident misinterpretation or
+      Supervisor     overconfidence in their judgment as the image findings match the established criteria for such a diagnosis. Therefore, the consensus diagnosis by the
+        Expert       previous agents is valid and reaffirmed.
+
+                                                                                                Finish
+
+                                               Figure 5. Failure Mode 1: Shared Perceptual Bias Across Tiers.
+(b)
+
+                                Is retroperitoneal
+                             Is there              liposarcoma
+                                      evidence of any          present?
+                                                       abnormalities of the lung parenchyma?
+    Tier-1           Answer: No                                                                                              Answer:   YesYes
+                                                                                                                                Answer:
+                     The  chestYes
+                     Answer:    X-ray shows a clear view of the lung parenchyma                                              TheThe
+                                                                                                                                  X-ray  shows
+                                                                                                                                     image      a a
+                                                                                                                                             showschest  radiograph
+                                                                                                                                                      large,         with
+                                                                                                                                                             lobulated      increased
+                                                                                                                                                                         mass  with a lung
+                                                                                                                                                                                       yellowish
+                     with no
+                     The      evidence
+                          image  shows aof any  abnormalities
+                                          large, lobulated      such
+                                                             mass     as adensity
+                                                                   with     yellowish                                        density and interstitial
+                                                                                                                                appearance,           markings
+                                                                                                                                              characteristic     surrounding
+                                                                                                                                                              of adipose            heart
+                                                                                                                                                                                thewith
+                                                                                                                                                                          tissue,         and of
+                                                                                                                                                                                        areas
+                     appearance,lesions,
+                     variations,          anatomical
+                                  suggesting          structures,
+                                              the presence    of or   contrast
+                                                                 adipose         patterns.
+                                                                           tissue. The                                       lungs. Theseand
+                                                                                                                                necrosis   findings  are indicative
+                                                                                                                                               hemorrhage.    These of  cardiac
+                                                                                                                                                                    features   areand pulmonary
+                                                                                                                                                                                   consistent
+                     irregularnothing
+                     There's   bordersout
+                                       andofthe
+                                             thepresence
+                                                  ordinary,ofand  everything
+                                                              areas with       appears
+                                                                           different textures                                pathology,
+                                                                                                                                with a which    may suggest
+                                                                                                                                        liposarcoma,           conditions
+                                                                                                                                                       which is a  malignantsuch  as derived
+                                                                                                                                                                               tumor pneumonia,
+      Expert 1       indicatein
+                     normal   a this case. process. These features are consistent with a
+                                malignant                                                                     Expert 2       pleurisy,
+                                                                                                                                from or   other and
+                                                                                                                                                respiratory
+                                                                                                                                       adipocytes            infections.in the retroperitoneal
+                                                                                                                                                       often presents
+      Expert 1       diagnosis of retroperitoneal liposarcoma.                                                  Expert 2       space. Therefore, the visual evidence supports the
+    Tier-3   Flaws:                                                                                                            presence of a retroperitoneal liposarcoma.
+             The hypothesis in option B suggests that the chest X-ray image                                             Flaws:
+    Tier-2 shows a      clearYes
+                  Answer:      view of the lung parenchyma with no evidence of                                          The image provided in the medical case does not appear to be of
+             any The
+                  abnormalities      such as
+                        image displays         density
+                                            a large,     variations,
+                                                      lobulated     mass lesions,
+                                                                             with aanatomical
+                                                                                    yellowish hue, indicative of adiposehightissue,  consistent
+                                                                                                                              quality,  which may  withmake
+                                                                                                                                                         the it
+                                                                                                                                                              observations
+                                                                                                                                                                  difficult tomade      by theassess the
+                                                                                                                                                                                accurately
+             structures,
+                  previous or agents.
+                              contrastThe patterns.  However,
+                                              irregular   bordersthisandconclusion      overlooks
+                                                                            heterogeneous     texture, including areas resembling    necrosis
+                                                                                                                        condition of the    lungorparenchyma.
+                                                                                                                                                   hemorrhage, There suggestis aa malignant    process.
+                                                                                                                                                                                  possibility that
+                 possibility
+             the The    logic ofof the
+                                    subtle  abnormalities
+                                        prior  judgments or       pathology
+                                                             aligns     with thethat  may not
+                                                                                  classical     be of a liposarcoma,certain
+                                                                                             features                    particularly
+                                                                                                                                 detailsin the retroperitoneal
+                                                                                                                                          might be   overlooked or  space. No     significant
+                                                                                                                                                                         misinterpreted        flawsthe
+                                                                                                                                                                                            due to
+    Supervisor are
+             immediately      apparent
+                       noted in    their from    a single
+                                         reasoning,         X-ray
+                                                       as the        image.
+                                                                visual         Additionally,
+                                                                          evidence   supportsthethe presence of a retroperitoneal   liposarcoma.
+                                                                                                                        image's resolution     and My     diagnostic reasoning concurs with
+                                                                                                                                                    clarity.
+      Expert hypothesis    does not
+                  the initial          consider the
+                               assessments,            presence
+                                                 confirming     theof other     diagnostic
+                                                                      likelihood of    a     tests
+                                                                                         retroperitoneal liposarcoma based on the observed pathological features.
+             or clinical information that could provide context and help to                                             Counter Evidence:
+    Critic 1 assess the overall health status of the individual shown in the image.               Finish Critic 2 The image is described as an X-ray, but there are no visible signs
+    on ‘No’                                                                                                 on ‘Yes’ of density variations, lesions, anatomical structures, or contrast
+             Counter Evidence:                                                                                          patterns. This suggests that the lung parenchyma appears normal
+(c)          The historical report cites an increased lung density and interstitial                                     in this case, which aligns with option B in the medical case.
+             markings surrounding the heart and lungs, which are indicative of
+             cardiac and Does       earlypathology.
+                            pulmonary        ischemic        injury
+                                                         These     findingsshow     surface
+                                                                               suggest           blebs, increase eosinophilia of
+                                                                                         that there
+                         cytoplasm,
+             may be underlying               and such
+                                      conditions    swelling
+                                                           as        of
+                                                              pneumonia,  occasional         cells?
+                                                                                pleurisy, or other
+             respiratory infections that could affect the health status of the
+    Tier-1 individual
+                   Answer:shownYes in the image.                                                                                 Answer: Yes
+               WhatThe   image evidence
+                      specific    shows evidence
+                                             from theofchest
+                                                          cellular
+                                                                 X-ray injury,
+                                                                           imageincluding
+                                                                                   supports surface
+                                                                                              the                        How doesThe the   quality
+                                                                                                                                       image   shows         image
+                                                                                                                                                    of athetissue  section  withina the
+                                                                                                                                                                      provided             medical
+                                                                                                                                                                                      characteristic
+                   blebs and
+               conclusion    of increased
+                                 increased eosinophilia
+                                              lung density of  andcytoplasm,
+                                                                     interstitialwhich    are
+                                                                                   markings                              case impact
+                                                                                                                                 patterntheof cell
+                                                                                                                                             assessment      of the and
+                                                                                                                                                    morphology       lungstaining.
+                                                                                                                                                                          parenchyma,       and what
+                                                                                                                                                                                      The cells   exhibit
+                   characteristic
+               surrounding            features
+                               the heart   and of   earlyand
+                                                 lungs,    ischemic
+                                                               how does  damage.    The to
+                                                                             this relate  swelling                       additional   diagnostic
+                                                                                                                                 surface   blebs, tests    or clinical
+                                                                                                                                                   increased            information
+                                                                                                                                                                 eosinophilia             would beand
+                                                                                                                                                                                  of cytoplasm,
+                   of occasional     cells  further such
+                                                       upports                                              Leader       helpful to   provideof a more    comprehensive       evaluation     of the
+    Leader     potential  underlying      conditions           as this   diagnosis, as
+                                                                   pneumonia,            it or
+                                                                                           indicates
+                                                                                   pleurisy,                                     swelling       occasional cells,      which are    indicative   of early
+                   increased    water   uptake by the cells due to compromised cellular                                  individual's
+                                                                                                                                 ischemichealth  status?
+                                                                                                                                             injury.  This pathological finding is consistent
+     Expert 1 other   respiratory    infections?
+                   integrity. These findings collectively suggest that the tissue has                            Expert  2
+                                                                                                                                 with the option that describes such cellular changes.
+              The experienced
+                    image provided  earlyappears
+                                           ischemic    injury
+                                                   to be   an X-ray of a patient's chest.
+              However, due to the low resolution and quality of the image, it is                                        The quality of the image provided in the medical case can
+    Tier-2 difficult
+                  Answer:to Yes
+                            accurately assess the condition of the lung parenchyma.                                     impact the assessment of the lung parenchyma by limiting the
+                  Theare
+              There        no visible
+                        image    displayssigns  of density
+                                            cellular  changes variations,
+                                                                   consistent lesions,
+                                                                                 with early ischemic injury, includingvisibility
+                                                                                                                          surface of   subtle
+                                                                                                                                   blebs       abnormalities or
+                                                                                                                                           and increased              pathology
+                                                                                                                                                              eosinophilia         that may
+                                                                                                                                                                              of the           not be
+                                                                                                                                                                                      cytoplasm.
+              anatomical     structures,   or  contrast  patterns     that  would   indicate
+                  These features are indicative of cellular damage and stress, typically observed in ischemic           immediately     apparent.
+                                                                                                                                 conditions.   TheA clear
+                                                                                                                                                     swelling  andofwell-lit  X-ray
+                                                                                                                                                                     occasional        image
+                                                                                                                                                                                    cells,     would
+                                                                                                                                                                                           noted  as
+    Critic 1  increased    lung   density   or interstitial  markings       surrounding    the
+                  increased cell size due to water uptake, further supports the diagnosis of early                      allow for
+                                                                                                                   ischemic        a more
+                                                                                                                             injury.         comprehensive
+                                                                                                                                      Both prior                  evaluation
+                                                                                                                                                    agents correctly            of thethese
+                                                                                                                                                                         identified      individual's
+                                                                                                                                                                                              hallmark
+                                                                                                              Critic 2
+              heart  and  lungs.                                                                                        health  status.
+    Supervisor features, aligning their consensus with established pathological criteria for ischemic damage. Therefore, the consensus diagnosis is valid and
+      Expert Answer:
+                  supported
+                          Yes by the observed image evidence.
+               The critique against Option A was a minor point that was successfully clarified through the Critic's final response, as it was acknowledged that the
+               image provided did not offer sufficient information to support a Finish           conclusion of increased lung density or interstitial markings surrounding the heart and
+               lungs. In contrast, the critique against Option B was a fatal contradiction because it failed to address the lack of visible signs of density variations,
+     Leader    lesions, anatomical structures, or contrast patterns that would indicate increased lung density or interstitial markings surrounding the heart and lungs.
+
+                                                                                                Finish
+
+                               Figure 6. Failure Mode 2: Ambiguous Visual Evidence Under Low Image Quality.
+

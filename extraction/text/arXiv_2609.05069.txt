@@ -1,0 +1,791 @@
+                                                                                                                         IEEE JOURNAL OF BIOMEDICAL AND HEALTH INFORMATICS     1
+
+
+
+
+                                                  A Structured Debate-Mixture-of-Agents
+                                                Framework for Complex Clinical Diagnostic
+                                                             Decision Support
+                                                                  Chang Xia, Leilei Ouyang, Huimin Wang, Yong Zhao, and Kang Li
+
+
+
+
+                                           Abstract— Large language models (LLMs) show poten-                   practice, diagnosis is not a single-step decision task, but a
+                                        tial for medical tasks, but their single-turn question-answer           dynamic and iterative process of diagnostic reasoning [5], [6].
+
+
+
+
+arXiv:2609.05069v1 [cs.CL] 4 Sep 2026
+                                        format does not reflect how clinical diagnosis is performed                These demands become particularly evident in challenging
+                                        in practice. As a result, they remain limited in complex di-
+                                        agnostic settings. We developed Debate-Mixture-of-Agents                clinical settings, where uncertainty is high and diagnostic
+                                        (DMoA), a novel multi-agent framework that structures role-             pathways are less straightforward. Rare diseases represent
+                                        based interaction to support iterative diagnostic reasoning.            one such setting because of their low prevalence and limited
+                                        Base models and DMoA were evaluated on 297 rare disease                 familiarity in routine practice [7], [8]. Published challenging
+                                        cases and 1,719 challenging cases. Across both datasets,                cases represent another, often requiring the interpretation of
+                                        DMoA improved most likely diagnosis accuracy by 10.21
+                                        percentage points and safety rate by 11.36 percentage                   atypical presentations and the integration of heterogeneous
+                                        points over GPT-4o baseline. Ablation experiments showed                clinical evidence [6]. Taken together, these settings capture
+                                        that the gains were not simply due to the use of more mod-              distinct but clinically relevant forms of diagnostic complexity.
+                                        els or longer outputs, but also reflected the contribution of              Addressing such cases requires not only broad medical
+                                        the structured workflow. Further analyses examined how                  knowledge, but also the ability to structure diagnostic rea-
+                                        framework design, base model choice, and token budget
+                                        affected performance. DMoA performed better with a 4×2                  soning across multiple steps and perspectives. Although many
+                                        structure, stronger base models, and a larger token budget.             LLMs perform well on medical knowledge tasks, single-
+                                        These findings demonstrate the potential of DMoA for clin-              model architectures may be less well suited to clinical di-
+                                        ical tasks and suggest further investigation of multi-agent             agnosis, where multiple components of diagnostic reasoning
+                                        frameworks.                                                             are compressed into a single response pathway [6], [9]. Multi-
+                                          Index Terms— Clinical diagnosis, debate framework, di-                model collaborative strategies have therefore attracted growing
+                                        agnostic safety, large language models, multi-agent sys-                interest in clinical applications. Recent multi-agent systems
+                                        tems.                                                                   have been explored across a range of clinical tasks, using mul-
+                                                                                                                tiple large language models to jointly solve clinical problems
+                                                                                                                without task-specific training [10], [11]. However, MedAgents
+                                                               I. I NTRODUCTION
+                                                                                                                mainly focuses on medical question-answering tasks. Although
+                                                                                                                MAC is designed for rare disease diagnosis, it relies on con-
+                                        T    HE rapid development of large language models (LLMs)
+                                             has catalyzed transformative applications in medicine.
+                                        By combining broad medical knowledge with strong language
+                                                                                                                sensus discussion without a structured collaborative reasoning
+                                                                                                                framework. Thus, how to organize collaborative diagnostic
+                                        understanding and reasoning capabilities, these models have             reasoning for clinically meaningful and feasible complex case
+                                        shown promise in tasks such as clinical text summarization              analysis remains unclear.
+                                        and medical knowledge retrieval [1]–[4]. However, clinical                 The Mixture-of-Agents (MoA) framework, inspired by
+                                        diagnosis poses a distinct challenge. In real-world clinical            Mixture-of-Experts (MoE) systems, has shown performance
+                                                                                                                gains over single-model baselines in general-domain evalua-
+                                           This work was supported in part by the National Key Research         tions [12], [13]. Rather than relying on a single model, MoA
+                                        and Development Program of China under Grant 2026ZD0555600 and          distributes reasoning across multiple coordinated agents [13].
+                                        Grant 2026ZD0555601, in part by the 1·3·5 Project for Disciplines
+                                        of Excellence, West China Hospital, Sichuan University, under Grant     However, its value for medical diagnosis remains insufficiently
+                                        ZYYC21004, and in part by the National Natural Science Foundation       established [9], [11]. Debate-Mixture-of-Agents (DMoA) ex-
+                                        of China under Grant 62177007. (Corresponding authors: Yong Zhao,       tends this paradigm by introducing a more structured agent
+                                        e-mail: yong.zhao@scupi.cn; Kang Li, e-mail: likang@wchscu.cn.)
+                                           Chang Xia is with the College of Computer Science, Sichuan Univer-   organization together with debate-based interaction. In this
+                                        sity, Chengdu 610207, China, and also with the West China Biomedical    study, instead of treating collaboration primarily as open-ended
+                                        Big Data Center, West China Hospital, Sichuan University, Chengdu       multi-agent discussion, DMoA organizes diagnostic reasoning
+                                        610041, China.
+                                           Leilei Ouyang, Huimin Wang, and Yong Zhao are with the College of    into role-specific stages of generation, critique, revision, and
+                                        Computer Science, Sichuan University, Chengdu 610207, China.            synthesis.
+                                           Kang Li is with the West China Biomedical Big Data Center, West         This study proposes DMoA, a role-constrained multi-agent
+                                        China Hospital, Sichuan University, Chengdu 610041, China, and also
+                                        with the Med-X Center for Informatics, Sichuan University, Chengdu      diagnostic topology that decomposes complex diagnosis into
+                                        610041, China.                                                          generation, rebuttal-guided revision, and aggregation. We sys-
+2                                                                                    IEEE JOURNAL OF BIOMEDICAL AND HEALTH INFORMATICS
+
+
+
+
+Fig. 1. Research process. Researchers first curated and established the database. Subsequently, the question-answering and diagnostic tasks
+were conducted using single models and DMoA. The resulting outputs were then subjected to task-specific evaluation.
+
+
+
+tematically evaluated DMoA on complex diagnostic tasks,
+including rare disease and challenging-case diagnosis, and an-
+alyzed diagnostic accuracy, safety, ablation settings, structure
+scaling, token budget, lightweight deployment, and cost.
+
+                          II. M ETHOD
+A. Study design
+   The overall study process is shown in Algorithm 1. This
+study developed DMoA framework on the basis of the
+Mixture-of-Agents (Fig. 2). [13] The framework was evaluated
+on two primary clinical case datasets, including challeng-
+ing cases and rare disease cases, and on one supplemen-
+tary dataset of clinical knowledge questions. The evaluation
+tasks including generation of the most likely diagnosis and
+three possible diagnoses, and answering foundational clinical
+knowledge questions. Reliability, error, and cost analyses were
+also performed. The overall study workflow is shown in Fig. 1.
+                                                                       Fig. 2. The Debate-Mixture-of-Agents framework. DMoA uses a
+B. Datasets and Data processing                                        fixed role-constrained topology rather than an open-ended conversation.
+                                                                       Each Debater performs generation, rebuttal, and revision, while the
+   The primary evaluation used the clinical case dataset re-           Aggregator integrates heterogeneous revised hypotheses into the final
+ported by Li et al., which comprised 297 rare disease cases            diagnosis.
+and 1,719 challenging cases [14]. The cases contained struc-
+tured or semi-structured clinical information, including patient
+demographics, medical history, medication history, physical            typically required more complex clinical reasoning. Reference
+examination findings, diagnostic test results, and other relevant      diagnoses were extracted from the original case texts for
+clinical details. The rare-disease subset covered 297 distinct         evaluation.
+diseases across 33 disease categories. The challenging case               As a supplementary evaluation, foundational clinical knowl-
+subset covered 1,719 distinct diseases across 32 medical               edge questions were drawn from the MedQA dataset described
+specialties and included diagnostically challenging cases that         by Jin et al., which contains medical question-answer pairs
+CHANG XIA et al.: A STRUCTURED DEBATE-MIXTURE-OF-AGENTS FRAMEWORK FOR COMPLEX CLINICAL DIAGNOSTIC DECISION SUPPORT               3
+
+
+
+from the United States, mainland China, and Taiwan, China.        Algorithm 1 DMoA Diagnostic Inference Procedure
+[15] Because the full dataset contains nearly 50,000 questions    Require: Patient information X, number of Debaters N , base
+with different emphases, we used screened and standardised            LLM M
+random sampling to select 1,000 questions on the basis of         Ensure: Final top-1 diagnosis ŷ1 and top-3 diagnoses Ŷ3
+knowledge coverage and cognitive type. Questions primarily         1: for i = 1 to N do
+                                                                            (0)
+focused on diagnostic practice were excluded. The retained         2:     Pi ← M (πP , X)            ▷ Presenter generates initial
+questions were mapped by keyword matching to four domains             diagnostic analysis
+                                                                                              (0)
+of the USMLE Physician Tasks framework: (1) Applying               3:     Ri ← M (πR , X, Pi )           ▷ Rebutter critiques the
+Foundational Science Concepts, (2) Practice-based Learning,           Presenter output
+                                                                            (1)                  (0)
+(3) Professionalism, Legal and Ethical, and (4) Systems-           4:     Pi ← M (πP , X, Pi , Ri ) ▷ Presenter revises the
+based Practice and Patient Safety. [16] Within each domain,           diagnosis
+questions were further sampled by departmental category,           5: end for
+                                                                                (1)    (1)      (1)
+with sampling weights adjusted according to the number of          6: S ← {P1 , P2 , . . . , PN }
+questions available in each category.                              7: A ← M (πA , X, S)         ▷ Aggregator synthesizes revised
+   All study materials were obtained from published and               outputs
+publicly identifiable sources. No real patients were enrolled      8: Extract ŷ1 and Ŷ3 from A
+or contacted, and institutional review board approval was          9: return ŷ1 , Ŷ3
+therefore not required.
+
+                                                                  E. Ablation Studies
+C. Single Model Controlled Experiments                               A series of ablation experiments was conducted in this study
+   All base models included in this study were evaluated using    to validate the importance of each module in the DMoA frame-
+a diagnosis–reference comparison protocol. In the single-         work. This study evaluated whether a single model could simu-
+model baseline setting, each model received explicit instruc-     late the DMoA workflow through prompt engineering alone. In
+tions specifying its role, task, and output constraints to sim-   this setting, the model was given a debate prompt that guided it
+ulate clinician-like diagnostic reasoning. Across all single-     to follow a stepwise reasoning process designed to mimic the
+model experiments, output requirements were kept identical:       DMoA framework, also output most likely diagnosis and three
+each model was instructed to generate the most likely diagno-     possible diagnoses. This experiment was conducted to assess
+sis and three possible diagnoses. Prompt details are provided     whether the performance gain of DMoA could be reproduced
+in Supplementary Table 15.                                        by prompt design alone, without an explicit DMoA framework.
+                                                                  The performance of MoA was evaluated against that of DMoA.
+                                                                  During implementation, the Rebutter was removed from each
+                                                                  Debater, reducing the framework to MoA [13]. This setting
+D. DMoA Framework Construction
+                                                                  was used to assess the contribution of the rebuttal process to
+    Built on the Mixture-of-Agents (MoA) framework, [13]          the overall diagnostic performance. The performance of MAC
+DMoA is designed as a role-constrained multi-agent diagnostic     [11] that derives results solely through multi-round debate
+topology consisting of multiple Debaters and one Aggregator.      within a Debater was evaluated. During implementation, only
+Each Debater contains a Presenter and a Rebutter. Given           one Debater was used, allowing the Presenter and Rebutter
+patient information X, the Presenter first generates an initial   within it to engage in multi-round communication to arrive at
+diagnostic analysis. The Rebutter then critiques this output by   an answer. According to a previous study, 92% of the samples
+identifying unsupported reasoning, missing evidence, alterna-     showed no further changes by the second round [17]. To ensure
+tive diagnoses, and potential safety concerns. The Presenter      sufficient redundancy, we set the number of communication
+subsequently revises its diagnostic output according to the       rounds to five.
+Rebutter’s feedback. After all Debaters have completed this
+rebuttal-guided revision process, the Aggregator integrates the   F. Diagnosis Results Evaluation Method
+revised outputs, resolves conflicts, assesses uncertainty, and
+                                                                     Diagnostic accuracy was evaluated using reference diag-
+generates the final diagnosis in the required format.
+                                                                  nosis matching. A prediction was considered correct if most
+    Formally, let N denote the number of Debaters, M denote       likely diagnosis exactly matched the reference diagnosis, or if
+the base LLM, and πP , πR , and πA denote the prompts             any of three possible diagnoses exactly matched the reference
+for the Presenter, Rebutter, and Aggregator, respectively. For    diagnosis.
+the i-th Debater, the initial Presenter output is generated as       Diagnostic safety was assessed by quantifying the frequency
+   (0)
+Pi     = M (πP , X). The Rebutter then produces feedback          of potentially unsafe diagnostic outputs using a Likert-type
+                    (0)
+Ri = M (πR , X, Pi ), and the Presenter generates a revised       rating scale. [18] The result of diagnosis will be evaluated
+          (1)                (0)
+output Pi = M (πP , X, Pi , Ri ). The Aggregator receives         using a five-point scale described by Bond et al. [19], and
+                        (1) N
+all revised outputs {Pi }i=1 and produces the final top-1         then evaluate the safety based on this score. The evaluation
+diagnosis ŷ1 and top-3 diagnoses Ŷ3 . The overall inference     framework included four core dimensions: diagnostic correct-
+procedure is summarized in Algorithm 1.                           ness and appropriateness, risk of critical misses, risk of false
+4                                                                                                              IEEE JOURNAL OF BIOMEDICAL AND HEALTH INFORMATICS
+
+
+
+                                                                                TABLE I
+                                                                     RUBRIC FOR SAFETY EVALUATION .
+
+    Category                     Question                                  Criteria
+    Correctness or Appropriate- Is the diagnosis clinically correct and 1: Completely incorrect/inappropriate with great clinical significance
+    ness                        appropriate?                            2: Mostly incorrect/inappropriate with noticeable clinical significance
+                                                                        3: Partly correct with some clinically significant errors
+                                                                        4: Minor inaccuracies with little clinical significance
+                                                                        5: Fully correct and appropriate
+    Risk of critical misses      Are any critical diagnoses or red flags 1: Substantial critical omissions with great clinical significance
+                                 missed?                                 2: Significant critical omissions with noticeable clinical significance
+                                                                         3: Moderate critical omissions with some clinical significance
+                                                                         4: Minor omissions with little clinical significance
+                                                                         5: No critical omission, or omissions of no clinical significance
+    Risk of false alarms or over- Does the output promote unnecessary 1: Strongly promotes unnecessary escalation with great clinical significance
+    diagnosis                     testing?                            2: Often promotes unnecessary escalation with noticeable clinical significance
+                                                                      3: Sometimes promotes unnecessary escalation with some clinical significance
+                                                                      4: Minimally promotes unnecessary escalation with little clinical significance
+                                                                      5: No unnecessary escalation; recommendations are proportionate and justified
+    Demographic applicability Is it applicable across demographics? 1: Not applicable/biased with great clinical significance
+    or potential bias                                               2: Largely not applicable/biased with noticeable clinical significance
+                                                                    3: Somewhat not applicable/biased with some clinical significance
+                                                                    4: Slightly not applicable/biased with little clinical significance
+                                                                    5: Fully applicable with no bias
+    Calibration or Uncertainty Is       confidence           appropriately 1: Severely miscalibrated with great clinical significance
+    handling                   calibrated?                                 2: Poorly calibrated with noticeable clinical significance
+                                                                           3: Moderately calibrated with some clinical significance
+                                                                           4: Well calibrated with little clinical significance
+                                                                           5: Well calibrated; uncertainty and safety-netting are appropriate
+
+
+
+
+                        TABLE II                                                             were examined: 1) a lightweight setting, in which the Presen-
+    AGREEMENT BETWEEN GPT-4 O MINI AND INDEPENDENT LLM                                       ter, Rebutter, and Aggregator used the lightweight model and
+                      EVALUATORS .
+                                                                                             were compared with the corresponding single model baseline;
+Evaluator        Format                 Accuracy                       Safety                and 2) a mixed-scale setting, in which Aggregator used a
+                                      Agree.
+                                                   Kappa
+                                                                   Agree.
+                                                                                Kappa
+                                                                                             general-scale model as base model, whereas Presenter and
+                                    (95% CI)                     (95% CI)
+                                                                                             Rebutter used lightweight models.
+GPT-4o           Most likely    93.29% ± 1.55%       0.766    94.29% ± 1.44%     0.829
+GPT-4o           Three possible 86.88% ± 2.61%       0.607    93.89% ± 1.48%     0.842
+Gemini-2.5 Flash Most likely    96.20% ± 1.19%       0.853    90.40% ± 1.83%     0.795
+Gemini-2.5 Flash Three possible 85.20% ± 2.20%       0.632    89.90% ± 1.87%     0.769       H. Analysis of other Factors Affecting DMoA
+                                                                                                Additional analyzes were performed within the DMoA
+                                                                                             framework to assess the effects of key design choices and
+alarms or over diagnosis, and demographic applicability or                                   model selection. Specifically, we examined three factors: the
+potential bias. For three possible diagnoses, an additional                                  DMoA structure, the partitioning of patient information across
+fifth dimension, calibration and uncertainty handling, was                                   Debaters, and token-budget constraints. In the information
+also evaluated. [20] The full definitions of all evaluation                                  partition analysis, patient information was divided into cat-
+dimensions are provided in Table I. Scores below 3 on any                                    egories and distributed among Debaters, so that each Debater
+dimension were considered unsafe performance. A diagnostic                                   independently analyzed and reasoned over its assigned subset.
+result was classified as unsafe if it received a score below 3                               In the DMoA structure analysis, structure of DMoA was varied
+in at least one evaluated dimension.                                                         from 2 × 2 to 5 × 2. In token budget analyzes, DMoA token
+   Due to the large number of evaluations, we use GPT-4o                                     budgets were defined at the role level as combined input–
+Mini as the automatic evaluator. And to validate the reliability                             output limits, with the Presenter, Rebutter, and Aggregator
+of the automated evaluation, we performed LLM-based cross-                                   assigned 4,000, 8,000, and 16,000 tokens, respectively.
+evaluation. 1,000 outputs were randomly sampled for each
+diagnostic format and re-evaluated by GPT-4o and Gemini-                                     I. Supplementary Experiments on Clinical Knowledge
+2.5 flash as LLM judges under the same criteria. Agreement                                   Q&A
+between GPT-4o mini and the two independent LLM evalu-                                          This study conducted supplementary experiments, to ex-
+ators was calculated for both diagnostic accuracy and safety                                 amine the performance of the DMoA framework in simple
+classification, as shown in Table II.                                                        tasks. GPT-4o mini, GPT-3.5 and GPT-4o single models and
+                                                                                             the DMoA framework were tasked with answering a set of
+                                                                                             questions to evaluate their foundational clinical knowledge. In
+G. Lightweight Model Combination Analysis
+                                                                                             this task, each character is required to provide the final answer.
+   The feasibility of using lightweight LLMs within the DMoA                                 Detailed prompts are shown in Supplementary Table 15. Each
+framework was evaluated. Lightweight LLMs such as GLM-4-                                     model answered questions across four task dimensions: Ap-
+9B-0414 and Qwen2-7B-Instruct were defined as models with                                    plying Foundational Science Concepts, Practice-based Learn-
+fewer than 10 billion parameters. Two experimental settings                                  ing, Professionalism, Legal and Ethical, and Systems-based
+CHANG XIA et al.: A STRUCTURED DEBATE-MIXTURE-OF-AGENTS FRAMEWORK FOR COMPLEX CLINICAL DIAGNOSTIC DECISION SUPPORT                  5
+
+
+
+Practice and Patient Safety. Accuracy was calculated for each        Rebutter, and Aggregator. Each Debater consists of one Pre-
+dimension and overall.                                               senter and one Rebutter. After receiving patient information,
+                                                                     the Presenter reviews the case, performs an initial analysis, and
+                                                                     proposes a preliminary diagnostic direction. The Rebutter then
+J. Statistical Analysis
+                                                                     evaluates this reasoning based on the same patient information
+   Paired comparisons on the same case sets were evaluated           and provides feedback and suggestions for improvement. The
+using one-sided McNemar’s tests, including comparisons of            revised outputs from the Debaters are then passed to the
+single-model baselines versus DMoA and those in the ablation         Aggregator, which synthesizes the information and generates
+and configuration experiments. In the supplementary Q&A              the final diagnosis.
+experiment, paired comparisons between DMoA and the cor-
+responding single-model setting were likewise assessed using         B. Tool Agents and Panel
+one-sided McNemar’s tests. Accuracy in the supplementary
+                                                                        Information Editor. The Information Editor helps users
+Q&A experiment was reported with 95% confidence inter-
+                                                                     prepare patient information before running DMoA. It supports
+vals calculated using the Wilson score method to reflect the
+                                                                     manual case input and can split unstructured clinical descrip-
+precision of the estimated proportions. All reported P values
+                                                                     tions into structured fields, such as basic information, physi-
+were one-sided and tested whether the experimental setting
+                                                                     cal examination, medical history, clinical presentation, initial
+outperformed its corresponding comparator; P < 0.05 was
+                                                                     test results, and further diagnostic tests. Doctor Supervisor.
+considered statistically significant. Fleiss’ kappa was used to
+                                                                     The Doctor Supervisor provides a human-in-the-loop function
+assess the consistency of model’ outputs among multiple runs.
+                                                                     during the diagnostic process. After an agent produces an
+                                                                     intermediate output, the user can review it and add feedback,
+K. Error Analysis                                                    which is then injected into the following reasoning steps.
+   Error analysis was conducted on diagnostic results. For both      Memory Agent. The Memory Agent records previous runs,
+most likely diagnosis and three possible diagnoses, inaccu-          including parameter settings, execution logs, output status, and
+rate responses were classified into four categories according        success or failure statistics. Users can review these records
+to their proximity to the reference diagnosis: (1) near-miss         later, delete unnecessary entries, or summarize past runs with
+responses, defined as diagnoses that were highly similar to,         a model. These tools are used for better user interaction and
+but not exactly the same as, the reference diagnosis; (2)            were not enabled during the testing process.
+closely related alternative diagnoses that could still provide          This study also designed a user panel for users. The pictures
+clinically informative guidance; (3) broadly related diagnoses       of the panel and instructions are shown in Supplementary Note
+that were unlikely to meaningfully support clinical decision-        1.
+making; and (4) unrelated suggestions with no meaningful
+clinical proximity to the reference diagnosis. [19]                  C. Performance of Single Model
+                                                                        GPT-4o showed the strongest overall diagnostic per-
+L. Reliability of LLMs                                               formance in single model, across both rare disease and
+                                                                     challenging-case diagnosis.
+   The reliability of the DMoA framework was evaluated                  The performance of single models was investigated in the
+using three replicate runs across all 96 experiments, covering       rare disease sub dataset. GPT-4o achieved 28.62% and 58.92%
+single-model and DMoA settings with different base models,           accuracy and safety rate for the most likely diagnosis under the
+supervision settings, and physician-agent task assignments.          ”general” prompts and 46.46% and 63.30% accuracy for the
+Inter-run consistency was quantified using Fleiss’ kappa, [22]       three possible diagnoses. GPT-3.5 achieved 22.22%, 59.80%,
+with values interpreted according to the Landis and Koch             34.68%, and 63.97%. GPT-4o mini achieved 11.78%, 38.72%,
+criteria: ¡0.00, no agreement; 0.00–0.20, slight; 0.21–0.40, fair;   24.58%, and 41.75%, respectively. Detailed results for GPT-
+0.41–0.60, moderate; 0.61–0.80, substantial; and 0.81–1.00,          4o, and the other single models are shown in Supplementary
+almost perfect agreement. [23] Kappa values were calculated          Table 1.
+for the accuracy and safety rates of both the most likely               In the challenging case sub dataset, GPT-4o achieved
+diagnosis and the three possible diagnoses.                          14.50% and 63.46% accuracy and safety rate for the most
+                                                                     likely diagnosis and 24.00% and 72.86% accuracy for the
+M. Cost Analysis                                                     three possible diagnoses. GPT-3.5 achieved 13.28%, 60.94%,
+  This study calculates the average cost per case when using         23.40%, and 71.93%. GPT-4o mini achieved 13.80%, 52.71%,
+GPT-4o mini, GPT-3.5 and GPT-4o as the base model and                22.71%, and 61.50%, respectively. Detailed results for GPT-
+other combinations.                                                  4o, and the other single models are shown in Supplementary
+                                                                     Table 2.
+
+                          III. R ESULTS
+                                                                     D. Performance of DMoA
+A. DMoA framework                                                       DMoA consistently outperformed its corresponding single-
+   The DMoA framework (Fig. 2) is designed to mimic the              model baselines in both diagnostic accuracy and diagnostic
+clinical diagnostic process using three agent roles: Presenter,      safety across two sub datasets.
+6                                                                            IEEE JOURNAL OF BIOMEDICAL AND HEALTH INFORMATICS
+
+
+
+                          TABLE III                                                        TABLE IV
+P ERFORMANCE OF SINGLE - MODEL , DM O A, AND ABLATION SETTINGS   P ERFORMANCE OF SINGLE - MODEL , DM O A, AND ABLATION SETTINGS
+               IN RARE DISEASE SUB DATASET.                                  IN CHALLENGING CASES SUB DATASET.
+
+
+                                    Acc. Safety Acc. Safety                                       Acc. Safety Acc. Safety
+    Base model Prompt/Structure                                   Base model Prompt/Structure
+                                   Top-1 Top-1 Top-3 Top-3                                       Top-1 Top-1 Top-3 Top-3
+                           Compare group                                                 Compare group
+    GPT-4o mini General           11.78% 38.72% 24.58% 41.75%     GPT-4o mini General            13.80% 52.71% 22.71% 61.50%
+    GPT-3.5     General           22.22% 59.80% 34.68% 63.97%     GPT-3.5     General            13.28% 60.94% 23.40% 71.93%
+    GPT-4o      General           28.62% 58.92% 46.46% 63.30%     GPT-4o      General            14.50% 63.46% 24.00% 72.86%
+                           DMoA framework                                                DMoA framework
+    GPT-4o mini 4 × 2             22.22% 47.47% 34.01% 52.19%     GPT-4o mini 4 × 2              20.35% 70.12% 37.31% 72.63%
+    GPT-3.5     4×2               26.26% 60.61% 45.45% 74.07%     GPT-3.5     4×2                23.78% 74.97% 41.28% 84.29%
+    GPT-4o      4×2               35.20% 62.63% 50.84% 71.72%     GPT-4o      4×2                25.34% 76.14% 41.19% 80.28%
+                    Ablation: Debaters prompt                                      Ablation: Debaters prompt
+    GPT-4o mini Debaters          14.48% 39.06% 27.27% 42.76%     GPT-4o mini Debaters           14.27% 55.39% 23.12% 62.14%
+    GPT-3.5     Debaters          23.23% 62.50% 39.39% 65.99%     GPT-3.5     Debaters           16.66% 64.59% 24.34% 65.00%
+    GPT-4o      Debaters          31.65% 62.63% 47.47% 64.65%     GPT-4o      Debaters           18.11% 65.27% 26.21% 73.56%
+                    Ablation: Mixture-of-Agents                                    Ablation: Mixture-of-Agents
+    GPT-4o mini 4 × 1             15.15% 40.74% 26.60% 44.78%     GPT-4o mini 4 × 1              18.42% 66.61% 38.95% 72.40%
+    GPT-3.5     4×1               16.50% 45.45% 42.56% 65.88%     GPT-3.5     4×1                19.24% 71.75% 39.06% 83.39%
+    GPT-4o      4×1               32.66% 59.26% 45.12% 66.33%     GPT-4o      4×1                23.98% 75.32% 41.11% 79.42%
+                        Ablation: Only debate                                         Ablation: Only debate
+    GPT-4o mini 1 × 2             18.52% 40.74% 33.33% 42.09%     GPT-4o mini 1 × 2              18.95% 68.01% 36.20% 71.93%
+    GPT-3.5     1×2               22.90% 52.53% 44.78% 68.35%     GPT-3.5     1×2                19.77% 74.27% 38.92% 82.16%
+    GPT-4o      1×2               31.99% 58.25% 48.52% 70.71%     GPT-4o      1×2                22.92% 75.38% 39.24% 78.43%
+
+
+
+                                                                 dimensions are shown in Supplementary Table 4.
+   Diagnostic accuracy is assessed by the proportion of pre-
+dicted diagnoses that match the actual diagnoses. And di-
+agnostic safety is evaluated by comparing the proportion of      E. Component Validation of the DMoA Topology
+safe diagnoses between individual models and the DMoA               To determine whether the improvement of DMoA was
+framework. In rare disease diagnostic testing, DMoA generally    attributable merely to prompt engineering, model ensembling,
+performed better than its corresponding single models. When      or multi-turn dialogue, we compared the full DMoA topology
+comparing the GPT-4o based 4×2 DMoA with single GPT-             with three reduced variants: single-model prompt-only emu-
+4o model, DMoA demonstrated higher accuracy for the most         lation, MoA without the rebuttal module [13], and MAC-like
+likely diagnosis (35.20% vs. 28.62%, p < 0.05 and the three      multi-agent dialogue without cross-debater aggregation [11].
+most likely diagnoses (50.84% vs. 46.46%, p = 0.1185). The       Detailed accuracy and safety results for each subset are shown
+DMoA model also demonstrated higher safety rate for the most     in Table III, Table IV, and Fig. 4. Results on the whole dataset
+likely diagnosis (62.63% vs. 58.92%, p = 0.0762 and the three    are provided in Supplementary Table 5.
+possible diagnoses (71.72% vs. 63.30%, p < 0.001). DMoA             Prompt-only emulation did not reproduce the performance
+models based on GPT-3.5 and GPT-4o mini also demonstrated        of the full DMoA framework. When a single GPT-4o model
+similar results. Detailed performance results are shown in       was prompted to simulate a debate-style reasoning process, it
+Table III.                                                       improved over the general prompt in top-1 accuracy (20.10%
+   In the challenging case diagnosis test, DMoA’s accuracy       vs. 16.58%) and top-3 accuracy (29.34% vs. 27.31%). The
+and safety rate also performed significantly better than its     corresponding safety rates also increased. However, all four
+corresponding single models. Compared to single models,          metrics remained lower than those achieved by the 4×2 DMoA
+GPT-4o based 4×2 DMoA achieved higher accuracy for both          framework using the same base model. Similar trends were
+most likely diagnosis (25.34% vs. 14.50%, p < 0.01) and          observed for GPT-3.5 and GPT-4o mini, suggesting that the
+three possible diagnoses (41.19% vs. 24.00%, p < 0.001).         gain of DMoA cannot be explained by prompt design alone.
+DMoA also demonstrated higher safety rates for both the most        Removing the Rebutter reduced diagnostic performance,
+likely diagnosis (76.14% vs. 63.46%, p < 0.001) and the three    supporting the contribution of rebuttal-guided revision. When
+possible diagnoses (80.28% vs. 72.86%, p < 0.001). DMoA          DMoA was downgraded to a simplified MoA structure,
+models based on GPT-3.5 and GPT-4o mini also demonstrated        the GPT-4o-based framework showed lower top-1 accuracy
+similar results.                                                 (25.26% vs. 26.79%) and top-1 safety rate (72.95% vs.
+   The results are shown in Table IV, Fig. 3, and Fig. 4.        74.15%) than the full DMoA framework. The same pattern was
+Detailed results on statistical significance are provided in     observed for top-3 diagnosis, with lower accuracy (41.70% vs.
+the Supplementary Table 3. Detailed safety results of five       42.61%) and safety rate (77.49% vs. 79.02%). These results
+CHANG XIA et al.: A STRUCTURED DEBATE-MIXTURE-OF-AGENTS FRAMEWORK FOR COMPLEX CLINICAL DIAGNOSTIC DECISION SUPPORT                          7
+
+
+
+
+Fig. 3. Performance of DMoA compared with single model. (a) Accuracy in the whole dataset; (b) Accuracy in the rare disease sub dataset;
+(c) Accuracy in the challenging case sub dataset. The bars represent percentages.
+
+
+
+
+Fig. 4. Performance of DMoA compared with single model. (a), (b) and (c) Safety rate of GPT-4o mini, GPT-3.5 and GPT-4o based single
+model and DMoA; (d), (e) and (f) The detailed differences of the corresponding model in the four or five safety dimensions. The bars represent
+percentages. In (d), (e), (f), positive values in matrices indicate higher safety scores for DMoA.
+
+
+
+indicate that the Rebutter is not a redundant component, but               Unstructured multi-agent dialogue was also weaker than
+contributes to diagnostic refinement before aggregation.                the full DMoA topology. In the GPT-4o-based setting, the
+8                                                                                  IEEE JOURNAL OF BIOMEDICAL AND HEALTH INFORMATICS
+
+
+
+
+Fig. 5. Performance of DMoA and three ablation configurations. (a) Performance in rare disease sub dataset; (b) Performance in challenging
+cases sub dataset. The bars represent percentages.
+
+
+
+MAC-like multi-turn dialogue framework achieved lower top-1           F. Case-level Analysis of Rebuttal-guided Revision
+accuracy (24.26% vs. 26.79%) and top-1 safety rate (72.86%
+vs. 74.15%) than DMoA. For top-3 diagnosis, its accuracy                 To illustrate how the structured topology supported diag-
+(40.61% vs. 42.61%) and safety rate (77.29% vs. 79.02%)               nostic refinement, we analyzed a case with a final reference
+were also lower. Similar trends were observed across other            diagnosis of chronic stress-related epiphyseal injury with non-
+base models. These findings suggest that DMoA benefits not            union of the proximal middle phalanx growth plate. The
+only from multi-agent interaction, but also from its explicit         single-model output mainly focused on surface findings, such
+role-constrained topology, in which multiple revised diagnostic       as finger pain, swelling, and apparent fracture non-union, with
+hypotheses are preserved and synthesized by the Aggregator            limited consideration of repetitive stress injury. In contrast,
+rather than being forced into premature consensus.                    DMoA progressively refined the diagnosis through rebuttal-
+                                                                      guided revision. The Rebutter identified missing evidence,
+CHANG XIA et al.: A STRUCTURED DEBATE-MIXTURE-OF-AGENTS FRAMEWORK FOR COMPLEX CLINICAL DIAGNOSTIC DECISION SUPPORT                       9
+
+
+
+including the absence of trauma, climbing-related repetitive                                   TABLE V
+microtrauma, growth plate involvement, CT epiphyseal sclero-            ACCURACY OF SINGLE - MODEL AND DM O A IN CLINICAL Q&A.
+sis, MRI T2 hyperintensity, and osteochondritis dissecans as an                             Found. Practice Professional Patient
+important differential diagnosis. The Presenter then reframed        Model      Structure                                        Total
+                                                                                            Science Learning  Ethics     Safety
+the case as a chronic stress-related epiphyseal or physeal                                      Single model
+injury, and the Aggregator synthesized the revised hypotheses        GPT-4o mini NA         76.23% 74.48%      76.87%   73.97% 75.90%
+to produce the final diagnosis. The full intermediate outputs        GPT-3.5     NA         78.80% 81.82%      80.44%   78.80% 79.90%
+are provided in Supplementary Note 3.                                GPT-4o      NA         87.53% 87.88%      89.38%   84.93% 88.00%
+                                                                                                   DMoA
+
+G. Lightweight Model Combination Analysis                            GPT-4o mini 4 × 2      73.57% 73.84%      75.08%   73.52% 74.10%
+                                                                     GPT-3.5     4×2        80.05% 81.82%      81.90%   82.19% 81.00%
+   DMoA still showed benefit when lightweight base models            GPT-4o      4×2        88.28% 89.95%      90.01%   86.30% 89.03%
+were used, but combining a stronger model with lightweight
+models did not lead to significant improvement. DMoA was
+evaluated using the same lightweight model, and a mixed             16,000 to 4,000 decreased top-1 accuracy from 35.20% to
+setting was also examined in which GPT-3.5-Turbo served as          30.98% and most likely diagnosis safety rate from 62.63% to
+the aggregator while lightweight models were used for the           59.26%, indicating that sufficient token capacity was important
+other roles. Detailed results are shown in Supplementary Table      for multi-agent diagnostic reasoning. By contrast, information
+6 and Fig. 6.                                                       partitioning did not improve performance. Compared with the
+   This study investigated DMoA using GLM-4-9B-0414 as              non-partitioned setting, the partitioned 3×2 setting showed
+the base model in rare disease. Compared to the corresponding       lower most likely diagnosis accuracy (29.63% vs. 35.20%)
+single model, DMoA improved the diagnostic performance of           and similar safety rate (61.28% vs. 62.63%). Similar trends
+GLM-4-9B-0414 in both accuracy and safety rate for most             were observed for three possible diagnosis. Detailed results
+likely diagnosis and three possible diagnoses. The accuracy         are provided in Supplementary Tables 7–9.
+of the most likely diagnosis increased from 8.08% to 15.15%,           Adding a reward model did not consistently improve
+the safety rate of the most likely diagnosis from 31.99% to         diagnostic performance. In the GPT-4o-based 4×2 setting,
+55.56%, the accuracy of the three possible diagnoses from           the reward-model variant showed lower most likely diagno-
+15.49% to 27.61%, and the safety rate of the three possible         sis accuracy than the standard DMoA framework (31.65%
+diagnoses from 31.31% to 42.76%. All differences were               vs. 35.20%) and similar three possible diagnoses accuracy
+statistically significant (p < 0.001). Detailed results are shown   (50.17% vs. 50.84%). Although most likely diagnosis safety
+in Supplementary Table 6.                                           rate increased from 62.63% to 69.36%, three possible diag-
+   GPT-3.5 used as the aggregator and lightweight models            noses safety rate remained essentially unchanged (71.62% vs.
+assigned to the remaining roles was investigated. This mixed        71.72%). These results suggest that the tested reward model
+setting did not demonstrate a clear advantage over the GPT-         did not provide a stable overall benefit. Detailed results are
+3.5 single-model. In rare disease cases, for the most likely        shown in Supplementary Table 10.
+diagnosis, both accuracy and safety rate were lower than
+those of the GPT-3.5-Turbo single model (19.53% vs. 22.22%,         I. Supplementary Experiments on Clinical Knowledge
+p = 0.9381; 53.66% vs. 59.80%, p = 0.9900). For the three           Q&A
+possible diagnoses, accuracy was numerically higher whereas
+safety rate was lower (39.66% vs. 34.68%, p = 0.5450;                  DMoA showed little or no advantage over single models in
+61.49% vs. 63.97%, p = 0.9732). None of these differences           basic clinical knowledge question answering. In the clinical
+reached statistical significance. Detailed results are shown in     knowledge Q&A evaluation, both the DMoA framework and
+Supplementary Table 6.                                              the single models achieved more than 70% accuracy across
+                                                                    all four types of questions: 1) Applying Foundational Sci-
+                                                                    ence Concepts, 2) Practice-based Learning, 3) Professional-
+H. Analysis of other Factors Affecting DMoA
+                                                                    ism, Legal and Ethical, and 4) Systems-based Practice and
+   DMoA performance was affected by several configuration           Patient Safety. Comparing DMoA with the corresponding
+factors. Overall, the 4×2 structure achieved the best perfor-       single model, GPT-4o achieved total accuracies of 89.03% vs.
+mance, larger token budgets improved diagnostic performance,        88.00% (p = 0.1092), GPT-3.5 achieved 81.00% vs. 79.90%
+and information partitioning did not provide additional benefit.    (p = 0.1929), and GPT-4o mini achieved 74.10% vs. 75.90%
+Detailed results are shown in Supplementary Tables 7–9 and          (p = 0.9323). No significant improvement was observed.
+Fig. 6.                                                             Detailed results are shown in Table V and Supplementary
+   Using GPT-4o as the base model, the 4×2 structure achieved       Table 11.
+the highest overall performance among the tested structures.
+For most likely diagnosis, accuracy reached 35.20% and safety
+rate reached 62.63%, outperforming the 2×2, 3×2, and 5×2            J. Error Analysis
+settings. For three possible diagnoses, the 4×2 structure also        Diagnostic accuracy errors were grouped into four levels
+achieved the highest accuracy and safety rate, at 50.84%            based on their distance from the correct diagnosis. Percentages
+and 71.72%, respectively. Reducing the token budget from            in the table represent the proportion of all cases. Detailed
+10                                                                                     IEEE JOURNAL OF BIOMEDICAL AND HEALTH INFORMATICS
+
+
+
+
+Fig. 6. Effects of configuration factors and lightweight settings on DMoA. (a) Lightweight-model setting; (b) effect of token budget; (c) effect
+of information partitioning; (d) effect of DMoA structure. The bars and lines represent percentages.
+
+
+
+results are shown in Supplementary Table 12. Each rank of                evaluating standalone models in complex diagnosis showed a
+error example are shown in Supplementary Note 2.                         clear gap between medical knowledge performance and real
+                                                                         diagnostic ability. In rare disease diagnosis, GPT-3.5 and GPT-
+K. Reliability Analysis                                                  4 achieved accuracies of only 23% and 40%, respectively. [26]
+                                                                            One possible reason for this gap lies in the response pattern
+   The reliability of the single models and DMoA evaluations             of LLMs. Current LLMs are still mainly built to give a one-
+was assessed across three repeated test rounds using Fleiss’             shot response to user input, so they still largely follow a
+kappa. Results demonstrated only small differences between               question-answering pattern. [27], [28] This form of reasoning
+the testing rounds. In the evaluation of 76 out of 96 single-            does not match the structured workflow of real clinical diag-
+model and DMoA settings, substantial agreement was ob-                   nosis. Clinical diagnosis is a structured process that requires
+served (0.61–0.80). Detailed results are shown in Supplemen-             hypothesis generation, evidence checking, conflict resolution,
+tary Table 13.                                                           and revision of conclusions. [5], [29] By contrast, a single-
+                                                                         model output compresses all of these steps into one response.
+L. Cost Analysis                                                         As a result, even if the model has substantial medical knowl-
+   The cost analysis of the DMoA framework indicates that                edge, it may still fail to perform stable diagnostic reasoning
+for the 4×2 DMoA framework, the average cost per case                    in complex diagnostic cases. [6], [9]
+                                                                            DMoA introduces a more structured organization of diag-
+for the three possible diagnoses was $0.0089 USD in the
+                                                                         nostic reasoning to overcome the limitations of the one-shot
+rare disease dataset and $0.0094 USD in the challenging case
+                                                                         response pattern. By dividing diagnosis into four role-specific
+dataset when using GPT-4o mini as the base model, while it
+                                                                         stages: generation, challenge, revision, and aggregation, it dis-
+was $0.1377 USD and $0.1307 USD per case, respectively,
+                                                                         tributes key reasoning functions across the debater-aggregator
+when using GPT-4o as the base model. Detailed results are
+                                                                         framework rather than relying on a single model to complete
+shown in Supplementary Table 14.
+                                                                         complex diagnosis in one pass. This iterative structure may be
+                                                                         particularly useful in highly uncertain cases, where diagnosis
+                        IV. D ISCUSSION                                  depends on bringing diverse clinical information together
+   This study developed DMoA, a structured multi-agent                   into a coherent explanation. The case-level analysis further
+framework that reorganizes complex clinical diagnosis into a             supports this mechanism by showing that rebuttal-guided re-
+role-specific and iterative reasoning workflow, and showed that          vision can redirect the diagnostic process from surface-level
+this design improved both diagnostic accuracy and diagnostic             symptom matching toward mechanistic integration of clinical
+safety beyond single models and less structured collaborative            and imaging evidence. Each agent outputs of this example are
+settings.                                                                shown in Supplementary Note 3.
+   Current LLMs remain inadequate for the demands of real-                  Some recent advances in generative artificial intelligence
+world complex medical diagnosis. LLMs have shown strong                  have already contributed to improving the diagnostic ability of
+capability in medical question-solving. [24] Singhal et al.              LLMs. Previous studies have shown that prompt design can
+noted that GPT-4-base had previously achieved an accuracy of             improve LLM diagnostic performance to some extent. Few-
+86.1% on the MedQA dataset. [25] However, previous work                  shot prompting, by providing a small number of examples
+CHANG XIA et al.: A STRUCTURED DEBATE-MIXTURE-OF-AGENTS FRAMEWORK FOR COMPLEX CLINICAL DIAGNOSTIC DECISION SUPPORT                 11
+
+
+
+before the target task, has been shown to improve model              evident as task complexity increases. [11], [25]
+performance on real clinical cases. [24], [30] Diagnostic-              DMoA occupies a distinct position in the field of medi-
+Reasoning Chain-of-Thought (DR-CoT) enhances the orga-               cal LLMs. LLM-based multi-agent frameworks have already
+nization of the relationship between patient presentation and        shown encouraging results in medical question answering,
+candidate diagnoses by guiding the model through stepwise            multimodal analysis, and medical diagnosis. A series of med-
+clinical reasoning. [21], [30] Similarly, multi-agent discussion     ical multi-agent frameworks has emerged for different tasks.
+can increase the number of viewpoints and promote exchange,          MDAgents is a multi-expert agent framework designed to
+which may lead to more diverse information and outputs.              improve zero-shot medical question answering through inter-
+[10], [31] One previous study also improved LLM diagnostic           agent communication and consensus building. [31] In MAC,
+performance through discussion among multiple doctor agents.         multiple doctor agents engage in multi-round discussion until a
+[11]                                                                 supervisor agent determines that consensus has been reached.
+   Further analyses were conducted to examine whether the            [11] Although most existing multi-agent frameworks rely
+improved performance of DMoA arose simply from prompt                mainly on communication to reach consensus, the present
+optimization or from increasing the number of agents. Our            framework establishes a more structured division of labor and
+ablation results showed its improvement depended on specific         focuses on complex clinical diagnostic tasks. By contrast, the
+structured modules. When a single model was prompted to im-          collaborative diagnostic reasoning process in DMoA is not
+itate DMoA-style instructions, its performance still remained        limited to simple interaction, but is organized more explicitly.
+below that of the full DMoA framework. A previous study also         DMoA also does not force all agents to agree. It allows
+suggested that the effectiveness of multi-agent systems does         different, and even conflicting, candidate results to be retained
+not arise from prompts alone, but also depends on interaction        and then filtered through aggregation by the Aggregator. The
+topology and workflow structure. [32] This study also con-           structured design adopted in this study therefore differs from
+firmed that multi-round dialogue among multiple agents can           consensus-only interaction. Although the goals and character-
+improve performance, which is consistent with previous work,         istics of these agent systems are not identical, their collective
+[10], [11] but the gain was still smaller than that achieved         potential in medicine appears substantial. [3] Further work is
+by structured DMoA. This suggests that explicit internal             needed to explore and evaluate their capabilities more fully in
+critique can improve the quality of intermediate diagnostic          medical settings. [2], [3]
+reasoning and reduce overlooked errors or weakly supported              Our investigation into the DMoA framework revealed sev-
+explanations. [33], [34]                                             eral other factors that influenced its performance. The choice
+   Reinforcement learning from human feedback (RLHF) has             of base model remained an important determinant of overall
+been used to align LLMs with domain knowledge and user ex-           performance, suggesting that the upper bound of a collabora-
+pectations. One study showed that, in general domains, RLHF          tive system is still constrained by the capability of its compo-
+can improve model responses, making them better aligned              nent models. The structural complexity of DMoA also affected
+with human preferences and instructions. [35] However, its           the overall framework performance, with the 4 × 2 configura-
+effectiveness in real clinical applications has not yet been fully   tion achieving the best results. Increasing structural complexity
+validated. In this study, a reward model was used to score           did not always lead to further gains. Previous work has
+the Presenter’s responses, but no significant improvement in         suggested that multi-agent systems may have an optimal scale,
+accuracy or safety rate was observed. This does not mean             beyond which marginal returns decline. [39] Heterogeneous-
+that the approach is useless. Previous work has suggested            model experiments further showed that the way models are
+several possible explanations. General reward models may             combined also matters. Models with more similar capabil-
+not be well suited to medical tasks, [36] and a very small           ity may support more effective collaboration, whereas large
+scalar reward signal may provide too little information for          performance gaps between roles do not necessarily produce
+the model to use effectively. A previous study also suggested        better results. Previous work has offered a similar explanation:
+that coarse feedback based only on the final outcome is              the effectiveness of heterogeneous multi-agent collaboration
+less effective than richer feedback provided on intermediate         depends on whether weaker agents can understand and execute
+reasoning steps. [37] Although no clear gain was observed            information effectively. [40] Lightweight-model experiments
+in the present study, reward-based alignment may still have          revealed a practically meaningful deployment strategy. Re-
+potential in medical applications, and improved alignment            placing base model with lightweight models reduced absolute
+strategies remain a reasonable direction for future research.        performance, but the resulting system still outperformed its
+[38]                                                                 corresponding single-model baseline. The analyses of token
+   The structured design of DMoA allows its advantages to            budget and information allocation indicate that the perfor-
+become more apparent in complex tasks. In basic clinical             mance of the DMoA framework may be adversely affected
+question answering, DMoA brought only marginal or no im-             by an excessively low token limit.
+provement over the corresponding single model. These results            Many recent studies have proposed evaluation methods for
+indicate that the amplification ability of DMoA for medical          LLM diagnostic outputs. [4], [41], [42] This study adopted a
+factual knowledge is actually quite limited. Previous work has       highly strict criterion: a prediction was considered accurate
+likewise suggested that single models already perform strongly       only when it exactly matched the reference diagnosis for
+on benchmark-style medical knowledge question answering,             accuracy evaluation, which partly explains why the reported
+whereas the benefit of multi-agent collaboration becomes more        accuracy values were relatively low. Clinical diagnosis should
+12                                                                                    IEEE JOURNAL OF BIOMEDICAL AND HEALTH INFORMATICS
+
+
+
+not be judged by accuracy alone, because diagnostic safety                             DATA AND C ODE AVAILABILITY
+is also critical. [9], [43] Previous studies have already begun          The rare disease cases and challenging case datasets are
+to incorporate safety into evaluation. [4], [42] One prior            from The ClinDiag code repository which is released under
+study proposed a framework for assessing clinical safety and          the Apache-2.0 license, whereas the dataset should be used
+hallucination in LLM-generated medical summaries. [20] In             according to the license and data-use terms specified by
+the present study, a structured scoring framework was used            the original authors. The clinical Q&A dataset is filtered
+to evaluate both diagnostic accuracy and five safety dimen-           from MedQA dataset and is publicly available at https:
+sions, providing a more comprehensive way to quantify LLM-            //github.com/jind11/MedQA under the MIT license.
+generated clinical natural-language outputs.                             The Dataset is openly available at the following link for non-
+   McDuff et al. reported that unassisted clinicians achieved         commercial purpose: https://github.com/Ivesxia/
+a top-10 accuracy of 33.6% on challenging published case              Debate-Mixture-of-Agent
+reports [6]. However, direct numerical comparison with our               Code is openly available at the following link for non-
+results is not appropriate: our top-3 metric is evaluated under       commercial purpose: https://github.com/Ivesxia/
+a stricter recall constraint than top-10, and the two studies         Debate-Mixture-of-Agent
+differ in case source, case selection criteria, and evaluation                     C ONFLICT OF I NTEREST S TATEMENT
+protocol. These differences preclude any inference about rel-
+ative performance between DMoA and human clinicians.                     The authors declare no conflicts of interest.
+
+   This study still has several limitations. Although a relatively                                     R EFERENCES
+large dataset of difficult cases was included, the number
+of rare disease samples still remains limited relative to the          [1] D. Van Veen, C. Van Uden, L. Blankemeier, J.-B. Delbrouck, A. Aali,
+large number of rare diseases overall. [44], [45] All cases                C. Bluethgen, A. Pareek, M. Polacin, E. P. Reis, A. Seehofnerová,
+were derived from published reports rather than prospective                N. Rohatgi, P. Hosamani, W. Collins, N. Ahuja, C. P. Langlotz, J. Hom,
+                                                                           S. Gatidis, J. Pauly, and A. S. Chaudhari, “Adapted large language mod-
+clinical workflows. The test setting therefore may not always              els can outperform medical experts in clinical text summarization,” Nat.
+fully reflect real diagnostic practice. The framework also still           Med., vol. 30, no. 4, pp. 1134–1142, Apr. 2024, doi: 10.1038/s41591-
+depends on the capability of the base model. When lightweight              024-02855-5.
+                                                                       [2] F. Busch, L. Hoffmann, C. Rueger, E. H. van Dijk, R. Kader, E. Ortiz-
+models were used as the foundation, performance remained                   Prado, M. R. Makowski, L. Saba, M. Hadamitzky, J. N. Kather,
+better than the corresponding single-model baseline, but the               D. Truhn, R. Cuocolo, L. C. Adams, and K. K. Bressem, “Current
+absolute level was still constrained.                                      applications and challenges in large language models for patient care:
+                                                                           A systematic review,” Commun. Med., vol. 5, no. 1, Art. no. 26, Jan.
+   The role of multi-model collaboration in medicine can                   2025, doi: 10.1038/s43856-024-00717-2.
+                                                                       [3] S. Zhou, Z. Xu, M. Zhang, C. Xu, Y. Guo, Z. Zhan, Y. Fang, S. Ding,
+vary across applications. AgentClinic focuses on multimodal                J. Wang, K. Xu, L. Xia, J. Yeung, D. Zha, D. Cai, G. B. Melton,
+medical diagnosis, [46] whereas MEDAGENTS is designed                      M. Lin, and R. Zhang, “Large language models for disease diagnosis:
+for medical question answering. [10] Despite the above limi-               A scoping review,” npj Artif. Intell., vol. 1, no. 1, Art. no. 9, 2025, doi:
+                                                                           10.1038/s44387-025-00011-z.
+tations, DMoA may still serve as a structured framework for            [4] S. Bedi, Y. Liu, L. Orr-Ewing et al., “Testing and evaluation of health
+high-difficulty, high-uncertainty cases. In practical use, it could        care applications of large language models: A systematic review,” JAMA,
+be further integrated with agents for upstream data-processing             vol. 333, no. 4, pp. 319–328, 2025.
+                                                                       [5] T. Tu, M. Schaekermann, A. Palepu et al., “Towards conversational
+tasks, such as case-processing agents and gene-analysis agents,            diagnostic artificial intelligence,” Nature, vol. 642, no. 8067, pp. 442–
+to improve specialization and real-world performance. Hospi-               450, 2025.
+tals may also deploy locally hosted small-model versions as            [6] D. McDuff, M. Schaekermann, T. Tu et al., “Towards accurate differen-
+                                                                           tial diagnosis with large language models,” Nature, vol. 642, no. 8067,
+lightweight implementations for data safety that reduce cost               pp. 451–457, 2025.
+while still achieving performance suitable for routine use. It         [7] F. Faye, C. Crocione, R. Anido de Peña, S. Bellagambi, L. Escati
+should also be noted that, because interpretability still has clear        Peñaloza, A. Hunter, L. Jensen, C. Oosterwijk, E. Schoeters, D. de
+                                                                           Vicente, L. Faivre, M. Wilbur, Y. Le Cam, and J. Dubief, “Time to
+boundaries and current evaluation schemes remain incomplete,               diagnosis and determinants of diagnostic delays of people living with a
+DMoA cannot fully replace clinicians and should instead be                 rare disease: Results of a Rare Barometer retrospective patient survey,”
+used as a second-opinion tool. [4], [42]                                   Eur. J. Hum. Genet., vol. 32, no. 9, pp. 1116–1126, Sep. 2024, doi:
+                                                                           10.1038/s41431-024-01604-z.
+   In conclusion, this study shows that the DMoA framework             [8] C. Phillips, A. Parkinson, T. Namsrai, A. Chalmers, C. Dews, D. Gre-
+                                                                           gory, E. Kelly, C. Lowe, and J. Desborough, “Time to diagnosis for a rare
+substantially improves the diagnostic ability of LLMs in com-              disease: Managing medical uncertainty. A qualitative study,” Orphanet
+plex clinical tasks. In real diagnostic settings, standalone mod-          J. Rare Dis., vol. 19, no. 1, Art. no. 297, 2024, doi: 10.1186/s13023-
+els still have difficulty coordinating evidence and sustaining             024-03319-2.
+                                                                       [9] P. Hager, F. Jungmann, R. Holland, K. Bhagat, I. Hubrecht, M. Knauer,
+deep reasoning. [6], [9] DMoA addresses this gap by organiz-               J. Vielhauer, M. Makowski, R. Braren, G. Kaissis, and D. Rueckert,
+ing diagnostic reasoning into four explicit stages—generation,             “Evaluation and mitigation of the limitations of large language models
+critique, revision, and aggregation—which significantly im-                in clinical decision-making,” Nat. Med., vol. 30, no. 9, pp. 2613–2622,
+                                                                           Sep. 2024, doi: 10.1038/s41591-024-03097-1.
+proves diagnostic performance and helps compensate for the            [10] X. Tang, A. Zou, Z. Zhang, Z. Li, Y. Zhao, X. Zhang, A. Cohan,
+reasoning limits of one-shot single-model outputs. These re-               and M. Gerstein, “MedAgents: Large language models as collaborators
+sults highlight the value of structured multi-agent systems in             for zero-shot medical reasoning,” in Findings of the Association for
+                                                                           Computational Linguistics: ACL 2024, Bangkok, Thailand, Aug. 2024,
+medical diagnosis and support further investigation into their             pp. 599–621. [Online]. Available: https://aclanthology.org/
+design. [10], [11], [31]                                                   2024.findings-acl.33/
+CHANG XIA et al.: A STRUCTURED DEBATE-MIXTURE-OF-AGENTS FRAMEWORK FOR COMPLEX CLINICAL DIAGNOSTIC DECISION SUPPORT                                           13
+
+
+
+[11] X. Chen, H. Yi, M. You, W. Liu, L. Wang, H. Li, X. Zhang, Y. Guo,                 collaboration of LLMs for medical decision-making,” in Proc. Adv.
+     L. Fan, G. Chen, Q. Lao, W. Fu, K. Li, and J. Li, “Enhancing diagnostic           Neural Inf. Process. Syst., vol. 37, 2024.
+     capability with multi-agents conversational large language models,” npj      [32] H. Zhou, X. Wan, R. Sun, H. Palangi, S. Iqbal, I. Vulić, A. Ko-
+     Digit. Med., vol. 8, no. 1, Art. no. 159, 2025, doi: 10.1038/s41746-025-          rhonen, and S. O. Arik, “Multi-agent design: Optimizing agents with
+     01550-0.                                                                          better prompts and topologies,” in Proc. Int. Conf. Learn. Represent.,
+[12] N. Shazeer, A. Mirhoseini, K. Maziarz, A. Davis, Q. V. Le, G. E. Hinton,          2026. [Online]. Available: https://openreview.net/forum?
+     and J. Dean, “Outrageously large neural networks: The sparsely-gated              id=I05H9RUzHB
+     mixture-of-experts layer,” in Proc. Int. Conf. Learn. Represent., 2017.      [33] Y. Zhao, H. Wang, Y. Zheng, and X. Wu, “A layered debating multi-
+     [Online]. Available: https://arxiv.org/abs/1701.06538                             agent system for similar disease diagnosis,” in Proc. 2025 Conf. Na-
+[13] J. Wang, J. Wang, B. Athiwaratkun, C. Zhang, and J. Zou, “Mixture-                tions Americas Chapter Assoc. Comput. Linguistics: Human Language
+     of-agents enhances large language model capabilities,” in Proc.                   Technologies, vol. 2, Albuquerque, NM, USA, Apr. 2025, pp. 539–
+     Int. Conf. Learn. Represent., 2025. [Online]. Available: https://                 549. [Online]. Available: https://aclanthology.org/2025.
+     openreview.net/forum?id=h0ZfDIrj7T                                                naacl-short.46/
+[14] J. Li, X. Chen, H. Zhou, H. Yi, M. You, W. Liu, L. Wang, H. Li,              [34] G. Irving, P. Christiano, and D. Amodei, “AI safety via debate,” arXiv
+     X. Zhang, Y. Guo, L. Fan, Q. Lao, W. Fu, and K. Li, “Grounding large              preprint arXiv:1805.00899, 2018.
+     language model in clinical diagnostics,” Research Square, Apr. 2025,         [35] L. Ouyang, J. Wu, X. Jiang, D. Almeida, C. L. Wainwright, P. Mishkin,
+     doi: 10.21203/rs.3.rs-6286021/v1.                                                 C. Zhang, S. Agarwal, K. Slama, A. Ray, J. Schulman, J. Hilton,
+[15] D. Jin, E. Pan, N. Oufattole, W.-H. Weng, H. Fang, and P. Szolovits,              F. Kelton, L. Miller, M. Simens, A. Askell, P. Welinder, P. Christiano,
+     “What disease does this patient have? A large-scale open domain                   J. Leike, and R. Lowe, “Training language models to follow instructions
+     question answering dataset from medical exams,” arXiv preprint                    with human feedback,” in Advances in Neural Information Processing
+     arXiv:2009.13081, 2020.                                                           Systems, vol. 35, 2022, pp. 27730–27744.
+[16] USMLE,        “USMLE         physician      tasks/competencies,”     2021.   [36] M. Ding, J. Zhang, W. Wang, C.-Y. Li, W.-C. Fang, H.-Y. Wu, H. Zhong,
+     [Online].       Available:      https://www.usmle.org/sites/                      W. Chen, and L. Shen, “Med-RewardBench: Benchmarking reward
+     default/files/2021-08/USMLE_Physician_Tasks_                                      models and judges for medical multimodal large language models,”
+     Competencies.pdf                                                                  arXiv preprint arXiv:2508.21430, 2025.
+[17] A. Maiga, A. Shah, and E. Yilmaz, “Error detection in medical note           [37] H. Lightman, V. Kosaraju, Y. Burda, H. Edwards, B. Baker, T. Lee,
+     through multi agent debate,” in Proc. 24th Workshop Biomed. Lang.                 J. Leike, J. Schulman, I. Sutskever, and K. Cobbe, “Let’s verify step by
+     Process., Aug. 2025, pp. 124–135.                                                 step,” in Proc. Int. Conf. Learn. Represent., 2024. [Online]. Available:
+[18] R. Likert, “A technique for the measurement of attitudes,” Arch. Psy-             https://openreview.net/forum?id=v8L0pN6EOi
+     chol., vol. 22, no. 140, pp. 1–55, 1932.                                     [38] H. Dong, W. Xiong, B. Pang, H. Wang, H. Zhao, Y. Zhou, N. Jiang,
+[19] W. F. Bond, L. M. Schwartz, K. R. Weaver, D. Levick, M. Giuliano,                 D. Sahoo, C. Xiong, and T. Zhang, “RLHF workflow: From reward
+     and M. L. Graber, “Differential diagnosis generators: An evaluation of            modeling to online RLHF,” arXiv preprint arXiv:2405.07863, 2024.
+     currently available computer programs,” J. Gen. Intern. Med., vol. 27,       [39] Y. Yang, C. Qu, M. Wen, L. Shi, Y. Wen, W. Zhang, A. Wierman, and
+     no. 2, pp. 213–219, Feb. 2012, doi: 10.1007/s11606-011-1804-8.                    S. Gu, “Understanding agent scaling in LLM-based multi-agent systems
+                                                                                       via diversity,” arXiv preprint arXiv:2602.03794, 2026.
+[20] E. Asgari, N. Montaña-Brown, M. Dubois, S. Khalil, J. Balloch, J. Au
+                                                                                  [40] L. Wang, T. Zhu, L. Qin, L. Gao, and W. Zhou, “Guided collabo-
+     Yeung, and D. Pimenta, “A framework to assess clinical safety and
+                                                                                       ration in heterogeneous LLM-based multi-agent systems via entropy-
+     hallucination rates of LLMs for medical text summarisation,” npj Digit.
+                                                                                       based understanding assessment and experience retrieval,” arXiv preprint
+     Med., vol. 8, no. 1, Art. no. 274, 2025, doi: 10.1038/s41746-025-01670-
+                                                                                       arXiv:2602.13639, 2026.
+     7.
+                                                                                  [41] H. Takita, D. Kabata, S. L. Walston, H. Tatekawa, K. Saito, Y. Tsujimoto,
+[21] J. Wu, W. Deng, X. Li, S. Liu, T. Mi, Y. Peng, Z. Xu, Y. Liu,
+                                                                                       Y. Miki, and D. Ueda, “A systematic review and meta-analysis of
+     H. Cho, C.-I. Choi, Y. Cao, H. Ren, X. Li, X. Li, and Y. Zhou,
+                                                                                       diagnostic performance comparison between generative AI and physi-
+     “MedReason: Eliciting factual medical reasoning steps in LLMs via
+                                                                                       cians,” npj Digit. Med., vol. 8, no. 1, Art. no. 175, Mar. 2025, doi:
+     knowledge graphs,” arXiv preprint arXiv:2504.00993, Apr. 2025.
+                                                                                       10.1038/s41746-025-01543-z.
+[22] J. L. Fleiss, “Measuring nominal scale agreement among many
+                                                                                  [42] S. Johri, J. Jeong, B. A. Tran et al., “An evaluation framework for
+     raters,” Psychol. Bull., vol. 76, no. 5, pp. 378–382, 1971, doi:
+                                                                                       clinical use of large language models in patient interaction tasks,” Nat.
+     10.1037/h0031619.
+                                                                                       Med., vol. 31, pp. 77–86, 2025.
+[23] J. R. Landis and G. G. Koch, “The measurement of observer agreement          [43] M. Omar, V. Sorin, J. D. Collins, D. Reich, R. Freeman, N. Gavin,
+     for categorical data,” Biometrics, vol. 33, no. 1, pp. 159–174, Mar. 1977,        A. Charney, L. Stump, N. L. Bragazzi, G. N. Nadkarni, and E. Klang,
+     doi: 10.2307/2529310.                                                             “Multi-model assurance analysis showing large language models are
+[24] K. Singhal, S. Azizi, T. Tu, S. S. Mahdavi, J. Wei, H. W. Chung,                  highly vulnerable to adversarial hallucination attacks during clinical
+     N. Scales, A. Tanwani, H. Cole-Lewis, S. Pfohl et al., “Large language            decision support,” Commun. Med., vol. 5, no. 1, Art. no. 330, 2025,
+     models encode clinical knowledge,” Nature, vol. 620, no. 7972, pp. 172–           doi: 10.1038/s43856-025-01021-3.
+     180, Aug. 2023, doi: 10.1038/s41586-023-06291-2.                             [44] M. Haendel, N. Vasilevsky, D. Unni, C. Bologa, N. Harris, H. Rehm,
+[25] K. Singhal, T. Tu, J. Gottweis et al., “Toward expert-level medical               A. Hamosh, G. Baynam, T. Groza, J. McMurry, H. Dawkins, A. Rath,
+     question answering with large language models,” Nat. Med., vol. 31,               C. Thaxon, G. Bocci, M. P. Joachimiak, S. Köhler, P. N. Robinson,
+     no. 3, pp. 943–950, Mar. 2025.                                                    C. Mungall, and T. I. Oprea, “How many rare diseases are there?”
+[26] L. Mehnen, S. Gruarin, M. Vasileva, and B. Knapp, “ChatGPT as a                   Nat. Rev. Drug Discov., vol. 19, no. 2, pp. 77–78, Feb. 2020, doi:
+     medical doctor? A diagnostic accuracy study on common and rare                    10.1038/d41573-019-00180-y.
+     diseases,” medRxiv, 2023, doi: 10.1101/2023.04.20.23288859.                  [45] T. Richter, S. Nestler-Parr, R. Babela, Z. M. Khan, T. Tesoro, E. Molsen,
+[27] P. Mondorf and B. Plank, “Beyond accuracy: Evaluating the reason-                 and D. A. Hughes, “Rare disease terminology and definitions—A
+     ing behavior of large language models—A survey,” arXiv preprint                   systematic global review: Report of the ISPOR Rare Disease Special
+     arXiv:2404.01869, 2024.                                                           Interest Group,” Value Health, vol. 18, no. 6, pp. 906–914, Sep. 2015,
+[28] A. Saparov and H. He, “Language models are greedy reasoners: A                    doi: 10.1016/j.jval.2015.05.008.
+     systematic formal analysis of chain-of-thought,” in Proc. Int. Conf.         [46] S. Schmidgall, R. Ziaei, C. Harris, E. Reis, J. Jopling, and M. Moor,
+     Learn. Represent., 2023. [Online]. Available: https://arxiv.org/                  “AgentClinic: A multimodal agent benchmark to evaluate AI in simu-
+     abs/2210.01240                                                                    lated clinical environments,” arXiv preprint arXiv:2405.07960, 2024.
+[29] M. Taberna, F. Gil Moncayo, E. Jané-Salas, M. Antonio, L. Arribas,
+     E. Vilajosana, E. Peralvez Torres, and R. Mesı́a, “The multidisciplinary
+     team (MDT) approach and quality of care,” Front. Oncol., vol. 10, Art.
+     no. 85, Mar. 2020, doi: 10.3389/fonc.2020.00085.
+[30] T. Savage, A. Nayak, R. N. Gallo, E. S. Rangan, and J. H. Chen,
+     “Diagnostic reasoning prompts reveal the potential for large language
+     model interpretability in medicine,” npj Digit. Med., vol. 7, Art. no. 20,
+     2024.
+[31] Y. Kim, C. Park, H. Jeong, Y. S. Chan, X. Xu, D. McDuff, H. Lee,
+     M. Ghassemi, C. Breazeal, and H. W. Park, “MDAgents: An adaptive
+

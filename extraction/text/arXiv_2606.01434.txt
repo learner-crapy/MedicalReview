@@ -1,0 +1,1476 @@
+                                            DrugClaw and DrugAudit: A Primary-Source-Grounded Agent and
+                                          Authority-Aware Benchmark for Drug-Information Question Answering
+
+                                                      Qing Wang1* , Bo Li2* , Jialu Liang1 , Daling Shi1 , Bob Zhang2 , Qianqian Song1#
+                                                 1
+                                                     Department of Health Outcomes and Biomedical Informatics, College of Medicine, University of Florida, Florida,
+                                                                                                         USA
+                                                     2
+                                                       PAMI Research Group, Department of Computer and Information Science, Faculty of Science and Technology,
+                                                                                      University of Macau, Taipa, Macau, China
+                                                                               *
+                                                                                 Co-first authors. # Correspondence: qsong1@ufl.edu
+
+
+
+                                                                     Abstract                                    Tool-augmented agents (Huang et al., 2025; Gao
+                                                                                                              et al., 2024; OpenAI, 2025a) partially close this gap,
+                                                 Drug-information question answering is a high-
+
+
+
+
+arXiv:2606.01434v1 [cs.CL] 31 May 2026
+                                                 stakes setting where hallucinated facts can mis-             but on drug-information tasks two failure modes
+                                                 lead clinical decision-making and the prove-                 are endemic. Tool-rich systems often skip the reg-
+                                                 nance of each cited fact matters as much as                  ulatory primary source and cite whichever URL
+                                                 the fact itself. We present DrugClaw, a multi-               the search returns first; bare LLMs answer fluently
+                                                 agent retrieval-augmented system that queries                without citations and fabricate plausible numerics.
+                                                 a registry of drug and pharmacovigilance skills              A deeper gap is at the evaluation layer: existing
+                                                 via a reflection-driven state-machine workflow               biomedical QA scoring grades surface answer cor-
+                                                 and returns answers grounded in primary reg-
+                                                                                                              rectness but does not distinguish a citation to an
+                                                 ulatory or peer-reviewed records. We also
+                                                 contribute DrugAudit, a 3,772-item authority-                FDA Label from a citation to a downstream aggre-
+                                                 aware benchmark with an evaluation panel that                gator wrapper of that same Label – the very distinc-
+                                                 scores upstream-of-gold source match, token-                 tion that anchors evidence-based medicine report-
+                                                 level semantic snippet overlap, and citation                 ing standards (Page et al., 2021; Guyatt et al., 2008;
+                                                 faithfulness under a dual-judge LLM-as-judge                 Guideline, 2003). In regulated drug-information
+                                                 protocol with inter-judge κ = 0.88 (almost-                  settings, provenance is not a presentation choice
+                                                 perfect). Across DrugAudit plus drug-related
+                                                                                                              but an evaluation axis.
+                                                 subsets of MedQA (751) and PubMedQA
+                                                 (512), DrugClaw is top-1 on every column of                     This paper makes four contributions.
+                                                 the headline table: composite Evidence Index                 DrugClaw, an authority-grounded multi-agent
+                                                 under both judges, judge-mediated answer cor-
+                                                                                                              system. DrugClaw (Figure 1) is a reflection-
+                                                 rectness, primary-source rate (0.918, +10.1 pp
+                                                 over next-best), faithfulness (0.887, +5.9 pp),
+                                                                                                              driven state-machine over eight specialised agents
+                                                 MedQA (0.920), and PubMedQA (0.693).1                        that queries a registry of fifty-seven active drug
+                                                                                                              and pharmacovigilance skills drawn from a fifteen-
+                                         1       Introduction                                                 subcategory tree of over seventy catalogued re-
+                                         When a clinician asks whether a drug has a mea-                      sources. The system ships in three reasoning modes
+                                         sured EC50 against a target, how a label warns                       (linear, graph, web-only) and every emitted an-
+                                         about hepatotoxicity, or what adverse events have                    swer carries a structured evidence list whose source
+                                         been reported to FAERS, an incorrect answer is a                     URLs point back to primary regulatory or peer-
+                                         patient-safety liability, not merely a benchmark                     reviewed records.
+                                         loss. Large language models show strong gen-                         DrugAudit and an authority-aware metric panel.
+                                         eral biomedical knowledge (Singhal et al., 2023;                     Three structural biases in prior drug-QA scoring
+                                         Nori et al., 2023; Luo et al., 2022; Taylor et al.,                  motivate it: strict source-name canonicalisation
+                                         2022), but their parametric knowledge degrades                       that penalises upstream primary sources (CPIC for
+                                         quickly outside high-resource diseases (Ren et al.,                  a PharmGKB query, FAERS for a SIDER query);
+                                         2025), they offer no native audit trail to a regula-                 substring-only snippet matching that fails when
+                                         tory or peer-reviewed source, and they hallucinate                   gold snippets are field names rather than sentences;
+                                         plausible-looking numerics with regularity (Ji et al.,               and the absence of a citation-quality signal distinct
+                                         2023; Maynez et al., 2020).                                          from citation presence. We address these with an
+                                             1
+                                             https://anonymous.4open.science/r/                               equivalence-bucket rule, a token-Jaccard semantic
+                                         DrugClaw-01A3/README.md                                              overlap, and a faithfulness rate (§4).
+
+                                                                                                          1
+A dual-judge LLM-as-judge protocol. Llama-                   an open-web index (with a web-search fallback
+3.1-70B-Instruct (primary) and gpt-oss-120b (sec-            quantified in Appendix E), and its evidence schema
+ondary) are external to every candidate system,              constrains every claim to carry a primary-source
+eliminating direct self-evaluation bias (Zheng et al.,       URL rather than a loose web reference.
+2023; Panickssery et al., 2024). Across 22,471
+parseable paired verdicts (of 26,404 attempted)              Retrieval-augmented generation in medicine.
+we obtain macro κ = 0.88, which corresponds to               Retrieval-augmented generation (Lewis et al.,
+almost-perfect agreement under Landis and Koch               2020) and its self-reflective (Asai et al., 2024)
+(1977).                                                      and graph-structured (Wu et al., 2025) variants
+                                                             have been adapted to clinical settings most visi-
+Comprehensive empirical comparison. We                       bly by Almanac (Zakka et al., 2024) and the medi-
+evaluate seven systems (DrugClaw (linear), Drug-             cal retrieval-augmented benchmark of Xiong et al.
+Claw (graph), Biomni (Huang et al., 2025), Deep-             (2024); Ren et al. (2025) characterise the factual-
+Evidence (Wang et al., 2025), ToolUniverse (Gao              knowledge boundary of LLMs that motivates re-
+et al., 2024), and direct LLMs at two scales) on             trieval over parametric recall. DrugClaw sits at the
+3,772 items spanning nine source-database subsets            structured-record end of this spectrum. It queries
+plus drug-related MedQA and PubMedQA. Drug-                  typed records from regulatory and peer-reviewed
+Claw is top-1 on every column of the headline table          databases and treats the database row itself as the
+(Table 1).                                                   citation, rather than retrieving passages from free
+                                                             text. Almanac in particular (Zakka et al., 2024)
+2   Related Work                                             retrieves over a closed corpus of clinical guidelines
+Biomedical question answering and tool agents.               with physician-graded answer quality; its citation
+Medical QA benchmarks span clinical reasoning                unit is a guideline passage rather than a primary
+(MedQA, Jin et al., 2021; MedMCQA, Pal et al.,               regulatory record, and its evaluation does not sep-
+2022), literature QA (PubMedQA, Jin et al., 2019;            arate upstream-primary from aggregator-wrapper
+BioASQ, Krithara et al., 2023) and clinical-note             provenance. DrugClaw and Almanac therefore tar-
+tasks (Abacha et al., 2017); Med-PaLM (Singhal               get complementary evidence universes: regulatory
+et al., 2023) and GPT-4 (Nori et al., 2023) close            and pharmacovigilance records in our case, clinical
+much of the multiple-choice gap without provid-              guidelines in theirs. Our authority-aware panel (§4)
+ing verifiable citations. Tool-augmented agents              operationalises the upstream-vs-aggregator distinc-
+(Schick et al., 2023; Yao et al., 2023; Patil et al.,        tion that the guideline-passage unit cannot express.
+2024; Qin et al., 2024) close a different gap, with          Citation-faithfulness evaluation. Most retrieval-
+chemistry (ChemCrow, M. Bran et al., 2024) and               augmented evaluations score retrieval through
+biomedical (Biomni, Huang et al., 2025; ToolU-               recall-at-k (Karpukhin et al., 2020) or generation
+niverse, Gao et al., 2024; TxAgent, Gao et al.,              through BLEU, ROUGE or LLM-as-judge. Ci-
+2025) instantiations scaling to hundreds of tools.           tation faithfulness for general-domain generation
+Specifically on drug tasks, DrugAgent (Liu et al.,           (Gao et al., 2023; Min et al., 2023; Manakul et al.,
+2024a) casts drug discovery as multi-agent collab-           2023) focuses on whether claims are supported
+oration, MedAdapter (Shi et al., 2024) performs              but not on the authority of the cited source, that
+test-time adaptation for medical reasoning, Drug-            is, whether the citation points to the upstream
+Watch (Bobrov et al., 2024) visualises FAERS-                FDA record or a downstream aggregator wrapper.
+grounded drug-safety retrieval, and deep-research            Our primary-source rate and upstream-equivalence
+style agents (OpenAI, 2025a) interleave web search           rule (§4) make this distinction explicit and judge-
+with citation synthesis. ChemCrow targets synthe-            independent.
+sis planning, Almanac (Zakka et al., 2024) retrieves
+guideline passages, and TxAgent’s tool stack is              LLM-as-judge methodology. Zheng et al.
+largely subsumed by ToolUniverse, so we adopt                (2023) and Liu et al. (2023) established LLM-as-
+Biomni, DeepEvidence (Wang et al., 2025) and                 judge as a scalable substitute for human ratings;
+ToolUniverse as the directly comparable agentic              follow-up work has documented self-preference
+baselines. DrugClaw differs in two respects: its pri-        and length bias (Liu et al., 2024b; Panickssery
+mary retrieval channel is a closed registry of vetted        et al., 2024). We mitigate these biases by choosing
+regulatory and peer-reviewed sources rather than             judges (Llama-3.1-70B-Instruct and gpt-oss-120b)
+
+                                                         2
+        a DrugClaw overview                      b DrugClaw state-machine multi-agent workflow                                                                                                                                                c State definition
+                 User question                                                                                                                                                                   Reflector                                       Pt                Query plan
+                                                   1                            Retrieval            3       Graph Builder              4     Re-Ranker               5   Response          6
+                   "What are the
+                                                         Plan             2                                                                     Agent                      Agent                  Agent
+                                                         Agent                   Agent                          Agent                                                                                                fallback
+                   clinically relevant
+                   drug-drug
+                                                                                                                                                                                                                                                             Evidence pool of typed
+                   interactions                                                                                                                                                                                        Final answer             εt
+                   between apixaban                                                                                                                                                                                                                                  records
+                   and amiodarone?"                                                                                                                                                                                  (with provenance
+                                                                                                                                                                                                                     and confidence rt)
+                                                                                                                                                                                                                                                                 Claim-evidence
+                                                                                                                                                                                                                                                Gt                  subgraph
+                                                   -Decompose                                        -Normalize &                                                     -Synthesize          -Evaluate
+                                                                         -Select resources                                             -Score relevance
+            Core innovations                       query                 -Issue queries              type records                      -Rank evidence                 answer at            sufficiency rt
+                                                   -Create query                                     -Build claim-evidence                                                                 -Apply penalty                          Yes
+                     Multi-agent state
+                                                   plan Pt
+                                                                         -Gather raw records
+                                                                                                     graph Gt
+                                                                                                                                       -Filter top-k                  -Cite evidence
+                                                                                                                                                                      from Gt              − λΔt−                                               at           Synthesized prose answer
+            M        machine with
+                     reflection control
+
+                                                                                                                                                                                                                                 Is
+                                                                                                                                                                                                                                                rt           Reflection sufficiency score
+                    Code Agent with
+                                                                                                     State at iteration t: St, = (Pt, εt, Gt, at, rt )                                                                       rt ≥ τsuff?
+                    restricted Python
+                    Lsafe in sandbox
+                                                               Pt                       εt                                Gt                               at                           ≥rt ≥
+                     Claim-evidence                                                                                                                                                                                                            d Reflection update rule
+                     graph for explicit
+                     provenance
+                                                                                                                                                                                                                                                 rt+1 = ρ(Gt+1, at+1, q) − λΔt−
+                  Marginal information                                                                                                                                                                                                                           Base sufficiency from
+                  gain penalty to                       -Subquestions
+                                                                                    -Typed records              -Claims (squares)                   -Structured answer                                                              No               ρ (.)       graph, answer, and
+                  prevent over-retrieval                -Resource plan                                          -Evidence (circles)                                             -Sufficiency score                                                               query
+                                                                                                                                                    -With citations             -Calibrated certainty
+                                                        -Retrieval                                              -Relations (edges)
+                                                       strategy                                                                                     -Confidence rt                                                                                               Marginal information
+                                                                                                                                                                                                                                                     Δt−
+                    Primary-source                                                                                                                                                                                                                               gain deficit
+                    traceability across
+                                                                                                                                                                                                                                                 λ≥0            Penalty coefficient
+                    70+ resources
+                                                                                             St+1 = Refl · Resp · Rerk · GBld · Retr · Plan(St, q)                                                                                                Prevents infinite loops and
+                                                                                                                                                                                                                                                  encourages calibrated abstention.
+
+
+        e Resources and execution layer
+                                                                                                                                        Code Agent (execution in restricted sublanguage Lsafe)
+                                 Curated biomedical resource registry (70+ sources)                                                                                                                                                                    Security & governance
+                                                                                                                            Subquery              Coding                Validation         Execution in         Structured
+                                                                                                                            translation                               (static checks)        sandbox              results
+                                                                                                                                                                                                                                                       -Sandboxed execution
+                                                                                                                                                                                                                                                       -No network access
+                                                                                                                                                                                                                                                       -Resource allow-list
+         openFDA ChEMBL            PharmGKB ClinicalTrials DrugBank PubMed             FDA Label                                                                                                                                                       -Full provenance logs
+                                                                                                                                                                                                                                                       -Reproducible runs
+                              APIs | Databases | Document Repositories | Ontologies                                                                        Deterministic · Secure · Auditable
+
+
+
+                                                                                                                                       Output package
+         f Termination
+            Iterate until rt ≥ τsuff or max iterations reached.                                                                                  Answer                   Claim-evidence                Evidence                 Provenance                  Confidence
+                                                                                                                                                                             graph Gt                   records εt                  report                      rt
+              Return answer with provenance, resource list, and final confidence.                                                                    at
+
+
+
+
+Figure 1: DrugClaw architecture. a, Motivating clinical query and the core innovations: multi-agent state machine
+with reflection, sandboxed Code Agent, claim-evidence graph, regression-penalised reflection update, and primary-
+source traceability across 70+ resources. b, State-machine workflow: six agents (Plan, Retrieval, Graph Builder,
+Re-Ranker, Response, Reflector) iterate St+1 = Refl ◦ Resp ◦ Rerk ◦ GBld ◦ Retr ◦ Plan(St , q) until rt ≥ τsuff ,
+with a web-search fallback invoked on terminal insufficiency. c, State components St = (Pt , Et , Gt , at , rt ): query
+plan, typed evidence pool, claim-evidence subgraph, prose answer, and reflection sufficiency. d, Reflection update
+rt+1 = ρt+1 − λ∆−            −
+                    t with ∆t = max(0, rt − ρt+1 ), where the regression penalty discourages thrashing across itera-
+tions (App. B). e, A 70+ source registry (openFDA, ChEMBL, PharmGKB, ClinicalTrials.gov, DrugBank, PubMed,
+FDA Label, . . .) is reached only via the Code Agent’s deterministic, sandboxed pipeline (translate → code → vali-
+date → execute → return structured results). f, Termination: iterate until rt ≥ τsuff or max iterations; output answer,
+claim-evidence graph, evidence records, provenance, and confidence rt .
+
+
+whose model families do not appear in any                                                                                                                 automatically when it is thin.
+candidate system, and by reporting Cohen’s κ
+across the pair as a calibration check.                                                                                                                   3.1               Skill Registry and Resource Tree
+
+3   The DrugClaw System                                                                                                                                   DrugClaw catalogues drug-related data resources
+                                                                                                                                                          in a taxonomy that groups over seventy curated
+DrugClaw (Figure 1) is a state-machine workflow.                                                                                                          resources into fifteen subcategories spanning drug-
+Its eight specialised agents, comprising the six                                                                                                          target interactions, drug mechanisms, drug classi-
+iteration-loop operators of Equation 1 together                                                                                                           fication, drug indications and repurposing, cancer
+with a Code Agent and a web-search fallback, op-                                                                                                          pharmacology, adverse drug reactions, drug-drug
+erate over a closed registry of drug-information                                                                                                          interactions, toxicity, pharmacogenomics, gene-
+skills. The architecture realises three design goals                                                                                                      disease associations, omics drug response, clinical
+that prior biomedical agents only partially satisfy:                                                                                                      trials, clinical EHR-NLP, literature and text min-
+primary-source traceability, requiring every emit-                                                                                                        ing, and integrative biomedical knowledge graphs.
+ted claim to carry an identifier resolvable against                                                                                                       The current deployment implements fifty-seven
+a primary regulatory or peer-reviewed record; cal-                                                                                                        active skills drawn primarily from openFDA (La-
+ibrated abstention, requiring the system to refuse                                                                                                        bel, FAERS, Orange Book, DailyMed) (Kass-Hout
+rather than fabricate when the underlying skills re-                                                                                                      et al., 2016), ChEMBL (Mendez et al., 2019), Drug-
+turn no supporting evidence; and adaptive retrieval                                                                                                       Bank (Wishart et al., 2018), DrugCentral (Ursu
+depth, requiring the retrieve-and-reason loop to                                                                                                          et al., 2016), SIDER (Kuhn et al., 2016), Liver-
+terminate once evidence is sufficient yet deepen                                                                                                          Tox (Hoofnagle, 2013), PharmGKB and its CPIC
+
+                                                                                                                                                 3
+implementation arm (Whirl-Carrillo et al., 2021;              Algorithm 1 DrugClaw graph-mode workflow.
+Relling and Klein, 2011), Open Targets (Ochoa                 Require: query q; skill registry R; thresholds τsuff , Tmax
+et al., 2023), ChEBI (Hastings et al., 2016), DGIdb           Ensure: (a⋆ , G ⋆ , E ⋆ , r⋆ )
+                                                               1: S0 ← (∅, ∅, ∅, ∅, 0)
+(Cotto et al., 2018), RepoDB (Brown and Patel,                 2: for t = 0 to Tmax −1 do
+2017), PubMed E-utilities, and a curated molecular-            3:     Pt+1 ← S Plan(q; Renabled )
+targets table that resolves cross-database target              4:     Et+1 ← u∈Pt+1 exec_sandbox(CodeAgent(u))
+                                                               5:     Gt+1 ← Rerk◦GBld(Et+1 , q)
+identifiers.                                                   6:     at+1        ←          Resp(Gt+1 , q);  rt+1        ←
+   Each skill exposes a typed retrieval interface that            Refl(Gt+1 , at+1 , q)
+returns records under a unified schema. A record               7:     if rt+1 ≥ τsuff then break
+                                                               8:     end if
+has the form ⟨s, σ, t, τ, ϱ, w, π, ϵ⟩ with s and t the         9: end for
+source and target entities, σ and τ their entity types,       10: if rt+1 < τsuff then
+ϱ the typed relation, w the retrieval weight, π the           11:      Et+1    ←         Et+1 ∪ WebSearch(q); re-run
+                                                                  GBld, Rerk, Resp, Refl
+provenance label (the canonical skill name), and              12: end if
+ϵ the free-text evidence snippet. A companion re-             13: return (at+1 , Gt+1 , Et+1 , rt+1 )
+source registry tracks each skill’s runtime status
+across four states: a skill is ENABLED when all its
+data files load and its upstream API responds within             Linear mode collapses Eq. 1 to a single pass
+a probe budget; DEGRADED when partial data is                 without GBld or Rerk and without the reflection
+available but the skill should be deprioritised; MISS -       loop, prioritising sub-minute latency. Web-only
+ING when local metadata is absent and only the API            mode bypasses the entire chain and routes q directly
+path is usable; and DISABLED when the skill is un-            to the web-search agent. Full per-mode pseudocode
+reachable. The planner injects the current resource           and a side-by-side comparison of operator stacks
+snapshot into its system prompt, so plans never in-           appear in Appendix I.
+clude a skill that cannot execute. Cross-database
+                                                              3.3 The Code Agent and Sandboxed Retrieval
+entity resolution is handled upstream of retrieval.
+A structured-input resolver maps free-text drug               Each registered skill exposes a Python class with
+names through a normalisation table built from                a typed retrieval signature; forcing every skill into
+DrugBank synonyms, RxNorm and curated identi-                 one rigid interface loses task-specific filters, while
+fier sources, so queries about “acetaminophen” and            letting the planner call arbitrary Python is unsafe.
+“paracetamol” reach the same retrieval target.                We therefore mediate retrieval through a Code
+                                                              Agent: for each subquery u and target skill K,
+3.2   Pipeline Formalisation                                  the agent translates u against the typed signature of
+We formalise the workflow as a discrete dynamical             K, emits a short candidate program c, validates c
+system. Let q denote the user query and let the               against a safe-Python sublanguage Lsafe that bans
+agent state at iteration t be the tuple                       unbounded iteration and dynamic-execution con-
+                                                              structs at the AST level and restricts imports and
+                                                              built-ins to a curated allow-list, executes c inside
+                                        
+             St = Pt , Et , Gt , at , rt ,
+                                                              a proxy-only sandbox Σ(K) under a hard timeout,
+where Pt is the current query plan, Et the evi-               and returns the resulting structured records. On
+dence pool of typed records, Gt the claim-evidence            any validation or runtime failure the agent falls
+subgraph, at the intermediate prose answer, and               back to K.retrieve(u), so retrieval is never silently
+rt ∈ [0, 1] the reflector’s sufficiency score. With           lost. The safe-sublanguage and sandbox details,
+S0 = (∅, ∅, ∅, ∅, 0), graph mode applies the com-             including the full banned-AST set and proxy speci-
+posite operator                                               fication, are reproduced in Appendix H.
+
+       St+1 = Refl◦Resp◦Rerk                                  3.4   Output Schema and Reflector
+              ◦ GBld◦Retr◦Plan (St , q)            (1)        The responder emits a prose answer alongside a
+                                                              structured list of evidence items; each item carries
+and iterates while rt < τsuff and t < Tmax . We               a source identifier and locator, an evidence-kind
+set τsuff = 0.7 (the reflector’s internal default) and        tag, a verbatim snippet, the supported claim, and
+Tmax = 2. Algorithm 1 summarises the full graph-              a confidence score. This schema is the contract
+mode trajectory.                                              between the agent and the downstream metric layer
+
+                                                          4
+(§4) and operationalises the primary-source trace-          subset (n = 383), and a stratified clinician audit on
+ability goal of §3. The reflector implements the            that subset is the natural next step for an external
+adaptive-depth goal via                                     validity study.
+                                                               To probe registry-grounded retrieval on widely
+       ρt+1 = ρ(Gt+1 , at+1 , q),                           used closed-form benchmarks, we additionally
+       rt+1 = ρt+1 − λ max(0, rt − ρt+1 ),       (2)        evaluate on drug-related subsets of two public
+                                                            datasets. The MedQA track restricts MedQA-
+where ρt+1 ∈ [0, 1] scores coverage, completeness,
+                                                            USMLE (Jin et al., 2021) to stems that mention
+source quality, consistency and actionability; the
+                                                            at least one drug name drawn from a 14,000-
+regression penalty fires only when ρt+1 < rt (Ap-
+                                                            entry drug lexicon, yielding 751 five-way multiple-
+pendix B); and λ is small. All eight agents share a
+                                                            choice items scored by closed-form accuracy. The
+single OpenAI-compatible client configured with
+                                                            PubMedQA track applies the same lexical filter to
+GPT-5-mini, matching the planner backbone of
+                                                            the abstracts of PubMedQA (Jin et al., 2019), yield-
+every comparison system for fairness; implementa-
+                                                            ing 512 items scored by three-way yes/no/maybe
+tion details are in Appendix F.
+                                                            accuracy. The drug-mention filter is a coverage
+4     Evaluation Framework                                  selector, not a difficulty selector. It preserves the
+                                                            original USMLE step distribution on MedQA and
+4.1    Datasets                                             the original yes/no/maybe class balance on Pub-
+Our evaluation spans three complementary tracks.            MedQA, and the filtered subsets are no easier than
+The principal evidence-grounded track is Dru-               their parents under the direct-LLM upper baseline
+gAudit, a purpose-built drug-information question-          (GPT-5 reaches the same accuracy on the filtered
+answering corpus of 3,772 items derived from nine           subsets as on the full sets within sampling noise).
+source databases: ChEMBL (n = 461), DrugCen-
+tral (n = 494), openFDA FAERS (n = 508),                    4.2   Systems Evaluated
+FDA Orange Book (n = 507), openFDA Label                    We compare seven systems, each defaulting to
+(n = 358), LiverTox (n = 370), PharmGKB                     GPT-5-mini as the planner backbone for fairness:
+(n = 376), SIDER (n = 315), and a multi-source              DrugClaw in linear mode and graph mode; Biomni
+subset (n = 383) whose gold answer spans at least           (Huang et al., 2025); DeepEvidence (Wang et al.,
+two of the eight named databases. Every item car-           2025), a deep-research style baseline that inter-
+ries a gold answer in natural language, a list of           leaves search and citation; ToolUniverse (Gao et al.,
+gold citations (source database, evidence snippet,          2024); a direct LLM with GPT-5-mini; and a direct
+field-level locator, and URL), and metadata tag-            LLM with GPT-5 as an upper-baseline reference.
+ging the question subcategory, difficulty band, and         For every (system, dataset) pair the runner enforces
+a multi-source flag. Under an independent LLM               resume-on-restart by item id and writes a uniform
+quality audit, 95.2% of items pass and 100% are             JSONL output schema.
+structurally valid.
+   Items were generated source-by-source. For               4.3   Authority-Aware Metric Panel
+each database we sampled candidate drugs by fre-            We augment the standard citation-overlap metrics
+quency in the source’s own index, issued a typed            with four authority-aware companions; all defini-
+query against the live skill, retained the row as the       tions apply uniformly to every system. Formal
+gold record, and prompted Claude Opus 4.7 under             equations, the equivalence-bucket map and the
+a per-source template to write a natural-language           upstream-of relation appear in Appendix B.
+question whose answer is exactly the retained row.
+The structural validator then checks that every             Source authority match. Distinguishing pri-
+gold citation resolves to the correct database, lo-         mary regulatory or peer-reviewed records from
+cator, and snippet, and the LLM auditor scores              downstream aggregator wrappers is the central op-
+answer-citation consistency on a per-item rubric.           erating principle of evidence-based medicine re-
+We deliberately did not run a full pharmacist-grade         porting standards (Page et al., 2021; Guyatt et al.,
+re-annotation pass because the gold answers are             2008; Guideline, 2003). We codify this at the
+machine-extracted from primary regulatory and               metric level. A canonicalisation map sends each
+peer-reviewed records rather than freely written;           source-database string into one of twelve equiva-
+expert review is most valuable on the multi-source          lence buckets (e.g. openFDA Label, DailyMed and
+
+                                                        5
+openFDA Human Drug all map to one bucket), and               index and the full Evidence Index are
+an asymmetric upstream-of relation accepts an up-
+                                                                     EI⋆ = 0.45 auth + 0.25 prim
+stream primary citation as authoritative (CPIC for
+a PharmGKB query, FAERS for a SIDER query).                                + 0.15 snipSem + 0.15 faith,        (3)
+                                                                                             ⋆
+An item scores authi = 1 when the predicted ci-                      EI = 0.40 J + 0.60 EI ,                   (4)
+tation set overlaps the gold’s bucket set directly
+or through the upstream relation, and 0 otherwise.           where J is the LLM-judge answer score defined
+For no-evidence items, whose gold answer is “no              in §4.4. The answered rate (one minus the refusal
+data” and whose gold citation set is empty, we in-           rate) is reported separately and is not folded into
+stead reward correct refusal: authi = 1 when the             EI, because refusal correctness is already captured
+system emits no citation and 0 when it fabricates            by the judge under our prompt (§4.4) and double-
+one; the same convention applies to the snippet and          penalising calibrated abstention would invert clini-
+faithfulness rules below.                                    cal priorities.
+                                                             4.4    Dual-Judge LLM-as-Judge
+Snippet semantic overlap. We replace strict sub-
+                                                             For DrugAudit answer correctness we adopt the
+string matching with token-Jaccard at threshold
+                                                             LLM-as-judge protocol of Zheng et al. (2023) and
+θ = 0.3 over length-≥ 3 non-stop-word tokens,
+                                                             Liu et al. (2023), with a prompt that encodes four
+the standard token-overlap measure adopted by the
+                                                             explicit rules. Equivalence rules treat values that
+ALCE citation-grounded generation benchmark of
+                                                             match after unit conversion across the nM/µM/M
+Gao et al. (2023). The strict substring rule of prior
+                                                             molarity scales, counts that are identical across fre-
+work is preserved as a special case for gold snippets
+                                                             quency expressions (“23 reports” vs. “n = 23”),
+of four tokens or fewer, so the new metric strictly
+                                                             continuous values within a 5% rounding tolerance,
+generalises that practice.
+                                                             and list comparisons that are order-insensitive, as
+                                                             identical facts. A calibrated-refusal rule scores a
+Primary-source rate. Each bucket carries a
+                                                             candidate “Yes” when the gold answer itself re-
+weight w(b) ∈ {1.0, 0.7, 0.5} encoding the stan-
+                                                             ports no data and the candidate refuses on the same
+dard primary-to-aggregator hierarchy: 1.0 for regu-
+                                                             grounds. A superset rule scores a candidate “Yes”
+latory or peer-reviewed primaries (Label, FAERS,
+                                                             rather than “Partial” when it covers all gold facts
+Orange Book, ChEMBL, PubMed), 0.7 for cu-
+                                                             and adds further correctly stated facts; a subset rule
+rated knowledge bases (DrugBank, Open Targets,
+                                                             scores it “Partial” rather than “No” when it covers
+ChEBI, PharmGKB), and 0.5 for secondary ag-
+                                                             a non-empty correct subset of the gold facts. The
+gregators (DrugCentral, SIDER, LiverTox). The
+                                                             judge is asked to score factual correctness only;
+per-item rate primi is the mean weight over the
+                                                             citation quality is handled by the source-side panel.
+system’s recognised citations on that item.
+                                                                The per-item verdict vi ∈ {Y ES, PARTIAL, N O}
+                                                             is mapped to a score ψ(vi ) with ψ(Y ES) = 1,
+Faithfulness rate. Citation faithfulness, the prop-
+                                                             ψ(PARTIAL) = 21 and ψ(N O) = 0, and the
+erty that each emitted citation grounds in the gold
+                                                             system-levelP judge score is the empirical mean
+source universe, is a standard axis in retrieval-
+                                                             J = N −1 N    i=1 ψ(vi ).
+augmented generation evaluation (Maynez et al.,
+                                                                To control for judge-specific bias we run
+2020; Min et al., 2023; Manakul et al., 2023). We
+                                                             two independent judges: Llama-3.1-70B-Instruct
+grant grounded status to a predicted citation if its
+                                                             (Grattafiori et al., 2024) as primary and gpt-oss-
+bucket lies in the gold bucket set (or its upstream
+                                                             120b (OpenAI, 2025b) as secondary. Neither fam-
+closure), if its snippet shares at least two non-stop-
+                                                             ily underlies any of the candidate systems, which
+word tokens with any gold snippet, or if its snippet
+                                                             eliminates the most direct form of self-preference
+shares at least two such tokens with the gold an-
+                                                             bias (Panickssery et al., 2024). The full judge
+swer text. The per-item faithi is the fraction of
+                                                             prompt is reproduced in Appendix A.
+predicted citations that are grounded; its comple-
+ment is a proxy hallucination rate that distinguishes        5     Results
+a confidently wrong citation from an absent one.
+                                                             5.1    Headline Performance
+Composite Evidence Index. Writing x for the                  Table 1 reports the headline numbers across the
+system-level mean of xi , the citation-side partial          three evaluation tracks.
+
+                                                         6
+                                              DrugAudit                  Source-side           Closed-form
+          System                    EILlama    EIoss   JudgeLlama       Primary Faith.    MedQA PubMedQA
+          Direct LLM (GPT-5-mini)   0.430     0.403       0.268          0.817   0.815       0.884        0.652
+          Direct LLM (GPT-5)        0.513     0.494       0.401          0.714   0.825       0.898        0.654
+          ToolUniverse              0.357     0.340       0.146          0.796   0.828       0.880        0.662
+          Biomni                    0.489     0.470       0.356          0.793   0.787       0.902        0.664
+          DeepEvidence              0.477     0.457       0.461          0.603   0.732       0.902        0.652
+          DrugClaw-linear           0.626     0.591       0.656          0.916   0.887       0.910        0.660
+          DrugClaw-graph            0.632     0.623       0.685          0.918   0.852       0.920        0.693
+          DrugClaw-graph (no fb)    0.622     0.628       0.663          0.931   0.876       0.917        0.678
+          ∆DC (pp)                  +11.9     +13.4      +22.4          +11.4    +5.9        +1.8         +2.9
+
+Table 1: Main results. The citation-side metrics (Primary, Faith.) and the bucket-and-upstream equivalence rule
+that underlies them operationalise the primary-vs-aggregator source hierarchy codified by evidence-based medicine
+reporting standards (Page et al., 2021; Guyatt et al., 2008; Guideline, 2003). EILlama and EIoss are the composite
+Evidence Index (0.4·judge + 0.6·citation-side) under Llama-3.1-70B-Instruct and gpt-oss-120b judges (κ = 0.88);
+unparseable verdicts excluded (§4.3; counts in Table 2). Primary is the source-primary rate and Faith. is the
+faithfulness rate (both judge-independent). Bold = column max; underline = runner-up; cells shaded blue mark
+the best baseline per column; the bottom ∆DC (pp) row reports the per-column lead of the best DrugClaw variant
+over that best baseline. The (no fb) row is the no-fallback counterfactual (App. E); DrugClaw is top-1 on every
+column.
+
+
+   DrugClaw attains the highest primary-source                    at 0.494. Judge-mediated scores favour systems
+rate among all seven systems (0.916 for linear and                whose prose tracks gold phrasing closely, whereas
+0.918 for graph against 0.817 for the next-best sys-              the citation-side metrics favour systems whose re-
+tem, a 10.1 pp gap that widens to 11.4 pp (0.931 vs.              trieval reaches primary regulatory records; Drug-
+0.817) when the web-search fallback is disabled),                 Claw takes top-1 on both halves. The headline rank-
+and the highest answer faithfulness rate (0.887 for               ings are robust to the unparseable-verdict handling
+linear mode against 0.828 for the next-best system,               rule: under an intention-to-treat alternative that
+a 5.9 pp gap). Both metrics are judge-independent.                counts every unparseable verdict as “No”, Drug-
+They evaluate the structural quality of emitted ci-               Claw retains top-1 on EI under both judges (Ap-
+tations against gold sources and against the gold                 pendix D).
+answer text, with no language-model intermediary.
+   On the closed-form drug-question-answering                     5.3   Inter-Judge Agreement
+tracks, DrugClaw-graph attains 0.920 accuracy on                  Writing P po for the empirical agreement rate and
+MedQA (against 0.902 for Biomni and DeepEvi-                      pe =        v∈{Y ES,PARTIAL,N O} p̂A (v)p̂B (v) for the
+dence) and 0.693 accuracy on PubMedQA (against                    chance agreement rate computed from marginals
+0.664 for Biomni); these tracks have unambiguous                  p̂A and p̂B , Cohen’s κ (Cohen, 1960) is
+gold labels and are not judge-mediated. Bootstrap
+                                                                                             po − p e
+95% CIs separate cleanly on EI/Primary but over-                                       κ =            .              (5)
+                                                                                             1 − pe
+lap on the closed-form tracks (App. B); the EI rank-
+ing is robust under authority-weight perturbations.               Table 2 reports κ between the two judges over
+                                                                  22,471 paired verdicts, with items where either
+5.2   Composite Evidence Index and Judge                          judge emitted an unparseable verdict excluded. The
+      Sensitivity                                                 macro pooled κ = 0.882 places the protocol in
+Under the Llama judge, DrugClaw-graph takes                       the almost-perfect agreement regime of Landis
+the top score on the composite Evidence Index at                  and Koch (1977). Five of the seven candidates
+0.632, with DrugClaw-linear as runner-up at 0.626                 clear the κ ≥ 0.85 threshold, indicating that the
+and the direct LLM with GPT-5 at 0.513. Under the                 headline verdict on each system is stable across
+harsher gpt-oss-120b judge, the ranking among the                 judge choice. The two exceptions are DrugClaw-
+canonical configurations is unchanged. DrugClaw-                  linear (κ = 0.792) and ToolUniverse (κ = 0.815);
+graph leads at 0.623, DrugClaw-linear is runner-up                for DrugClaw-linear we trace this gap to gpt-oss
+at 0.591, and the direct LLM with GPT-5 trails                    judging linear’s short, direct answers more strictly
+
+                                                            7
+    System                    Agree      κ Strength              or the direct LLM with GPT-5-mini (74%). The
+    Direct LLM (GPT-5-mini)    94.5   0.851   almost-perf.       reflector returns “insufficient evidence” only when
+    Direct LLM (GPT-5)         94.9   0.898   almost-perf.       both ρ(Gt , at , q) < τsuff and no skill plan yields
+    ToolUniverse               95.9   0.815   almost-perf.
+    Biomni                     94.8   0.894   almost-perf.
+                                                                 a marginal gain. Among the DrugClaw-linear re-
+    DeepEvidence               94.3   0.896   almost-perf.       fusals for which the Llama judge emits a parseable
+    DrugClaw-linear            88.4 0.792 substantial            verdict, 91% receive “Yes” because the gold itself
+    DrugClaw-graph             93.3 0.873 almost-perf.           reports “no data” (DrugClaw-graph: 97%), against
+    Pooled (macro)             94.0 0.882 almost-perf.           1 to 5% for every baseline system. This calibration
+                                                                 ratio, the fraction of refusals that align with a gold-
+Table 2: Inter-judge Cohen’s κ between Llama-3.1-70B-            side “no data” answer, is the operating point recom-
+Instruct and gpt-oss-120b across all 26,404 paired ver-          mended for abstention under uncertainty (Kadavath
+dicts (22,471 after dropping items where either judge            et al., 2022; Slobodkin et al., 2023; Varshney et al.,
+emitted an unparseable verdict, per the standard LLM-
+                                                                 2023).
+as-judge practice we adopt throughout §5). Per-system
+parseable-pair counts and full 3×3 confusion matrices            6.3    Mode Behaviour
+appear in Appendix C. Strength labels follow the con-
+ventional Landis and Koch (1977) thresholds.                     Graph mode marginally outperforms linear
+                                                                 across the panel (+2.9/+9.6 pp on the two
+                                                                 judges, +1.0/+3.3 pp on MedQA / PubMedQA,
+than Llama: Llama-Yes / gpt-oss-No accounts for                  +0.6/+3.2 pp on EI), but the two represent a real
+53% of off-diagonal cases (Appendix C), reflecting               architectural trade-off rather than two points on
+judge stringency on short prose rather than fac-                 one curve. Graph mode refuses on 48.3% of
+tual disagreement; DrugClaw-graph’s longer multi-                items vs. linear’s 41.1% because the reflector is
+claim prose clears the threshold (κ = 0.873).                    more conservative, and its responses are harder for
+                                                                 the downstream judge to parse cleanly: 47/50%
+6     Analysis                                                   of graph answers receive an unparseable verdict
+                                                                 under Llama/gpt-oss, against 30/35% for linear.
+6.1     Where Authority-Aware Scoring Changes
+                                                                 Unparseable verdicts are dropped from the judge
+        the Story
+                                                                 score (§4.3) so the headline numbers are unaf-
+The original substring-based source-match metric                 fected, but the gap signals that graph’s multi-
+scores DrugClaw at 0.193 (linear) / 0.197 (graph);               claim synthesis prose is more demanding for any
+under the authority-aware rule the score more than               downstream LLM consumer (Appendix I). On
+doubles to 0.430 (linear) / 0.420 (graph). The                   cost and latency, DrugClaw-linear/-graph run at
+upward shift is concentrated on items for which                  14/46 s ($0.012/$0.025 per query at GPT-5-mini),
+DrugClaw cites a primary upstream source while                   against 32/54 s for Biomni and DeepEvidence (Ap-
+the gold is an aggregator: 212 CPIC citations on                 pendix K).
+PharmGKB items versus only two literal “Phar-
+mGKB” strings; 962 FAERS citations on SIDER                      7     Conclusion
+items; and 43 “LiverTox (NCBI Bookshelf)” cita-
+                                                                 Under an authority-aware metric panel and a dual-
+tions on LiverTox items where the gold writes “Liv-
+                                                                 judge LLM-as-judge protocol (macro κ = 0.88),
+erTox” alone. The substring rule scores these as
+                                                                 DrugClaw is top-1 across the headline panel. The
+misses; the authority-aware rule treats an upstream
+                                                                 result rests on two design moves applicable beyond
+primary citation as at least as auditable as its aggre-
+                                                                 drug QA: bucket-and-upstream equivalence that
+gator wrapper. DrugClaw’s closed-registry design
+                                                                 separates primary records from aggregator wrap-
+exposes the largest fraction of primary-upstream
+                                                                 pers, and judges whose model families underlie no
+citations, and the same mechanism yields a two-to-
+                                                                 candidate system. Calibrated refusal (91 to 97% of
+three-fold evidence-density advantage over every
+                                                                 DrugClaw’s “insufficient evidence” verdicts align
+baseline (Appendix L).
+                                                                 with a gold “no data”, against 1 to 5% for baselines)
+6.2     Calibrated Refusal as a Feature                          and a two-to-three-fold evidence density (3.78 to
+                                                                 5.09 vs. 1.4 to 2.1 citations per answered item) are
+DrugClaw refuses to answer on 41 to 48% of Dru-                  distinct properties of the agent.
+gAudit items, between DeepEvidence (37%) and
+Biomni (49%) and well below ToolUniverse (88%)
+
+                                                             8
+Limitations                                                  istry of fifty-seven active skills is the property that
+                                                             yields deterministic primary-source citations, but
+Graph-mode parse rate. Graph mode’s multi-
+                                                             it also caps coverage on long-tail drugs or recently
+claim summaries are harder for LLM-as-judge to
+                                                             approved entities whose records have not yet propa-
+parse cleanly: 47% to 50% of graph answers re-
+                                                             gated into the registry. The skill registry is modular
+ceive unparseable verdicts from our two judges,
+                                                             and accepts additions such as rare-disease registries
+against 30% to 35% for linear mode. We follow
+                                                             or international regulators; reporting the trade-off
+standard practice in dropping these from the judge-
+                                                             between coverage and primary-source rate as the
+score numerator and denominator (§4.3), so the
+                                                             registry grows is a clear next experiment.
+headline numbers are unaffected. Downstream con-
+sumers can apply a lightweight post-processing               Open-weight reproducibility. The reported
+layer that re-formats graph-mode output into a               numbers use GPT-5-mini as the planner and agent
+canonical schema, possibly with adaptive context             backbone shared across all seven systems. Both
+selection (Duan et al., 2026) to manage the longer           judges (Llama-3.1-70B-Instruct and gpt-oss-120b)
+evidence context.                                            are open-weight, so the LLM-as-judge pipeline can
+                                                             be re-scored against the released candidate outputs
+Lower κ on DrugClaw-linear. Inter-judge agree-               without proprietary access. The planner backbone
+ment on DrugClaw-linear (κ = 0.79) sits below                is configurable: the released runner accepts any
+the conventional 0.85 threshold; DrugClaw-graph              OpenAI-compatible endpoint, including a Llama-
+reaches κ = 0.87. The disagreement concentrates              3.1 gateway, and an open-weight end-to-end run
+on items where gpt-oss judges linear’s short direct          with its quality-cost trade-off is left to follow-up
+answers as “No” while Llama judges them as “Yes”             work.
+(Appendix C), reflecting judge stringency on short
+prose rather than factual disagreement; the underly-         DrugAudit itself. To our knowledge no prior
+ing retrieval and citation panel (authority, primary-        public benchmark grades drug-information ques-
+source rate, faithfulness) is judge-independent and          tion answering by provenance authority; we
+unaffected.                                                  therefore built and release DrugAudit, but cross-
+                                                             benchmark comparison must wait until either it is
+Closed-form CI overlap. On the drug-related                  adopted externally or other groups publish compa-
+MedQA and PubMedQA subsets, DrugClaw-graph                   rable resources. The dual-judge protocol partially
+attains 0.920 and 0.693 accuracy, leading the next-          compensates for the absence of a third-party scorer.
+best baseline by +1.8 pp and +2.9 pp respectively.
+Both leads sit inside the best-baseline bootstrap            Reflection-mechanism settings. The reflector
+95% CI (Appendix B, Table 3) and should there-               thresholds (τsuff = 0.7, ε = 0.1, Tmax = 2) are the
+fore be read as a sign-consistent advantage rather           implementation defaults and are used uniformly
+than a statistically significant one; the load-bearing       across all reported runs; the regression-penalty co-
+Evidence-Index and Primary-source claims, by con-            efficient λ in Eq. (2) is realised through the two
+trast, separate cleanly from the best-baseline CIs           stopping rules of Appendix B rather than a continu-
+on both judges.                                              ous reward subtraction. Calibrating (τsuff , ε, Tmax )
+                                                             jointly on the multi-source subset (n=383), where
+Coverage and precision trade-off. DrugClaw’s                 the refusal–coverage trade-off discussed in §6 is
+41 to 48% refusal rate reflects calibrated abstention:       most sensitive, is a natural follow-up.
+91 to 97% of those refusals align with a gold-side              We do not view these as fundamental limitations
+“no data” answer (§6). Calibrated refusal is in our          of the approach; each maps to a concrete short-
+judgement the right default for drug-information             term improvement that does not require retraining
+settings, but clinical pharmacovigilance triage may          or re-curating the evaluation data.
+prefer higher coverage at the cost of more “Par-
+tial” verdicts. The agent exposes a calibration              Ethics Statement
+hyper-parameter that trades coverage for confi-
+dence; quantifying that frontier is left to future           DrugClaw is a retrieval agent over publicly avail-
+work.                                                        able regulatory and peer-reviewed records. It does
+                                                             not generate clinical recommendations; all returned
+Closed registry coverage. By design DrugClaw                 answers cite primary sources that a clinician or
+does not perform open-web search; the closed reg-            pharmacist should consult before any decision.
+
+                                                         9
+The benchmark we release contains no patient-                    Shanghua Gao, Ada Fang, Yepeng Huang, Valentina
+identifiable information, and all data are derived                 Giunchiglia, Ayush Noori, Jonathan Richard
+                                                                   Schwarz, Yasha Ektefaie, Jovana Kondic, and
+from publicly accessible FDA, PubMed, DrugBank,
+                                                                   Marinka Zitnik. 2024. Empowering biomedical dis-
+ChEMBL, and curated knowledge base resources.                      covery with ai agents. Cell, 187(22):6125–6151.
+The language-model judges used in evaluation are
+open-weight models hosted on the authors’ insti-                 Shanghua Gao, Richard Zhu, Zhenglun Kong, Ayush
+                                                                   Noori, Xiaorui Su, Curtis Ginder, Theodoros
+tutional inference gateway; no candidate answers                   Tsiligkaridis, and Marinka Zitnik. 2025. Txagent:
+were sent to third-party services beyond the plan-                 an ai agent for therapeutic reasoning across a uni-
+ner gateway already used by all seven compared                     verse of tools. arXiv preprint arXiv:2503.10970.
+systems.                                                         Tianyu Gao, Howard Yen, Jiatong Yu, and Danqi Chen.
+                                                                    2023. Enabling large language models to generate
+Use of AI assistants. The authors used AI assis-                    text with citations. In Proceedings of the 2023 Con-
+tants (Claude, GitHub Copilot) for code drafting                    ference on Empirical Methods in Natural Language
+and language polishing during the preparation of                   Processing, pages 6465–6488.
+this paper. All scientific claims, citations, system
+                                                                 Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri,
+designs, experimental results and code logic were                  Abhinav Pandey, Abhishek Kadian, Ahmad Al-
+reviewed and verified by the authors, who take full                Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten,
+responsibility for the final content.                              Alex Vaughan, and 1 others. 2024. The llama 3 herd
+                                                                   of models. arXiv preprint arXiv:2407.21783.
+                                                                 ICH Harmonised Tripartite Guideline. 2003. Post-
+References                                                         approval safety data management: definitions and
+Asma Ben Abacha, Eugene Agichtein, Yuval Pinter,                   standards for expedited reporting e2d. In European
+  and Dina Demner-Fushman. 2017. Overview of the                   Union International Conference on Harmonisation.
+  medical question answering task at trec 2017 liveqa.             International conference on harmonisation of techni-
+  In TREC, pages 1–12.                                             cal requirements for registration of pharmaceuticals
+                                                                   for human use.
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avi Sil, and
+                                                                 Gordon H Guyatt, Andrew D Oxman, Gunn E Vist,
+  Hannaneh Hajishirzi. 2024. Self-rag: Learning to re-
+                                                                   Regina Kunz, Yngve Falck-Ytter, Pablo Alonso-
+  trieve, generate, and critique through self-reflection.
+                                                                   Coello, and Holger J Schünemann. 2008. Grade: an
+  In International conference on learning representa-
+                                                                   emerging consensus on rating quality of evidence and
+  tions, volume 2024, pages 9112–9141.
+                                                                   strength of recommendations. Bmj, 336(7650):924–
+Artem Bobrov, Domantas Saltenis, Zhaoyue Sun,                      926.
+  Gabriele Pergola, and Yulan He. 2024. Drugwatch:               Janna Hastings, Gareth Owen, Adriano Dekker, Mar-
+  A comprehensive multi-source data visualisation plat-            cus Ennis, Namrata Kale, Venkatesh Muthukrishnan,
+  form for drug safety information. In Proceedings of              Steve Turner, Neil Swainston, Pedro Mendes, and
+  the 62nd Annual Meeting of the Association for Com-              Christoph Steinbeck. 2016. Chebi in 2016: Improved
+  putational Linguistics (Volume 3: System Demonstra-              services and an expanding collection of metabolites.
+  tions), pages 180–189.                                           Nucleic acids research, 44(D1):D1214–D1219.
+Adam S Brown and Chirag J Patel. 2017. A stan-                   Jay H Hoofnagle. 2013. Livertox: a website on drug-
+  dard database for drug repositioning. Scientific data,           induced liver injury. In Drug-induced liver disease,
+  4(1):170029.                                                     pages 725–732. Elsevier.
+Jacob Cohen. 1960. A coefficient of agreement for                Kexin Huang, Serena Zhang, Hanchen Wang, Yuanhao
+   nominal scales. Educational and psychological mea-              Qu, Yingzhou Lu, Yusuf Roohani, Ryan Li, Lin Qiu,
+   surement, 20(1):37–46.                                          Gavin Li, Junze Zhang, and 1 others. 2025. Biomni:
+                                                                   A general-purpose biomedical ai agent. biorxiv.
+Kelsy C Cotto, Alex H Wagner, Yang-Yang Feng, Su-
+  sanna Kiwala, Adam C Coffman, Gregory Spies,                   Ziwei Ji, Nayeon Lee, Rita Frieske, Tiezheng Yu, Dan
+  Alex Wollam, Nicholas C Spies, Obi L Griffith, and               Su, Yan Xu, Etsuko Ishii, Ye Jin Bang, Andrea
+  Malachi Griffith. 2018. Dgidb 3.0: a redesign and                Madotto, and Pascale Fung. 2023. Survey of hal-
+  expansion of the drug–gene interaction database. Nu-             lucination in natural language generation. ACM com-
+  cleic acids research, 46(D1):D1068–D1073.                        puting surveys, 55(12):1–38.
+Wenchang Duan, Yaoliang Yu, Jiwan He, and Yi Shi.                Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng,
+ 2026. Adaptive context length optimization with low-              Hanyi Fang, and Peter Szolovits. 2021. What disease
+ frequency truncation for multi-agent reinforcement                does this patient have? a large-scale open domain
+ learning. Advances in Neural Information Processing               question answering dataset from medical exams. Ap-
+ Systems, 38:97685–97716.                                          plied Sciences, 11(14):6421.
+
+
+                                                            10
+Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William Co-            Yinhong Liu, Han Zhou, Zhijiang Guo, Ehsan Shareghi,
+  hen, and Xinghua Lu. 2019. Pubmedqa: A dataset for              Ivan Vulić, Anna Korhonen, and Nigel Collier. 2024b.
+  biomedical research question answering. In Proceed-             Aligning with human judgement: The role of pair-
+  ings of the 2019 conference on empirical methods                wise preference in large language model evaluators.
+  in natural language processing and the 9th interna-             In Conference on Language Modeling (COLM).
+  tional joint conference on natural language process-
+  ing (EMNLP-IJCNLP), pages 2567–2577.                          Renqian Luo, Liai Sun, Yingce Xia, Tao Qin, Sheng
+                                                                  Zhang, Hoifung Poon, and Tie-Yan Liu. 2022.
+Saurav Kadavath, Tom Conerly, Amanda Askell, Tom                  Biogpt: generative pre-trained transformer for
+  Henighan, Dawn Drain, Ethan Perez, Nicholas                     biomedical text generation and mining. Briefings
+  Schiefer, Zac Hatfield-Dodds, Nova DasSarma, Eli                in bioinformatics, 23(6):bbac409.
+  Tran-Johnson, and 1 others. 2022. Language mod-
+  els (mostly) know what they know. arXiv preprint              Andres M. Bran, Sam Cox, Oliver Schilter, Carlo Bal-
+  arXiv:2207.05221.                                               dassari, Andrew D White, and Philippe Schwaller.
+                                                                  2024. Augmenting large language models with chem-
+Vladimir Karpukhin, Barlas Oguz, Sewon Min, Patrick               istry tools. Nature machine intelligence, 6(5):525–
+  Lewis, Ledell Wu, Sergey Edunov, Danqi Chen, and                535.
+  Wen-tau Yih. 2020. Dense passage retrieval for open-
+  domain question answering. In Proceedings of the              Potsawee Manakul, Adian Liusie, and Mark Gales. 2023.
+  2020 conference on empirical methods in natural                 Selfcheckgpt: Zero-resource black-box hallucination
+  language processing (EMNLP), pages 6769–6781.                   detection for generative large language models. In
+                                                                  Proceedings of the 2023 conference on empirical
+Taha A Kass-Hout, Zhiheng Xu, Matthew Mohebbi,                    methods in natural language processing, pages 9004–
+  Hans Nelsen, Adam Baker, Jonathan Levine, Elaine                9017.
+  Johanson, and Roselie A Bright. 2016. Openfda: an
+  innovative platform providing access to a wealth of           Joshua Maynez, Shashi Narayan, Bernd Bohnet, and
+  fda’s publicly available data. Journal of the American          Ryan McDonald. 2020. On faithfulness and factu-
+  Medical Informatics Association, 23(3):596–600.                 ality in abstractive summarization. In Proceedings
+                                                                  of the 58th annual meeting of the association for
+Anastasia Krithara, Anastasios Nentidis, Konstantinos             computational linguistics, pages 1906–1919.
+  Bougiatiotis, and Georgios Paliouras. 2023. Bioasq-
+                                                                David Mendez, Anna Gaulton, A Patrícia Bento, Jon
+  qa: A manually curated corpus for biomedical ques-
+                                                                  Chambers, Marleen De Veij, Eloy Félix, María Paula
+  tion answering. Scientific data, 10(1):170.
+                                                                  Magariños, Juan F Mosquera, Prudence Mutowo,
+                                                                  Michał Nowotka, and 1 others. 2019. Chembl: to-
+Michael Kuhn, Ivica Letunic, Lars Juhl Jensen, and
+                                                                  wards direct deposition of bioassay data. Nucleic
+  Peer Bork. 2016. The sider database of drugs and
+                                                                  acids research, 47(D1):D930–D940.
+  side effects. Nucleic acids research, 44(D1):D1075–
+  D1079.                                                        Sewon Min, Kalpesh Krishna, Xinxi Lyu, Mike Lewis,
+                                                                  Wen-tau Yih, Pang Koh, Mohit Iyyer, Luke Zettle-
+J Richard Landis and Gary G Koch. 1977. The mea-                  moyer, and Hannaneh Hajishirzi. 2023. Factscore:
+   surement of observer agreement for categorical data.           Fine-grained atomic evaluation of factual precision
+   biometrics, pages 159–174.                                     in long form text generation. In Proceedings of the
+                                                                  2023 Conference on Empirical Methods in Natural
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio              Language Processing, pages 12076–12100.
+  Petroni, Vladimir Karpukhin, Naman Goyal, Hein-
+  rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-              Harsha Nori, Nicholas King, Scott Mayer McKinney,
+  täschel, and 1 others. 2020. Retrieval-augmented gen-           Dean Carignan, and Eric Horvitz. 2023. Capabili-
+  eration for knowledge-intensive nlp tasks. Advances             ties of gpt-4 on medical challenge problems. arXiv
+  in neural information processing systems, 33:9459–              preprint arXiv:2303.13375.
+  9474.
+                                                                David Ochoa, Andrew Hercules, Miguel Carmona,
+Sizhe Liu, Yizhou Lu, Siyu Chen, Xiyang Hu, Jieyu                 Daniel Suveges, Jarrod Baker, Cinzia Malangone,
+   Zhao, Tianfan Fu, and Yue Zhao. 2024a. DrugA-                  Irene Lopez, Alfredo Miranda, Carlos Cruz-Castillo,
+   gent: Automating AI-aided drug discovery program-              Luca Fumis, and 1 others. 2023. The next-generation
+   ming through LLM multi-agent collaboration. In                 open targets platform: reimagined, redesigned, re-
+  2nd AI4Research Workshop: Towards a Knowledge-                  built. Nucleic acids research, 51(D1):D1353–D1359.
+   grounded Scientific Research Lifecycle.
+                                                                OpenAI. 2025a.         Introducing deep re-
+Yang Liu, Dan Iter, Yichong Xu, Shuohang Wang,                    search.          https://openai.com/index/
+  Ruochen Xu, and Chenguang Zhu. 2023. G-eval:                    introducing-deep-research/.
+  Nlg evaluation using gpt-4 with better human align-
+  ment. In Proceedings of the 2023 conference on                OpenAI. 2025b. Introducing gpt-oss-120b: An open-
+  empirical methods in natural language processing,               weight reasoning model. https://openai.com/
+  pages 2511–2522.                                                index/introducing-gpt-oss/.
+
+
+                                                           11
+Matthew J Page, Joanne E McKenzie, Patrick M                     of hallucinatory (un) answerability: Finding truths
+ Bossuyt, Isabelle Boutron, Tammy C Hoffmann, Cyn-               in the hidden states of over-confident large language
+ thia D Mulrow, Larissa Shamseer, Jennifer M Tet-                models. In Proceedings of the 2023 Conference on
+ zlaff, Elie A Akl, Sue E Brennan, and 1 others. 2021.           Empirical Methods in Natural Language Processing,
+ The prisma 2020 statement: an updated guideline for             pages 3607–3625.
+ reporting systematic reviews. bmj, 372.
+                                                               Ross Taylor, Marcin Kardas, Guillem Cucurull, Thomas
+Ankit Pal, Logesh Kumar Umapathi, and Malaikan-                  Scialom, Anthony Hartshorn, Elvis Saravia, Andrew
+  nan Sankarasubbu. 2022. Medmcqa: A large-scale                 Poulton, Viktor Kerkez, and Robert Stojnic. 2022.
+  multi-subject multi-choice dataset for medical do-             Galactica: A large language model for science. arXiv
+  main question answering. In Conference on health,              preprint arXiv:2211.09085.
+  inference, and learning, pages 248–260. PMLR.
+                                                               Oleg Ursu, Jayme Holmes, Jeffrey Knockel, Cristian G
+Arjun Panickssery, Samuel R Bowman, and Shi Feng.                Bologa, Jeremy J Yang, Stephen L Mathias, Stuart J
+  2024. Llm evaluators recognize and favor their own             Nelson, and Tudor I Oprea. 2016. Drugcentral: on-
+  generations. Advances in Neural Information Pro-               line drug compendium. Nucleic acids research, page
+  cessing Systems, 37:68772–68802.                               gkw993.
+Shishir G Patil, Tianjun Zhang, Xin Wang, and Joseph E         Neeraj Varshney, Wenlin Yao, Hongming Zhang, Jian-
+  Gonzalez. 2024. Gorilla: Large language model                  shu Chen, and Dong Yu. 2023. A stitch in time saves
+  connected with massive apis. Advances in Neural                nine: Detecting and mitigating hallucinations of
+  Information Processing Systems, 37:126544–126565.              llms by validating low-confidence generation. arXiv
+                                                                 preprint arXiv:2307.03987.
+Yujia Qin, Shihao Liang, Yining Ye, Kunlun Zhu, Lan
+  Yan, Yaxi Lu, Yankai Lin, Xin Cong, Xiangru Tang,            Zifeng Wang, Zheng Chen, Ziwei Yang, Xuan Wang,
+  Bill Qian, and 1 others. 2024. Toolllm: Facilitating            Qiao Jin, Yifan Peng, Zhiyong Lu, and Jimeng Sun.
+  large language models to master 16000+ real-world               2025. Deepevidence: Empowering biomedical dis-
+  apis. In International Conference on Learning Rep-              covery with deep knowledge graph research. arXiv
+  resentations, volume 2024, pages 9695–9717.                     preprint arXiv:2601.11560.
+Mary V Relling and Teri E Klein. 2011. Cpic: clini-            Michelle Whirl-Carrillo, Rachel Huddart, Li Gong, Ka-
+ cal pharmacogenetics implementation consortium of               trin Sangkuhl, Caroline F Thorn, Ryan Whaley, and
+ the pharmacogenomics research network. Clinical                 Teri E Klein. 2021. An evidence-based framework
+ Pharmacology & Therapeutics, 89(3):464–467.                     for evaluating pharmacogenomics knowledge for per-
+                                                                 sonalized medicine. Clinical Pharmacology & Ther-
+Ruiyang Ren, Yuhao Wang, Yingqi Qu, Wayne Xin                    apeutics, 110(3):563–572.
+  Zhao, Jing Liu, Hua Wu, Ji-Rong Wen, and Haifeng
+  Wang. 2025. Investigating the factual knowledge              David S Wishart, Yannick D Feunang, An C Guo,
+  boundary of large language models with retrieval               Elvis J Lo, Ana Marcu, Jason R Grant, Tanvir Sajed,
+  augmentation. In Proceedings of the 31st Inter-                Daniel Johnson, Carin Li, Zinat Sayeeda, and 1 oth-
+  national Conference on Computational Linguistics,              ers. 2018. Drugbank 5.0: a major update to the
+  pages 3697–3715.                                               drugbank database for 2018. Nucleic acids research,
+                                                                 46(D1):D1074–D1082.
+Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta
+  Raileanu, Maria Lomeli, Eric Hambro, Luke Zettle-            Xiaojun Wu, Cehao Yang, Xueyuan Lin, Chengjin Xu,
+  moyer, Nicola Cancedda, and Thomas Scialom. 2023.              Xuhui Jiang, Yuanliang Sun, Hui Xiong, Jia Li, and
+  Toolformer: Language models can teach themselves               Jian Guo. 2025. Think-on-graph 3.0: Efficient and
+  to use tools. Advances in neural information process-          adaptive llm reasoning on heterogeneous graphs via
+  ing systems, 36:68539–68551.                                   multi-agent dual-evolving context retrieval. arXiv
+                                                                 preprint arXiv:2509.21710.
+Wenqi Shi, Ran Xu, Yuchen Zhuang, Yue Yu, Haotian
+ Sun, Hang Wu, Carl Yang, and May Dongmei Wang.                Guangzhi Xiong, Qiao Jin, Zhiyong Lu, and Aidong
+ 2024. Medadapter: Efficient test-time adaptation of             Zhang. 2024. Benchmarking retrieval-augmented
+ large language models towards medical reasoning.                generation for medicine. In Findings of the Associa-
+ In Proceedings of the 2024 Conference on Empiri-                tion for Computational Linguistics: ACL 2024, pages
+ cal Methods in Natural Language Processing, pages               6233–6251.
+ 22294–22314.
+                                                               Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak
+Karan Singhal, Shekoofeh Azizi, Tao Tu, S Sara Mah-              Shafran, Karthik Narasimhan, and Yuan Cao. 2023.
+  davi, Jason Wei, Hyung Won Chung, Nathan Scales,               ReAct: Synergizing reasoning and acting in language
+  Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl,               models. In International Conference on Learning
+  and 1 others. 2023. Large language models encode               Representations (ICLR).
+  clinical knowledge. Nature, 620(7972):172–180.
+                                                               Cyril Zakka, Rohan Shad, Akash Chaurasia, Alex R
+Aviv Slobodkin, Omer Goldman, Avi Caciularu, Ido                 Dalal, Jennifer L Kim, Michael Moor, Robyn Fong,
+  Dagan, and Shauli Ravfogel. 2023. The curious case             Curran Phillips, Kevin Alexander, Euan Ashley,
+
+
+                                                          12
+    and 1 others. 2024. Almanac—retrieval-augmented                “matched”:“key      matched     fact(s)   or
+    language models for clinical medicine. Nejm ai,              empty”,
+    1(2):AIoa2300068.                                              “missing”:“key      missing     fact(s)   or
+                                                                 empty”}
+Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan
+  Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin,              B    Formal Metric Definitions
+  Zhuohan Li, Dacheng Li, Eric Xing, and 1 others.
+  2023. Judging llm-as-a-judge with mt-bench and            We list here the equations and notation summarised
+  chatbot arena. Advances in neural information pro-        in §4.3.
+  cessing systems, 36:46595–46623.
+                                                            Notation. For item i, let Ci = {c1 , . . . , cmi } de-
+A     Judge Prompt                                          note the predicted citations, Gi = {g1 , . . . , gki } the
+                                                            gold citations (the per-item index i distinguishes
+The full LLM-as-judge system prompt used in
+                                                            this set from the per-iteration claim-evidence
+this paper is reproduced below verbatim. Both
+                                                            subgraph Gt of §3.2), a⋆i the gold answer text
+judges (Llama-3.1-70B-Instruct and gpt-oss-120b)
+                                                            and ai the candidate answer text. Each citation
+received identical prompts and the same per-item
+                                                            c carries a source-database field db(c) and a
+user message: question, question-type metadata,
+                                                            free-text snippet snip(c). The canonicalisation
+gold answer, candidate answer.
+                                                            map β : db 7→ B ∪ {⊥} sends each source-
+      You    are     evaluating     biomedical              database string into one of twelve equivalence
+      question-answering    systems    on    a              buckets B or to ⊥ when unrecognised. The
+      drug-information benchmark.      Compare
+      the CANDIDATE answer against the                      asymmetric upstream-of relation U ⊂ B × B
+      REFERENCE (gold) answer for the SAME                  specifies, for each downstream aggregator, the
+      question.   Score factual correctness
+      only; citation quality is handled by
+                                                            primary buckets that an authoritative upstream
+      a separate metric, so do not penalise                 citation may carry: S IDER → {FAERS, L ABEL},
+      the candidate for missing or mismatched               D RUG C ENTRAL → {L ABEL, D RUG BANK},
+      citations as long as the underlying
+      facts are correct.                                    L IVERT OX       →       {L ABEL, P UB M ED} and
+                                                            P HARM GKB → {C PIC, P UB M ED}.
+      Return ONE of three verdicts:
+                                                            Source authority match. With Bi              =
+      “Yes”:    the candidate communicates                  β(db(Ci )) \ {⊥} and Bi⋆ = β(db(Gi )) \ {⊥},
+      the same factual content as the
+                                                                authi = ⊮ Bi ∩ (Bi⋆ ∪ U(Bi⋆ )) ̸= ∅ . (6)
+                                                                                                    
+      gold.   Paraphrasing, reordering, and
+      adding correctly stated extra facts
+      are all acceptable. Equivalent numeric                Snippet semantic overlap. Let T (s) denote
+      expressions count as the same fact: unit
+      conversion (5300 nM ≡ 5.3 µM ≡ 5.3e-6 M),             the length-≥ 3 non-stop-word tokens in s and
+      count versus frequency, 5% rounding                   J(s, s′ ) = |T (s)∩T (s′ )|/|T (s)∪T (s′ )| the token-
+      tolerance on continuous values, and                   Jaccard. With θ = 0.3,
+      order-insensitive list comparison. If
+      the gold itself states “no data”, “not                                                                  
+      reported” or “insufficient evidence”
+                                                              snipSemi = ⊮ max J(snip(c), snip(g)) ≥ θ ,
+                                                                                c,g
+      and the candidate refuses on the same                                                               (7)
+      grounds, score “Yes”.
+                                                            where c ∈ Ci ranges over predicted citations and
+      “Partial”:    the candidate covers a                  g ∈ Gi over gold citations.
+      non-empty correct subset of the gold
+      facts, or has a minor factual inaccuracy              Primary-source rate. With Ciβ = {c ∈ Ci :
+      that does not change the clinical or                  β(db(c)) ̸= ⊥},
+      pharmacological conclusion.
+                                                                              1 X             
+      “No”: the candidate contradicts the                          primi = β        w β(db(c)) .  (8)
+      gold, states a different numeric value                                |Ci | β
+                                                                                      c∈Ci
+      outside the equivalence rules above, or
+      fabricates facts not supported by the
+      gold. The candidate refuses or says
+                                                            Faithfulness rate. Let the grounded set Cig =
+      it does not know, and the gold has a                  {c ∈ Ci : Ai (c) ∨ Si (c) ∨ Qi (c)}, where Ai (c)
+      definite answer.                                      holds when β(db(c)) ∈ Bi⋆ ∪ U(Bi⋆ ), Si (c) when
+      Output ONE JSON object on a single line:
+                                                            maxg |T (snip(c)) ∩ T (snip(g))| ≥ 2, and Qi (c)
+                                                            when |T (snip(c)) ∩ T (a⋆i )| ≥ 2. Then
+      {“verdict”:“Yes|Partial|No”,
+        “reason”:“one sentence”,                                             faithi = |Cig | / |Ci |.             (9)
+
+                                                       13
+The system score is the mean over items with Ci ̸=           continuous reward subtraction by two complemen-
+∅.                                                           tary hard rules. The regression component halts
+                                                             retrieval on the next step whenever ρt+1 < rt ,
+Bootstrap confidence intervals and weight sen-
+                                                             corresponding to the asymmetric penalty term of
+sitivity. Table 3 reports item-level paired boot-
+                                                             Eq. (2) and equivalent to letting λ → ∞ along
+strap 95% CIs for the seven columns of Table 1
+                                                             the regression direction. The convergence com-
+(1,000 resamples, PRNG seed 0xC1AB0FE). On the
+                                                             ponent, independent of regression, exits the loop
+citation-side and judge-mediated columns, namely
+                                                             once ρ ≥ τsuff and the symmetric marginal change
+Primary, Faith. in the lenient regime, and EI under
+                                                             |rt+1 − rt | < ε=0.1, capturing the case where re-
+both judges, the best DrugClaw variant’s CI does
+                                                             flection has stabilised without strictly regressing.
+not overlap with the best baseline’s CI, so the head-
+                                                             Together the two rules curb over-retrieval in oppo-
+line lead is significant at α = 0.05. The closed-
+                                                             site regimes: regression halts the loop when the
+form MedQA and PubMedQA tracks behave dif-
+                                                             next step makes the answer worse, while conver-
+ferently: the DrugClaw-graph CI overlaps with the
+                                                             gence halts it when the next step no longer moves
+best baseline CI, so the +1.8 pp and +2.9 pp leads,
+                                                             the score. The threshold ε is the implementation
+while consistent in sign, are not distinguishable
+                                                             default and was not re-tuned for this evaluation. An
+from sampling noise at this sample size. Table 4
+                                                             isolated ablation that varies (τsuff , ε, Tmax ) jointly
+reports a complementary robustness check on the
+                                                             is deferred to a follow-up; we expect τsuff and
+authority bucket weights and the upstream-of rela-
+                                                             Tmax to dominate the calibrated-refusal vs. cov-
+tion. Across uniform weights, harsher weights and
+                                                             erage trade-off discussed in §6.
+removal of the upstream-of map, DrugClaw-graph
+remains EI top-1 with leads ranging from +8.7 pp             C    Inter-Judge Confusion Matrices
+to +14.3 pp; the ranking is therefore not an artefact
+of the specific (1.0, 0.7, 0.5) weighting nor of the         Per-system confusion matrices between the two
+SIDER→FAERS-style equivalences.                              judges (rows = Llama, cols = gpt-oss) are repro-
+                                                             duced below. All systems clear the substantial-
+Reflection sufficiency ρ. The reflector’s score              agreement threshold of κ ≥ 0.6 reported numer-
+ρ ∈ [0, 1] aggregates five sub-scores elicited from          ically in Table 2, and five of the seven clear the
+the planner LLM via a single structured-output               stricter threshold κ ≥ 0.85 adopted as the reliabil-
+call. The coverage sub-score is the fraction of              ity floor throughout §5.
+subquestions in Pt that have at least one support-
+ing evidence record in Gt . The completeness sub-            Biomni     (n = 3559, κ = 0.894)
+score asks whether the numeric, dose, and iden-                                       Yes    Partial     No
+tifier slots that the answer asserts are each an-
+                                                                          Yes         985       43        53
+chored to a record. The source quality sub-score                          Partial       8      152        78
+reads off the authority-bucket profile (cf. §4) of                        No            1        3      2236
+the cited records. The consistency sub-score mea-
+sures the absence of pairwise claim contradictions           DeepEvidence           (n = 3534, κ = 0.896)
+across the evidence subgraph. The actionability                                       Yes    Partial      No
+sub-score asks whether the answer addresses the                          Yes         1354        42       62
+clinical decision implied by q rather than restat-                       Partial        5       141       90
+                                                                         No             0         1     1839
+ing evidence. The five axes are presented to the
+planner LLM as a structured-output rubric and the            DrugClaw-linear          (n = 2467, κ = 0.792)
+planner returns a single ρ ∈ [0, 1]; we do not re-
+quire the LLM to expose per-axis sub-scores at                                         Yes    Partial    No
+inference time, which would otherwise enlarge the                         Yes         1288        56     153
+                                                                          Partial        3       163      72
+structured-output schema with no observed reward-                         No             0         3     729
+quality gain in development. Iteration terminates
+once ρ ≥ τsuff =0.7 or t = Tmax =2; both thresh-             DrugClaw-graph           (n = 1871, κ = 0.873)
+olds are the implementation defaults and were not                                      Yes    Partial    No
+separately tuned for this evaluation. The regres-
+                                                                          Yes         1126        40      24
+sion penalty λ max(0, rt − ρt+1 ) in Eq. (2) and                          Partial        8       158      44
+a separate convergence check together replace the                         No             8         2     461
+
+
+                                                        14
+                                             DrugAudit                      Source-side                     Closed-form
+System                                EILlama         EIoss             Primary          Faith.      MedQA          PubMedQA
+Direct LLM (GPT-5-mini)           .430 ± .010      .403 ± .009        .817 ± .014   .815 ± .022    .884 ± .023      .652 ± .043
+Direct LLM (GPT-5)                .513 ± .011      .494 ± .010        .714 ± .011   .825 ± .018    .898 ± .023      .654 ± .039
+ToolUniverse                      .357 ± .010      .340 ± .009        .796 ± .019   .828 ± .036    .880 ± .023      .662 ± .041
+Biomni                            .489 ± .009      .470 ± .009        .793 ± .013   .787 ± .017    .902 ± .023      .664 ± .041
+DeepEvidence                      .477 ± .010      .457 ± .010        .603 ± .017   .732 ± .016    .902 ± .021      .652 ± .043
+DrugClaw-linear                   .626 ± .010 .591 ± .012              .916 ± .009 .887 ± .016      .910 ± .021 .660 ± .040
+DrugClaw-graph                   .632 ± .010 .623 ± .011              .918 ± .009 .852 ± .017      .920 ± .021 .693 ± .040
+CI-overlap with best baseline?          No               No               No             No‡              Yes              Yes
+
+Table 3: Bootstrap 95% confidence intervals (item-level paired resampling, 1,000 draws) for the headline columns
+of Table 1. Values are reported as point±half-width in percentage points. The bottom row indicates whether the
+best DrugClaw variant’s CI separates from the best baseline’s CI (no overlap = statistically significant lead at
+α = 0.05). ‡ On Faith. the DrugClaw-linear lower bound (.871) exceeds the next-best Direct LLM (GPT-5) upper
+bound (.843); however the ToolUniverse CI upper bound (.864) lies inside the DrugClaw-linear interval, so the
+lead over ToolUniverse is marginal. The judge-mediated EI columns and the judge-independent Primary column
+show no overlap with any baseline CI. The closed-form MedQA and PubMedQA leads, by contrast, fall inside the
+best-baseline CI band: we therefore characterise these tracks as competitive rather than statistically dominant, and
+note that the authority-aware Evidence Index is the load-bearing claim of Table 1.
+
+
+  Variant           (P, C, A)         besta graph        ∆pp                                        EILlama           EIoss
+  Default (paper)   (1.0, 0.7, 0.5)   0.513     0.632 +11.9            System                     drop      ITT    drop          ITT
+  Uniform           (1.0, 1.0, 1.0)   0.555     0.642 +8.7             Direct LLM (GPT-5-mini)    0.430    0.430   0.403    0.400
+  Harsher           (1.0, 0.3, 0.1)   0.477     0.620 +14.3            Direct LLM (GPT-5)         0.513    0.513   0.494    0.490
+  No upstream-of    (1.0, 0.7, 0.5)   0.512     0.620 +10.8            ToolUniverse               0.357    0.357   0.340    0.339
+                                                                       Biomni                     0.489    0.489   0.470    0.463
+Table 4: Authority-weight and upstream-of sensitivity                  DeepEvidence               0.477    0.477   0.457    0.446
+for the composite EILlama . P/C/A = bucket weight                      DrugClaw-linear            0.626 0.548 0.591 0.512
+for primary / curated / aggregator. Uniform drops the                  DrugClaw-graph             0.632 0.504 0.623 0.489
+primary–aggregator hierarchy; Harsher amplifies it; No
+upstream-of sets U = ∅ so that an authoritative up-                   Table 5: Robustness of the composite Evidence Index
+stream citation no longer counts when the gold cites                  to two unparseable-verdict handling rules. “drop” is
+the downstream aggregator. best: best-baseline EILlama ;              the rule used in Table 1 (Unknown excluded from nu-
+graph: DrugClaw-graph EILlama . a Best baseline is Di-                merator and denominator). “ITT” is intention-to-treat
+rect LLM (GPT-5) in every variant. DrugClaw-graph                     (Unknown counted as “No”). Under both rules, Drug-
+remains top-1 on EILlama across all four variants with                Claw takes top-1 on EI under both judges; only the best
+leads in the +8.7 to +14.3 pp range.                                  mode shifts from graph (under drop, where the higher
+                                                                      unparseable rate of graph is hidden) to linear (under
+                                                                      ITT, where it is penalised). Direct LLM (GPT-5) is the
+D    Robustness to Unparseable-Verdict                                strongest baseline under both rules. Bold marks the
+     Handling                                                         column maximum; underline the runner-up.
+
+The headline numbers in Table 1 follow standard
+LLM-as-judge practice and drop items where the
+judge emits an unparseable verdict from the judge-                       The mode-level reordering is intuitive: graph
+score numerator and denominator (§4.3). To verify                     mode produces multi-claim prose that the judges
+that this choice does not produce spurious rank-                      parse less reliably (47% to 50% unparseable versus
+ings, we re-compute the composite Evidence Index                      30% to 35% for linear, §5), so when unparseable
+(Eq. 4) under an intention-to-treat (ITT) rule that                   verdicts are treated as “No” graph absorbs more
+instead counts every unparseable verdict as “No”.                     cost than linear. At the system level, DrugClaw
+Under this rule the judge-score denominator returns                   remains top-1 on EI under both judges and both
+to the full 3,772 items, matching the most adversar-                  rules, which is the property the metric is intended
+ial common alternative used in the LLM-as-judge                       to support. The drop rule is reported in the main
+literature. Table 5 compares the two rules side by                    text because it is the protocol used by MT-Bench
+side.                                                                 and follow-up LLM-as-judge work (Zheng et al.,
+
+                                                                 15
+2023; Liu et al., 2023).                                     F   Reproducibility
+
+E   Web-Search Fallback: Frequency and                       Hardware. Single GPU not required for infer-
+    Impact                                                   ence. All seven systems were run on a CPU plus
+                                                             remote-API setup; the LLM calls were routed
+DrugClaw-graph retains a web-search fallback in-             through an OpenAI-compatible inference gateway
+side its reflector loop (Algorithm 1): when the              hosted on the authors’ institutional cluster (details
+reflector terminates with sufficiency rt < τsuff             anonymised for review).
+at the iteration bound Tmax , the chain invokes a
+web-search step and re-runs the responder over the           Software. Python 3.11, OpenAI Python SDK
+augmented evidence pool. The baselines (Biomni,              1.50+, pdftotext and beautifulsoup4 for skill
+DeepEvidence) are run under their released default           data loaders. The state-machine orchestration is
+configurations, which retrieve from each system’s            implemented on top of the LangGraph library; the
+bundled tool registry and knowledge bases and do             contribution of DrugClaw is the agent composi-
+not invoke open-web search for these queries (Ap-            tion, the typed evidence schema and the authority-
+pendix G); it is therefore important to quantify             aware metric panel rather than the orchestrator
+the impact of this asymmetry on DrugClaw’s re-               choice, so any equivalent state-machine library
+ported numbers. The fallback fires on 894/3,772              would suffice. The full skill registry and bench-
+(23.7%) of evidence dataset items, 80/751 (10.7%)            mark harness are released under an Apache-2.0
+of MedQA items, and 81/512 (15.8%) of Pub-                   license at https://anonymous.4open.science/
+MedQA items. DrugClaw-linear, by construction,               r/DrugClaw-01A3/README.md.
+never invokes the fallback (verified on all three            Cost. Total LLM spend across all candidate runs
+datasets).                                                   and all judge runs was approximately USD $600 at
+                                                             GPT-5-mini and Llama / gpt-oss gateway rates.
+Citation-side impact. Table 6 compares the
+authority-aware metric panel on the fallback-fired
+                                                             G    Baseline Configurations
+subset of DrugAudit against the subset on which
+the reflector terminated naturally, and reports a            Each compared system is run under its own re-
+counterfactual in which we disable the fallback              leased framework with no internal modifications;
+(treat fallback items as if the system had refused,          we control for two confounds at the interface
+emitting no citation). The fallback fires precisely          layer: the planner backbone is fixed across sys-
+on items where the closed registry was insuffi-              tems for fairness, and the dataset-specific system
+cient; these items have substantially lower author-          prompt is shared verbatim across systems so that
+ity, faithfulness and primary-source rates than the          the candidate-side prompting surface contributes
+no-fallback subset (0.20 vs. 0.49 for authority; 0.62        equally to every comparison. The per-system im-
+vs. 0.88 for faithfulness). Disabling the fallback           plementation choices are summarised in Table 7.
+entirely improves citation-side metrics slightly, be-
+cause the fallback trades coverage for citation qual-        Inference endpoint. All systems and both
+ity on the hardest items.                                    judges route their calls through a single
+                                                             OpenAI-compatible inference gateway (in-
+Closed-form impact. For the closed-form tracks,              stitution anonymised for review; api_mode =
+we estimate the no-fallback counterfactual by                "responses"). Per-call parameters are held
+substituting DrugClaw-linear’s prediction (which             constant across systems: max_tokens = 40000,
+never uses the fallback) on the items where graph            timeout = 100 s, temperature = 0.7 for
+mode fired the fallback. Under this substitution,            candidate runs and temperature = 0 for
+DrugClaw-graph accuracy drops modestly from                  judge runs. Candidate runs use GPT-5-mini
+0.920 to 0.917 on MedQA (−0.3 pp) and from                   as the planner backbone (with GPT-5 for
+0.693 to 0.678 on PubMedQA (−1.6 pp); graph                  the upper-baseline Direct LLM); judge runs
+mode remains the top-1 system on both tracks un-             use llama-3.1-70b-instruct (primary) and
+der either configuration. The fallback is therefore          gpt-oss-120b (secondary). Because the gateway
+not pivotal to the headline rankings; disabling it           and parameters are shared, the only sources of
+across the board would preserve every conclusion             cross-system variance are the released framework
+drawn in §5.                                                 code and the registry of tools each system invokes.
+
+                                                        16
+      Metric                   fb-fired (n=894) no-fb (n=2878) All (n=3772, current) No-fb counterfactual
+      answered_rate                       0.682             0.458                    0.511                    0.511
+      source_authority_rate               0.203             0.488                    0.420                    0.416
+      snippet_semantic_rate               0.172             0.382                    0.332                    0.335
+      source_primary_rate                 0.802             0.931                    0.918                    0.931
+      faithfulness_rate                   0.625             0.876                    0.852                    0.876
+      evidence_index_partial              0.411             0.641                    0.596                    0.601
+
+Table 6: Web-search fallback impact on DrugClaw-graph citation-side metrics over DrugAudit. The “No-fb
+counterfactual” column reports the values that would be obtained if the web-fallback were disabled and the
+corresponding items returned no citation. Disabling the fallback raises primary, faithfulness and the citation-side
+evidence index by 1.2 to 2.4 pp, so the fallback is not an unfair lift but rather a small drag on the authority-aware
+panel.
+
+ System                             Framework         Planner       Notes
+ Direct LLM (GPT-5-mini)            chat completion   GPT-5-mini no tools; no retrieval.
+ Direct LLM (GPT-5)                 chat completion   GPT-5      no tools; no retrieval.
+ ToolUniverse (Gao et al., 2024)    official 1.1.x    GPT-5-mini 108 tools loaded statically; native function-calling.
+ Biomni (Huang et al., 2025)        Stanford Biomni   GPT-5-mini default biomedical-tool registry; data cached locally.
+ DeepEvidence (Wang et al., 2025)   BioDSA            GPT-5-mini KBs: pubmed_papers, clinical_trials, drug,
+                                                                 disease.
+ DrugClaw-linear                    this work         GPT-5-mini latency-prioritised subset of 19 skills from the 57-skill
+                                                                 registry; no web search.
+ DrugClaw-graph                     this work         GPT-5-mini closed registry + reflector loop (τsuff =0.7, Tmax =2);
+                                                                 web fallback only on terminal insufficiency.
+
+Table 7: Per-system implementation choices. The planner backbone is held fixed at GPT-5-mini for every agent and
+tool-augmented baseline; the upper-baseline Direct LLM (GPT-5) is included to bound the parametric-knowledge
+ceiling. Every system receives the same dataset-specific user prompt (§4) and writes its output into the same
+canonical JSON schema; agent frameworks whose internal templates fight the JSON requirement are post-processed
+by a normaliser LLM that re-emits the canonical schema without altering the answer content.
+
+
+Default-configuration runs. Biomni and Deep-                   H    Code Agent: Safe Sublanguage and
+Evidence are invoked under their released default                   Sandbox
+configurations without modification to their tool
+registry: we neither enable nor disable any in-                This appendix expands the Code Agent specifica-
+dividual adapter, and at default each system re-               tion summarised in §3.3. The agent emits a can-
+trieves from its bundled biomedical tools and                  didate program c in the safe Python sublanguage
+knowledge bases rather than from open-web search.              Lsafe , defined by three independent restrictions.
+DrugClaw-graph retains a web-search fallback in-               Banned AST nodes. Let Bast denote the set of
+side its reflector loop; we report in Appendix E               AST node classes that disqualify a program from
+the fraction of items for which the fallback fires             Lsafe :
+and the counterfactual impact on the authority-
+aware panel of disabling it entirely. Two-stage                     Bast = { While, With, AsyncWith,
+agent systems whose internal prompt template en-                              AsyncFor, AsyncFunctionDef,
+forces an alternative output schema (DrugClaw-
+                                                                              ClassDef, Global,
+graph, Biomni, DeepEvidence) emit their native
+answer plus already-extracted citations to a small                            Nonlocal, Lambda }.
+normaliser LLM (GPT-5-mini) which re-emits the
+canonical JSON schema without altering answer                  A program containing any node in this set is re-
+content; the normalisation step is the same for ev-            jected outright. The choice excludes unbounded
+ery such system and never re-runs retrieval.                   iteration, side channels through global or non-local
+                                                               bindings, and dynamic function-definition tricks
+                                                               that would complicate static analysis.
+
+                                                               Allowed imports. The agent may import only
+                                                               the four standard-library modules in Iok =
+
+                                                          17
+{json, math, re, statistics}. The first three                   definitions; this appendix reproduces the full pseu-
+cover JSON serialisation, numeric work and pattern              docode for each mode and a side-by-side compari-
+matching, which together are sufficient for the great           son of the operator stacks they invoke.
+majority of skill-call patterns. The statistics
+module is useful for aggregating activity records               Linear mode
+(e.g. median IC50 across replicate assays). All other           Linear mode is the default deployment target for
+imports trigger rejection.                                      end-user-facing prose. It executes a single forward
+                                                                pass through the planner, Code Agent, and respon-
+Allowed built-ins. The agent’s program runs                     der, omitting the graph builder, reranker, reflector
+in a globals dictionary whose built-ins are re-                 and web-search fallback, and is summarised in Al-
+stricted to the curated allow-list Fok . The allow-list         gorithm 2.
+contains the exceptions ValueError, TypeError,
+KeyError and IndexError; the iteration helpers                  Algorithm 2 DrugClaw linear-mode workflow.
+len, range, min, max, sum, sorted, enumerate                    Require: query q; skill registry R
+and zip; the constructors list, dict, set, tuple,               Ensure: answer a⋆ , evidence list E ⋆
+str, int, float and bool; the predicates abs, all                1: P ← SPlan(q; Renabled )
+                                                                 2: E ← u∈P exec_sandbox(CodeAgent(u))
+and any; and print. The built-ins exec, eval,                    3: a ← Resp(E, q)
+open, compile, __import__, input, help, dir,                     4: return (a, E)
+globals, locals and vars are all blocked at eval-
+uation time.                                                    Equivalent to fixing Tmax = 1 in Eq. 1 and deleting
+                                                                the GBld, Rerk and Refl operators. Linear mode
+Proxy-only sandbox. Even within Lsafe , an
+                                                                terminates after one round of skill execution even
+attacker could in principle attempt to tra-
+                                                                when the underlying retrieval returns no records;
+verse Python’s object model from the skill in-
+                                                                in that case the responder emits “I do not know”
+stance back into the host process (e.g. via
+                                                                and the answer carries an empty evidence_items
+instance.__class__.__mro__). The sandbox
+                                                                list. There is no web-search fallback. The mode
+Σ(K) therefore exposes the skill K through a
+                                                                prioritises latency over depth: median wall-clock
+proxy that intercepts attribute access on dunder-
+                                                                time per item is 14 seconds (Appendix K), and the
+prefixed names and rejects access to __class__,
+                                                                evidence pool seen by the responder is a flat union
+__globals__, __subclasses__ and the wider
+                                                                of retrieval results rather than a reranked subgraph.
+object-introspection ladder. A hard SIGALRM time-
+out, set per call by the DrugClaw runtime, aborts               Graph mode
+any execution that does not return within the con-
+                                                                Graph mode is the deeper retrieval-and-reason vari-
+figured budget.
+                                                                ant intended for analyst-facing multi-source explo-
+Fallback semantics. If c ∈     / Lsafe , if proxy inter-        ration. It instantiates Eq. 1 in full: every operator
+ception raises, or if the sandbox times out, the Code           (Plan → Retr → GBld → Rerk → Resp → Refl)
+Agent invokes K.retrieve(u) directly with the orig-             is applied at each iteration and the reflector con-
+inal subquery. The fallback ensures that retrieval              trols termination. Algorithm 1 in §3.2 gives the
+is never silently lost, at the modest cost that the             full pseudocode; we reproduce the key control flow
+failure mode is logged but not surfaced to the user.            here for the appendix to be self-contained. The
+In practice the validation pass rejects fewer than              graph builder (GBld) materialises the retrieved
+1% of generated programs in our reported runs, and              records into a typed claim-evidence subgraph, the
+the timeout fires on fewer than 0.5% of skill calls.            reranker (Rerk) reorders nodes by source-authority
+                                                                and relevance to the query plan, and the reflec-
+I   Operational Modes: Full Specification                       tor (Refl) computes a sufficiency score rt+1 =
+                                                                ρt+1 − λ max(0, rt − ρt+1 ) (Eq. 2). The loop iter-
+DrugClaw ships in three reasoning modes that                    ates while rt < τsuff = 0.7 and t < Tmax = 2; on
+share the skill registry and entity-resolution layer of         terminal insufficiency the chain invokes the web-
+§3, the Code Agent of §3.3 and the output schema                search fallback, re-runs the responder over the aug-
+of §3.4, but differ in which operators of Eq. 1 are ap-         mented evidence pool, and returns. The median
+plied and in whether the retrieve-and-reason chain              wall-clock time per item is 46 seconds and the
+iterates. The summary in §3.2 gives the headline                responder sees a graph with mean fan-out of 5.1
+
+                                                           18
+evidence records per answered claim (Appendix K,                         System                    refusal rate refusal → Yes
+Appendix L).                                                             Direct LLM (GPT-5-mini)       74.3%            5.1%
+                                                                         Direct LLM (GPT-5)            54.5%            4.9%
+Web-only mode                                                            ToolUniverse                  87.9%            4.3%
+                                                                         Biomni                        49.0%            1.5%
+Web-only mode is intended for queries that fall                          DeepEvidence                  37.3%            1.3%
+outside the curated registry (e.g. recently approved                     DrugClaw-linear               41.1%          91.1%
+drugs whose records have not propagated into the                         DrugClaw-graph                48.3%          96.6%
+local skills). As specified in Algorithm 3, it by-
+passes the entire plan-retrieve-respond chain and                    Table 9: Refusal rate (fraction of items returned as “I
+routes q directly to the web-search agent.                           do not know” or equivalent) and the fraction of those
+                                                                     refusals, conditional on the LLM judge producing a
+Algorithm 3 DrugClaw web-only mode workflow.                         parseable verdict, that score “Yes” because the gold
+                                                                     itself reports no data. DrugClaw attains the highest cali-
+Require: query q
+                                                                     bration ratio among the seven systems by a wide margin,
+Ensure: answer a⋆ , evidence list E ⋆
+ 1: E ← WebSearch(q)                                                 which reflects the reflector’s explicit “insufficient evi-
+ 2: a ← Resp(E, q)                                                   dence” return-path triggering only when the underlying
+ 3: return (a, E)                                                    retrieval also fails.
+
+Web-only mode is excluded from the compari-
+son in §5 because DrugAudit is built against the                     a chatbot or an audit aggregator) will face the
+closed registry of §3; including a web-search vari-                  same parsing friction, so deployments that chain
+ant against this benchmark would conflate retrieval                  another model after the agent should prefer linear
+venue with retrieval depth.                                          mode unless the consumer is explicitly tuned to
+                                                                     multi-claim agent prose. Graph mode’s reflector
+Operator stacks at a glance                                          also refuses more often (48.3% vs. 41.1% for lin-
+Table 8 contrasts which operators of Eq. 1 each                      ear; Appendix J) because the sufficiency threshold
+mode invokes.                                                        τsuff = 0.7 trades coverage for precision. Settings
+                                                                     that need broader coverage at the cost of more par-
+   Operator              Linear       Graph          Web-only        tial answers can either run linear mode or lower
+   Plan                    ✓              ✓             ×            τsuff in graph mode; we do not tune τsuff in this
+   Retr (skills)           ✓              ✓             ×            paper and leave its calibration frontier to future
+   WebSearch               ×      on fallback only      ✓
+   GBld                    ×              ✓             ×            work.
+   Rerk                    ×              ✓             ×
+   Resp                    ✓              ✓             ✓
+   Refl (loop)             ×              ✓             ×            J    Calibrated Refusal: Extended Analysis
+   Iter. bound Tmax        1              2             1
+   Suff. thresh. τsuff     ×             0.7            ×            This appendix expands the refusal-behaviour analy-
+                                                                     sis summarised in §6. Refusal rates and the fraction
+Table 8: Operators of Eq. 1 invoked by each reasoning
+                                                                     of refusals that receive judge verdict “Yes” (i.e. that
+mode. Linear collapses the loop to a single plan-retrieve-
+respond pass; graph runs the full operator stack with                align with a “no data” or “not reported” gold) are
+reflector-controlled iteration; web-only bypasses the                reported in Table 9.
+skill registry and goes straight to web search.                         Calibrated abstention is the operating point rec-
+                                                                     ommended by recent work on confidence in lan-
+                                                                     guage models (Kadavath et al., 2022; Slobodkin
+Which mode to use                                                    et al., 2023; Varshney et al., 2023) when the al-
+The headline numbers in Table 1 make graph mode                      ternative is plausible-sounding numeric confabu-
+the quality-maximising default and linear mode                       lation. The amiodarone-EGFR case study repro-
+the operationally cheaper runner-up. Two practi-                     duced in Appendix M illustrates the trade-off on a
+cal considerations narrow this choice further. The                   single item: when ChEMBL contains no bioactivity
+LLM-judge parse rate on graph-mode outputs is                        record for the drug-target pair, DrugClaw returns
+substantially lower than on linear-mode outputs                      “I do not know” and the judge scores the response
+(47% to 50% unparseable verdicts versus 30% to                       “Yes”; the strongest tool-augmented baseline fab-
+35%; §5), and any downstream LLM that con-                           ricates a plausible µM-range IC50 instead and the
+sumes DrugClaw’s output (whether a summariser,                       judge scores it “No”.
+
+                                                                19
+K    Cost and Latency                                       field of each baseline.
+This appendix reports the per-item runtime and              Case 1: FAERS exact-count retrieval. ID:
+cost figures referenced in §6. DrugClaw-linear              faers-atenolol-attr-01. The question asks
+completes a query in 14 seconds (median, 2.4                how many FAERS reports of NAUSEA are recorded
+skill calls) and DrugClaw-graph in 46 seconds (5.1          for atenolol. The gold answer is 7,618.
+calls). Biomni takes 32 seconds with 4.7 calls and
+                                                             Gold                 “FAERS reports 7,618 reports of
+DeepEvidence 54 seconds with 6.2 calls; the direct                                NAUSEA for atenolol.”
+language model returns in 3 to 7 seconds with no             DrugClaw-linear      “. . . atenolol has 7,619 sponta-
+                                                                                  neous reports of NAUSEA.” (cite:
+tools. The closed-registry design caches retrieval                                FAERS)
+on disk, yielding per-item GPT-5-mini costs near             Biomni               “. . . 0 reports of ‘nausea’ were
+$0.012 for linear mode and $0.025 for graph mode.                                 found for atenolol.”
+                                                             DeepEvidence         “. . . there are 5,016,555 reports
+The total spend across all candidate runs and both                                of NAUSEA for atenolol. . . ”
+judge runs was approximately USD $600 at GPT-                Direct LLM (GPT-5)   “I don’t know.”
+5-mini, Llama-3.1-70B-Instruct and gpt-oss-120b             DrugClaw is off by 1 (−0.01%) because
+gateway rates.                                              of a within-day data-snapshot timing differ-
+                                                            ence. The two tool-augmented baselines is-
+L   Performance by Question Type
+                                                            sue plausible-looking openFDA queries but miss
+DrugAudit tags each item with a question-type la-           the substance_name normalisation step that the
+bel in the meta.question_type field. The labels             FAERS API requires; Biomni reads zero matches
+group items by the cognitive operation the ques-            and DeepEvidence reads back the global NAUSEA
+tion requires rather than by the source database.           row (every drug, ∼5M reports).
+Table 10 reports the per-(system, question-type)
+composite judge score (Yes + 0.5·Partial)/(Yes +            Case 2: Orange Book brand-name lookup.
+Partial + No) under the Llama-3.1-70B-Instruct              ID: orange_book-prednisone-verify-02. The
+judge, consistent with the parseable-only denom-            question asks whether the FDA Orange Book lists
+inator of §4.3. The ∆DC column reports the gap              PREDNISONE INTENSOL as an approved brand of
+between the best DrugClaw mode and the best base-           prednisone. Gold: “Yes.”
+line (positive = DrugClaw lead).                             Gold                 “Yes, the FDA Orange Book lists
+                                                                                  PREDNISONE INTENSOL as a
+Evidence density and answer thoroughness.                                         trade name for prednisone.”
+                                                             DrugClaw-graph       “Yes. The FDA Orange Book
+On items that receive a substantive answer (i.e. not                              lists PREDNISONE INTEN-
+refused), DrugClaw-linear emits a mean of 3.78 ci-                                SOL (ANDA088810), sponsor
+tations per item and DrugClaw-graph emits a mean                                  HIKMA, as an approved pred-
+                                                                                  nisone product.” (cite: FDA
+of 5.09. By comparison the tool-augmented base-                                   Orange Book)
+lines emit 1.43 (ToolUniverse) to 2.07 (Biomni)              Biomni               “No. . . returns no matching
+and the direct language model emits 1.72. The                                     records, although the FDA Daily-
+                                                                                  Med label for prednisone. . . ”
+same ranking holds for median answer length: 327             DeepEvidence         “No. The FDA. . . does not list
+characters for DrugClaw-linear against 135 to 206                                 ‘PREDNISONE INTENSOL’ as
+                                                                                  an approved brand. . . ”
+for every baseline. These numbers indicate that for          Direct LLM (GPT-5)   “No.. . . ”
+the subset of items DrugClaw chooses to answer,
+the response carries substantially more attached            The brand is listed in the Orange Book, but the
+evidence and prose detail than any compared sys-            baselines either ran an exact-string product lookup
+tem, which is the deployment-side property that             that missed the listing or fell back on parametric
+we expect a closed, provenance-strict registry to           memory. DrugClaw accompanies its “Yes” with
+deliver.                                                    the ANDA number and the sponsor, both directly
+                                                            retrievable from the Orange Book skill, and the
+M    Case Studies                                           answer is auditable end-to-end.
+
+Each box reproduces system outputs verbatim. Ci-            Case 3: FAERS rare-event lookup. ID:
+tations (source_db + snippet head) are reproduced           faers-aripiprazole-attr-01. Q: “According
+as recorded in the evidence_items field of Drug-            to FAERS, how many reports of SUICIDE ATTEMPT
+Claw’s output and in the corresponding citation             are there for aripiprazole?” Gold: “1,517.”
+
+                                                       20
+  Question type          What it measures                       n              Baselines               DrugClaw        ∆DC
+                                                                     GPT-5    TU Biomni DeepEv. linear graph
+  direct_lookup          single-fact retrieval          866           0.239 0.059    0.283     0.350 0.444 0.506 +0.156
+  attribute_specific     numeric attribute value        688           0.343 0.065    0.169     0.275 0.651 0.666 +0.323
+  yes_no_verify          yes/no with citation           918           0.505 0.131    0.343     0.477 0.394 0.318 −0.111
+  no_evidence            calibrated “no data”           917           0.479 0.284    0.529     0.674 0.972 0.960 +0.298
+  complementary_safety safety overlap across sources    127           0.000 0.000    0.394     0.343 0.424 0.176 +0.030
+  convergent_indication indication aggregation          115           0.922 0.452    0.543     0.630 0.676 0.130 −0.245
+  convergent_moa         mechanism convergence           65           0.700 0.231    0.608     0.592 0.879 0.885 +0.185
+  chained_target_disease drug → target → disease         50           0.240 0.120    0.420     0.670 0.057 0.061 −0.609
+  convergent_adr         ADR aggregation across sources 26            0.077 0.000    0.250     0.038 0.286 0.250 +0.036
+
+Table 10: Composite judge score per question type under the Llama judge. DrugClaw takes the top score on six
+of nine question types, with positive ∆DC gaps ranging from +3 pp (complementary_safety, convergent_adr) to
++32 pp (attribute_specific). The two modes are complementary: graph mode leads on the three types whose gold
+answers reward cross-record synthesis (direct_lookup, attribute_specific, convergent_moa); linear mode leads on
+the three types where the gold is a single fact or a calibrated “no data” refusal (no_evidence, complementary_safety,
+convergent_adr). Baselines lead on three types where the closed registry is at a structural disadvantage: GPT-5 on
+yes_no_verify and convergent_indication, both probing broad clinical-association recall where parametric memory
+is hard to beat without an open-web step; DeepEvidence on chained_target_disease, where its literature reach
+exceeds DrugClaw’s skill registry. Extending the registry with literature-mining tools is one direction Limitations
+identifies as future work. GPT-5 = Direct LLM with GPT-5; TU = ToolUniverse.
+
+
+ DrugClaw-linear        “According to FAERS, there                  “According to ChEMBL, what bioactivity is re-
+                        are 1,517 spontaneous reports. . . ”
+                        (cite: FAERS)                               ported for amiodarone against EGFR?” Gold:
+ Biomni                 “I don’t know.”                             “ChEMBL does not report any bioactivity of amio-
+ DeepEvidence           “3,505 FAERS reports of ‘SUI-
+                        CIDE ATTEMPT’ for aripipra-
+                                                                    darone against EGFR.”
+                        zole.”
+ Direct LLM (GPT-5)     “I don’t know.”
+                                                                       DrugClaw-linear     “I don’t know.”
+DeepEvidence’s 3,505 likely conflates reports with                     Biomni              “ChEMBL reports an IC50 of
+all related-event variants. The exact-match Drug-                                          10.0 µM (10000 nM) for amio-
+Claw response is the deployable answer for a phar-                                         darone inhibiting EGF-stimulated
+                                                                                           tyrosine phosphorylation of
+macovigilance triage workflow.                                                             EGFR in A431 cells (activity_id
+                                                                                           60162).”
+Case 4: PharmGKB → CPIC upstream citation.
+ID: pharmgkb-atorvastatin-attr-01. Q: “Ac-
+                                                                    ChEMBL does not contain the cited record (the ac-
+cording to PharmGKB, what is the level of evi-
+                                                                    tivity ID does not resolve). Biomni’s confabulation
+dence for the atorvastatin-SLCO1B1 (rs4149056)
+                                                                    is plausible at the surface, correct unit, correct cell
+clinical annotation?” Gold: “Level of evidence
+                                                                    line for EGFR assays, and a plausible IC50 range,
+1A.”
+                                                                    but is a hallucination. Under our judge prompt the
+   DrugClaw-linear    “PharmGKB assigns level 1A
+                      evidence to the atorvastatin-                 calibrated refusal is scored “Yes” because the gold
+                      SLCO1B1 (rs4149056) clinical                  itself reports no data; the confabulation is scored
+                      annotation.” (cite: PharmGKB                  “No”. In pharmacovigilance settings this asymme-
+                      and CPIC)
+                                                                    try is appropriate, because a fluent fabrication of
+DrugClaw cites both PharmGKB and CPIC; the                          a kinase-activity number is a higher-risk failure
+latter is the clinical-implementation arm of Phar-                  mode than an honest refusal.
+mGKB and a first-class primary record for prescrib-
+ing guidelines. Under the legacy source-match
+rate the CPIC citation contributes zero because
+the gold string is the literal “PharmGKB”; under                    Case 6: openFDA Label warning extraction.
+our authority-aware rule it counts as a primary up-                 ID:     openfda_label-clozapine-verify-02,
+stream citation.                                                    abridged. Q: “Does the clozapine label include a
+                                                                    boxed warning for agranulocytosis?” Gold: “Yes;
+Case 5: Calibrated refusal on “no data” golds.                      boxed warning for severe neutropenia including
+ID: chembl-amiodarone-no_evidence-03. Q:                            agranulocytosis.”
+
+                                                               21
+DrugClaw-linear           “Yes; the openFDA Label for
+                          clozapine contains a boxed
+                          warning for severe neutrope-
+                          nia including agranulocytosis.”
+                          (cite: openFDA Label, boxed
+                          warning)
+Direct LLM (GPT-5-mini)   “Yes; clozapine’s prescribing
+                          information warns about agran-
+                          ulocytosis.” (no citation)
+The factual content matches but only DrugClaw
+points back at the specific Label section. In a
+clinical-decision-support setting, this is the differ-
+ence between a recommendation a prescriber can
+verify against the FDA document in one click and
+one whose primary source they must look up by
+hand.
+Case 7: Multi-source overlap query (multi-
+source aggregation; ID withheld for brevity).
+Multi-source items in the benchmark explicitly mix
+records from ≥ 2 databases. DrugClaw-graph ex-
+cels here because the agent’s claim-evidence graph
+(§3.2) walks across skills before synthesising: in
+our error analysis, 66.6% of multi-source items re-
+ceive a substantive answer from DrugClaw-graph
+compared with 55 to 62% for the next-best tool-
+augmented systems. The single-claim Direct-LLM
+baselines lose the most here because each sub-
+claim that requires a tool call is a separate failure
+point.
+
+
+
+
+                                                            22
+

@@ -1,0 +1,745 @@
+                                                 Difficulty-Aware Agentic Orchestration for Query-Specific
+                                                                  Multi-Agent Workflows
+                                                                 Jinwei Su∗                                            Qizhen Lan∗                                    Yinghui Xia†
+                                                 South China Normal University                             The University of Texas Health               The Hong Kong University of Science
+                                                       Guangzhou, China                                           Science Center                                 and Technology
+                                                   2024024579@m.scnu.edu.cn                                   Houston, United States                            Guangzhou, China
+                                                                                                             Qizhen.Lan@uth.tmc.edu                      yxia501@connect.hkust-gz.edu.cn
+
+                                                                 Lifan Sun                                            Weiyou Tian                                     Tianyu Shi†
+                                                      University of California                                   Peking University                                University of Toronto
+
+
+
+
+arXiv:2509.11079v5 [cs.AI] 13 Feb 2026
+                                                      San Diego, United States                                    Shenzhen, China                                   Toronto, Canada
+                                                          lis005@ucsd.edu                                   weiyoutian25@stu.pku.edu.cn                            tys@cs.toronto.edu
+
+                                                                                           Lewei He†                                      Yang Jingsong†
+                                                                              South China Normal University                                Autoagent.AI
+                                                                                    Guangzhou, China                                       Beijing, China
+                                                                                 helewei@m.scnu.edu.cn                               edward.yang@agentspro.cn
+
+                                         Abstract                                                                                ACM Reference Format:
+                                         Large Language Model (LLM)-based agentic systems have shown                             Jinwei Su, Qizhen Lan, Yinghui Xia, Lifan Sun, Weiyou Tian, Tianyu Shi,
+                                                                                                                                 Lewei He, and Yang Jingsong. 2026. Difficulty-Aware Agentic Orchestration
+                                         strong capabilities across various tasks. However, existing multi-
+                                                                                                                                 for Query-Specific Multi-Agent Workflows. In Proceedings of the ACM Web
+                                         agent frameworks often rely on static or task-level workflows,                          Conference 2026 (WWW ’26), April 13–17, 2026, Dubai, United Arab Emirates.
+                                         which either over-process simple queries or underperform on com-                        ACM, New York, NY, USA, 12 pages. https://doi.org/10.1145/3774904.3792240
+                                         plex ones, while also neglecting the efficiency-performance trade-
+                                         offs across heterogeneous LLMs. To address these limitations, we
+                                         propose Difficulty-Aware Agentic Orchestration (DAAO), which
+                                         can dynamically generate query-specific multi-agent workflows                           1    Introduction
+                                         guided by predicted query difficulty. DAAO comprises three interde-                     Large Language Model (LLM)-based agents [25, 28, 32, 33] have ex-
+                                         pendent modules: a variational autoencoder (VAE) for difficulty esti-                   hibited remarkable capabilities across a wide spectrum of tasks, in-
+                                         mation, a modular operator allocator, and a cost- and performance-                      cluding question answering [57], data analysis [13, 22, 36], decision-
+                                         aware LLM router. A self-adjusting policy updates difficulty esti-                      making [24, 38, 39], code generation [37] and web navigation [5].
+                                         mates based on workflow success, enabling simpler workflows for                         Building upon the success of single agents, recent advancements
+                                         easy queries and more complex strategies for harder ones. Experi-                       reveal that organizing multiple LLM-based agents into structured
+                                         ments on six benchmarks demonstrate that DAAO surpasses prior                           agentic workflows can significantly enhance task performance. In
+                                         multi-agent systems in both accuracy and inference efficiency, vali-                    such workflows, agents can interact either cooperatively [58] or
+                                         dating its effectiveness for adaptive, difficulty-aware reasoning.Our                   competitively [56] depending on the task context. These multi-
+                                         code is open-sourced at https://github.com/AutoAgents-ai/DAAO                           agent systems can overcome the cognitive and functional limita-
+                                                                                                                                 tions of individual models [6, 18, 23, 44, 46, 52], thereby exhibiting
+                                         CCS Concepts                                                                            collective intelligence similar to human collaboration in a society
+                                         • Computing methodologies → Cooperation and coordina-                                   of agents.
+                                         tion; Multi-agent systems.                                                                 In recent years, the research community has focused on automat-
+                                                                                                                                 ing multi-agent system design. For instance, DsPy [19] and Evo-
+                                         Keywords                                                                                Prompting [10] automate prompt optimization, GPTSwarm [58]
+                                         Multi-agent system; Difficulty-Aware; Adaptive workflows                                optimizing inter-agent communication, and EvoAgent [50] self-
+                                                                                                                                 evolving agent profiling. However, these systems are often con-
+                                         ∗ Equal contribution.
+                                                                                                                                 strained by limited search spaces and rigid representation paradigms,
+                                         † Corresponding authors.
+                                                                                                                                 resulting in marginal performance gains and limited adaptability to
+                                                                                                                                 diverse task requirements. Subsequently, ADAS [14] and AFlow [54]
+                                                                                                                                 employ code as representation for workflow, facilitating robust
+                                         This work is licensed under a Creative Commons Attribution 4.0 International License.   and flexible workflow searches through different paradigms, with
+                                         WWW ’26, Dubai, United Arab Emirates.                                                   ADAS utilizing heuristic search and AFlow adopting Monte Carlo
+                                         © 2026 Copyright held by the owner/author(s).
+                                         ACM ISBN 979-8-4007-2307-0/2026/04                                                      tree search. MaAS [53] proposes an agentic supernet to generate a
+                                         https://doi.org/10.1145/3774904.3792240                                                 query-specific multi-agent system for each user query.
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.                                                                         Jinwei Su et al.
+
+
+
+
+                                             Figure 1: The overall framework of our proposed DAAO.
+
+
+   How to dynamically generate a workflow given a query remains           we model multi-agent workflow generation on the agentic net, a
+a key challenge in current research. Task-level workflows [14, 54]        probabilistic, continuous agentic architecture distribution that en-
+are typically built as uniform multi-agent systems for entire task        compasses a vast number of possible multi-agent candidates. To
+categories, achieving strong metrics like accuracy and pass@k but         enhance efficiency and adaptability, we incorporate a cost- and
+relying on heavy pipelines with excessive LLM calls and tool us-          performance-aware LLM router that dynamically assigns heteroge-
+age. This design over-processes simple queries, wasting resources         neous models to different operators according to query difficulty
+and overlooking factors like token cost and latency. Query-level          and resource constraints. During training, a controller network
+workflows [53] introduce input-specific adaptation, but their gran-       samples multi-agent architectures conditioned on the input query
+ularity is often insufficient, leading to suboptimal or oversimplified    and updates its policy through feedback signals. During inference,
+workflows for difficult inputs. For instance, when a user requests a      for different queries, DAAO samples a suitable multi-agent sys-
+travel guide for a specific location, a workflow that only retrieves      tem delivering satisfactory resolution and appropriate inference
+and summarizes information often falls short of meeting the user’s        resources.
+needs. These limitations motivate a difficulty-adaptive framework            Our key contributions are as follows:
+that dynamically balances complexity and cost.                                • Query-Level Difficulty Estimation for Workflow Adap-
+   To address the above challenges, we propose Difficulty-Aware                  tation. We propose generating adaptive workflow strategies
+Agentic Orchestration (DAAO), which can intelligently generate                   guided by query difficulty. The framework learns to represent
+workflows according to the characteristics of each query. DAAO has               the latent difficulty space of queries, leveraging workflow
+three core capabilities: (1) Learning to capture the difficulty of each          feedback to adjust the strategies.
+query from posterior knowledge, without relying on manual labels;             • Dynamic Workflow Generation. We propose DAAO, a
+(2) Dynamically creating workflows that match the predicted diffi-               difficulty-aware framework that dynamically generates work-
+culty of each query; (3) Assigning LLMs to workflow components                   flows and realizes LLM heterogeneity based on query diffi-
+to maximize the reasoning ability of the Multi-agent system.                     culty, domain, and features, while achieving performance-
+   Technically, we define query difficulty as a learnable policy. Un-            cost balance.
+like previous methods, LLMs have little knowledge about workflow              • Experimental Validation. We conduct comprehensive eval-
+generation, and manually creating query-workflow pairs requires                  uations on six widely adopted benchmarks, covering diverse
+much human effort, which goes against automatic workflow gen-                    use cases in code generation (HumanEval, MBPP), mathe-
+eration. To address this, We use a reward-like mechanism to up-                  matical reasoning (GSM8K, MATH), knowledge and reason-
+date the policy. When a workflow successfully solves a query, we                 ing understanding (MMLU) and diverse tool usage (GAIA).
+slightly lower its predicted difficulty, allowing future workflows to            Empirical results demonstrate that DAAO is (1) highly
+be simpler. If a workflow fails, we increase the predicted difficulty            performing, surpassing existing automated orchestration
+to encourage more complex and capable workflows. In addition,                    methods by 3.5% ∼ 15.2% and recent LLM routing methods
+Difficulty-Aware Agentic Orchestration for Query-Specific Multi-Agent Workflows                             WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.
+
+
+        by 3.2% ∼ 10.2%; (2) economical, outperforming the SOTA                   and use the success signal to update 𝑁𝜃𝑑 and refine 𝑁𝜃𝑜 / 𝑁𝜃𝑚 , en-
+        baseline MasRouter on the MATH benchmark with 65% of                      abling continual improvement while keeping difficulty estimation
+        the training cost and 41% of the inference cost; (3) induc-               central to workflow construction.
+        tive, demonstrating strong generalization to unseen LLM
+        backbones and transferability across diverse datasets.                    3.1     Preliminary
+                                                                                  This section formalizes the search space for difficulty-aware agentic
+2    Related Work                                                                 workflow generation and the cost–utility objective optimized by
+   Automated Agentic Workflows. The development of agentic work-                  our policy.
+flows has evolved from manual configurations to automated sys-
+                                                                                     Agentic operator and workflow. Let M be the set of available large
+tems, with the latter offering improved adaptability and task perfor-
+                                                                                  language models (LLMs) and S the set of collaboration protocols
+mance. Early approaches to automation focus on optimizing prompt
+                                                                                  (e.g., Chain of Thought, Debate, Ensemble). The catalog of feasible
+structures and inter-agent communication protocols [10, 19, 50, 58],
+                                                                                  operators is the subset O ⊆ M × S. An agentic operator is a pair of
+thereby enhancing the robustness of workflows across a variety
+                                                                                  one model and one protocol:
+of tasks. More recent systems, such as ADAS [14] and AFlow [54],
+leverage code-based representations to enable real-time structural                                𝑂 = {𝑀, 𝑆 },             𝑀 ∈ M, 𝑆 ∈ S, 𝑂 ∈ O.                      (1)
+adaptation and communication strategy refinement based on envi-
+                                                                                     For example, {Qwen2-72B, Chain-of-Thought} denotes step-by-
+ronmental feedback. MaAS [53] further introduces query-specific
+                                                                                  step reasoning on Qwen2-70B, whereas {GPT-4o-mini, Debate}
+multi-agent composition using a supernet-like architecture. Despite
+                                                                                  configures turn-based multi-agent debate.
+these advances, current frameworks still face two major limitations.
+                                                                                     An agentic workflow can be described as a Directed Acyclic
+First, most multi-agent frameworks remain LLM-homogeneous, re-
+                                                                                  Graph (DAG):
+lying on a single backbone model (e.g., GPT-4o-mini) for all agents
+and thus missing the benefits of heterogeneous collaboration across                                  𝐺 = {V, E},          V ⊆ O, E ⊆ V × V,                          (2)
+models. Second, they lack complexity diversity: most systems adopt                where V collects instantiated operators (nodes) and E encodes
+uniformly complex workflows optimized for accuracy, ignoring                      directed dependencies (edges). We endow each workflow with a
+that real-world queries vary widely in difficulty.                                topological layering V = 𝑙=1
+                                                                                                                   Ð𝐿
+                                                                                                                        V𝑙 and restrict edges to go from
+   Difficulty-Aware Reasoning. Recent advances in the reasoning                   earlier to later layers; i.e., if 𝑢 ∈ V𝑙 and 𝑣 ∈ V𝑙 ′ , then 𝑙 ′ > 𝑙.
+domain of large language models increasingly emphasize difficulty-                  Layered Policy. We define the layered selection policy of DAAO
+aware mechanisms to address the limitations of uniform reward                     over the operator library O as
+signals across heterogeneous tasks, particularly in mathematical
+reasoning where problem complexity varies widely [17, 21, 41, 55].                                              𝐿                               
+These methods dynamically adjust learning objectives based on task                  A =          {𝜋𝑙 (𝑂)}𝑂 ∈O 𝑙=1,              𝜋𝑙 (𝑂) = P 𝑂 Q, 𝑧 , 𝑂 ∈ O,           (3)
+difficulty estimates, prioritizing deeper exploration for challenging             where 𝑧 is the latent embedding produced by our difficulty esti-
+problems while promoting efficiency on simpler ones. However,                     mator encoded from the input query Q and adaptively adjusted
+the model itself lacks intrinsic knowledge of the difficulty of multi-            across layers 𝑙 = 1:𝐿. In other words, 𝑧 = 𝑓𝜙 (Q, H1:𝑙 −1 ) is a learned
+agent workflows, making it unable to align the difficulty of queries              state summary that encodes the query and the preceding layer-
+with that of multi-agent workflows. To address this, we propose                                                  −1 of active operator sets (A ⊆ O).
+                                                                                  wise history H1:𝑙 −1 = {A𝑘 }𝑙𝑘=1                                 𝑘
+incorporating difficulty awareness into automatic workflow gener-                 The policy induces a joint distribution over multi-layer operator
+ation, resolving the perception of workflow difficulty for queries                configurations:
+and enhancing workflow adaptability.
+                                                                                                                  𝐿
+3    Methodology
+                                                                                                                  ÖÖ                              I[ 𝑂 ∈ A𝑙 ]
+                                                                                                 P(𝐺 | Q) =                      𝜋𝑙 (𝑂 | Q, 𝑧)                   ,   (4)
+   Overview. Figure 1 illustrates our Difficulty-Aware Agentic Or-                                                   𝑙=1 𝑂 ∈O
+
+chestration (DAAO), which generates query-specific agentic work-                  where 𝐺 = {V, E} is the DAG in Eq. (2), and the node set is the
+flows across domains and difficulty levels. Our key contribution is a             union of layerwise active sets, respecting the topological layering.
+standalone query difficulty estimator 𝑁𝜃𝑑 that provides an explicit,                  Optimization Objective. Given a benchmark dataset D contain-
+calibrated difficulty signal for each input. Unlike prior controller              ing queries Q and their oracle answers 𝑎, the objective of DAAO
+networks [59] that score architectures without reliably assessing the             is to learn a query-conditioned policy that balances task utility and
+query’s difficulty, 𝑁𝜃𝑑 —instantiated as a variational autoencoder                inference cost:
+(VAE) [20] with a learned difficulty head—encodes the query into                                        h                         i
+a latent representation 𝑧 and outputs a scalar difficulty 𝑑 ∈ (0, 1).                  max E ( Q,𝑎)∼D 𝑈 (𝐺; Q, 𝑎) − 𝜆 𝐶 (𝐺; Q) , s.t. 𝜆 ≥ 0, (5)
+                                                                                     P(𝐺 | Q )
+This difficulty estimate conditions (i) a layered operator allocator                              𝐺∼P(𝐺 | Q )
+
+𝑁𝜃𝑜 that selects an appropriate subset of agentic operators and                   where P(𝐺 |Q) is a distribution over query-specific workflows, 𝑈 (·)
+workflow depth, and (ii) a cost-aware LLM router 𝑁𝜃𝑚 that assigns                 and 𝐶 (·) denote the utility (e.g., accuracy) and cost (e.g., token
+backbone models by balancing reasoning needs with computational                   usage, latency) of executing workflow 𝐺 on query Q, respectively,
+budget. The three modules together yield a customized multi-stage                 and 𝜆 is a trade-off coefficient that balances performance and cost.
+workflow per query. After execution, we evaluate the output quality               The outer expectation is taken over the (empirical) data distribution
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.                                                                                                     Jinwei Su et al.
+
+
+of queries and answers, while the inner expectation marginalizes                          We train our difficulty estimator 𝑁𝜃𝑑 with a difficulty-guided
+the stochastic workflow 𝐺 ∼ 𝑃 (· | 𝑄).                                                 objective that aligns the decoded difficulty 𝑑 with the observed out-
+                                                                                       come 𝑦 ∈ {0, 1} (solved 𝑦 = 1, not solved 𝑦 = 0), while regularizing
+3.2      Difficulty-Aware Agent Orchestration                                          the latent embedding 𝑧:
+Given a query Q, our DAAO builds a query-specific workflow by
+                                                                                                                                   
+                                                                                          Ldiff = Lcal (𝑑, 𝑦) + 𝜆 𝐷 KL 𝑞(𝑧|𝑥)∥𝑝 (𝑧) , 𝑝 (𝑧) = N (0, 𝐼 ), (12)
+three difficulty-conditioned decisions produced by 𝑁𝜃 𝐿 (workflow
+                                                                                       where, the KL term keeps the approximate posterior 𝑞(𝑧|𝑥) close
+depths), 𝑁𝜃𝑜 (operator allocation), and 𝑁𝜃𝑚 (LLM selection).
+                                                                                       to the standard normal prior 𝑝 (𝑧), stabilizing the latent space. We
+   Difficulty-conditioned decisions. Each decision is a probability                    adopt a binary cross-entropy (BCE) as the difficulty-calibration
+distribution whose logits are instantiated by the corresponding                        term. Since a higher 𝑑 denotes a harder query (thus lower success
+module and conditioned on the latent difficulty embedding 𝑧:                           probability), we calibrate the predicted success probability as 𝑝ˆsucc =
+                                                                                       1 − 𝑑 and set:
+      𝜋 (𝐿) (𝐿 | Q, 𝑧) ,     𝜋𝑙(𝑂 ) (𝑂 | Q, 𝑙, 𝑧) ,    𝜋 (𝑀 ) (𝑀 | Q, 𝑂, 𝑧) .                                        
+      |      {z      }       |        {z        }      |        {z        }               Lcal (𝑑, 𝑦) = BCE 𝑝ˆsucc, 𝑦 = −𝑦 log(1 − 𝑑) − (1 − 𝑦) log 𝑑. (13)
+  workflow depth(𝑁𝜃 𝐿 )    operator allocation(𝑁𝜃𝑜 )    model selection(𝑁𝜃𝑚 )
+                                                                                       The coefficient 𝜆 > 0 balances calibration and regularization.
+                                                                     (6)
+Here 𝑧 is produced by our proposed difficulty estimator 𝑁𝜃𝑑 , and                      3.4     Agentic Operator Allocator.
+a calibrated scalar 𝑑 is decoded from 𝑧 (more details in 3.3.) In
+practice, 𝑧 parameterizes the logits of 𝑁𝜃 𝐿 /𝑁𝜃𝑜 /𝑁𝜃𝑚 , while 𝑑 serves                Given a query Q, this module constructs a directed acyclic workflow
+as a scalar hardness prior used for thresholding and capacity scaling.                 𝐺 = {V, E} from a candidate operator pool O ⊆ M × S, targeting
+Higher 𝑑 encourages larger-capacity workflows (e.g., more layers or                    difficulty-aware orchestration that balances performance and cost.
+activating more operators), whereas lower 𝑑 promotes conservative                         Depth adaptation. Let 𝐿𝑚𝑎𝑥 denote the maximum depth. We set
+workflows.
+                                                                                                                 𝐿 = max{1, ⌈𝑑 · 𝐿𝑚𝑎𝑥 ⌉},                               (14)
+3.3      Query Difficulty Estimator                                                    so that easier queries yield shallower graphs while harder ones
+To make workflow generation difficulty-aware and balance perfor-                       trigger deeper chains.
+mance vs. cost per query, we propose a difficulty estimator that                          Layer-wise MoE selection. We select operators layer by layer
+guides the subsequent modules. The difficulty estimator 𝑁𝜃𝑑 maps                       using a lightweight MoE gate and factorize the joint selection over
+the input query Q to a 𝑘-dimensional latent difficulty representation                  layers as an autoregressive process:
+𝑧 ∈ R𝑘 by using a variational autoencoder. To encode a given query                                       𝐿
+Q, a lightweight embedding layer 𝐸𝜙 produces a query embedding:
+                                                                                                         Ö
+                                                                                                           𝜋𝑙(𝑂 ) 𝑉𝑙 Q, 𝑧, 𝑉<𝑙 ,
+                                                                                                                             
+                                                                                       N𝜃𝑜 𝐺 | Q, 𝑧, 𝑂 =                                        𝑉<𝑙 := {𝑉1, . . . , 𝑉𝑙 −1 }.
+                                                                                                               𝑙=1
+                             𝑥 = 𝐸𝜙 (Q) ∈ Rℎ ,                                   (7)                                                                         (15)
+where ℎ is the embedding dimension (e.g., ℎ=384). We then model a                      Here, 𝑉<𝑙 := {𝑉1, . . . , 𝑉𝑙 −1 } denotes the history (all previously cho-
+Gaussian posterior for the latent difficulty with diagonal covariance,                 sen operator sets), and 𝜋𝑙 (·) is the layer-𝑙 Mixture-of-Experts (MoE)
+which captures per-dimension uncertainty while remaining stable                        policy [16, 35] that outputs a subset 𝑉𝑙 . This factorization means
+and efficient to train:                                                                “choose the current layer conditioned on all previous choices 𝑉<𝑙 ,
+                                                                                       enabling difficulty-aware 𝑧, query context-dependent 𝑄 routing."
+       𝜇 (𝑥) = 𝑊𝜇 𝑥 + 𝑏 𝜇 ∈ R𝑘 ,         log 𝜎 2 (𝑥) = 𝑊𝜎 𝑥 + 𝑏𝜎 ∈ R𝑘 ,          (8)
+                                                                                          Scoring-to-selection with adaptive width. We instantiate 𝜋𝑙(𝑂 ) so
+with layer weights 𝑊𝜇 ,𝑊𝜎 ∈ R𝑘 ×ℎ and bias 𝑏 𝜇 , 𝑏𝜎 ∈ R𝑘 , yielding                    that each layer’s width (number of operators) adapts to the available
+the variational posterior (approximate posterior) over the latent                      evidence. First, we translate the query difficulty context and the
+difficulty 𝑧 given the query embedding 𝑥:                                              history into scalar compatibilities for all candidates:
+                    𝑞(𝑧 | 𝑥) = N (𝜇 (𝑥), diag(𝜎 2 (𝑥))),                         (9)                                                    
+                                                                                                              ∑︁                 ∑︁
+We sample 𝑧 using the reparameterization:                                                𝑆𝑖 = FFN 𝑧 ∥ 𝑣 (Q) ∥    𝑣 (𝑂) ∥ · · · ∥    𝑣 (𝑂) ,                     𝑂𝑖 ∈ O,
+                                                                                                                     𝑂 ∈𝑉1                 𝑂 ∈𝑉𝑙 −1
+                𝑧 = 𝜇 (𝑥) + 𝜎 (𝑥) ⊙ 𝜀,            𝜀 ∼ N (0, 𝐼𝑘 ),               (10)                                                                                   (16)
+where ⊙ denotes elementwise multiplication. All stochastic nodes                       where 𝑣 (·) is a lightweight embedding (e.g MiniLM [42] or Sentence-
+are reparameterized; gradients are taken w.r.t. 𝜇, 𝜎 via the pathwise                  BERT [31]) and ∥ denotes concatenation. Larger 𝑆𝑖 means 𝑖-th op-
+estimator. The latent 𝑧 ∈ R𝑘 provides a rich difficulty embedding for                  erator 𝑂𝑖 is more compatible with the current layer, given the
+downstream policies (depth, operator allocation, model selection),                     accumulated context.
+while we also decode an interpretable scalar difficulty 𝑑 ∈ (0, 1) as                     We then convert scores into a subset using a cumulative-threshold
+task difficulty. Concretely, a one-hidden-layer MLP maps 𝑧 to 𝑑:                       decoder. Let S = [𝑆 1, . . . , 𝑆 |O| ], and 𝑆 (1) ≥ 𝑆 (2) ≥ · · · ≥ 𝑆 ( |O| ) be the
+                                                                                       scores in descending order. Using a preset threshold 𝜏, we determine
+           𝑑 = sigmoid(𝑊𝑜⊤ ReLU(𝑊ℎ 𝑧 + 𝑏ℎ ) + 𝑏𝑜 ) ∈ (0, 1).                    (11)   the number of operators as:
+                                                                                                              n                            𝑟              o
+              ∈ R𝑚×𝑘 , 𝑏   ℎ ∈ R
+                                𝑚×1 , 𝑊       ∈ R1×𝑚 and 𝑏
+                                                   𝑜 ∈ R are the
+                                                                                                                                          ∑︁
+where 𝑊ℎ                               𝑜                                                           𝑡 = min 𝑟 ∈ {1, . . . , |O|} :              𝑆 (𝑖 ) > 𝜏 .            (17)
+weights and biases of the hidden and output layers, respectively.                                                                         𝑖=1
+Difficulty-Aware Agentic Orchestration for Query-Specific Multi-Agent Workflows                            WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.
+
+
+where 𝑟 is the prefix length (the number of top-ranked operators                      with the temperature set to 1. We selected gpt-4o-mini-0718 [30]
+considered). Operators are activated in descending score order                        and gemini-1.5-flash [40], which performed well in Vanilla, as the
+(𝑆 (1) ≥ 𝑆 (2) ≥ · · · ) and the activation proceeds sequentially until               models for other baselines.
+the cumulative evidence exceeds 𝜏. This rule yields an adaptive
+layer width—higher aggregate confidence activates more operators;                        Implementation Details. Building upon established methodolo-
+lower confidence activates fewer—while enforcing a budget-like                        gies in workflow automation [14, 34, 54], we divide each dataset into
+constraint via 𝜏. Together, (16)–(17) provide a concrete instantiation                training and test sets using a train:test ratio of 1:4. We initialize
+of the per-layer policy.                                                              the feasible space of operator nodes with the following operators:
+                                                                                      CoT, LLM-Debate, Review, Ensemble, ReAct, Self-Consistency, Test-
+3.5     LLM Router.                                                                   ing. Detailed instructions are in Appendix B.1. We set the max
+                                                                                      number of layers as 𝐿𝑚𝑎𝑥 = 5, the cost penalty coefficient 𝜆 as
+Inspired by [2, 49], we leverage model heterogeneity rather than
+                                                                                      𝜆 ∈ {1𝑒 − 3, 5𝑒 − 3, 1𝑒 − 2}, the sampling times 𝐾 = 4 and threshold
+enforcing a single-LLM workflow. After operator selection, each
+                                                                                      𝜏 = 0.3. To ensure robust results, we conducted each experiment
+chosen operator 𝑂 (𝑖 ) (for 𝑖 = 1, . . . , 𝑡) is paired with an LLM from a
+                                                                                      three times and reported the average performance.
+candidate set. We model the per-operator routing as
+
+                                                 𝑡
+                                                 Ö
+                                                                                      4.2    Performance Analysis
+                                                       𝜋 (𝑀 ) 𝑀 (𝑖 ) Q, 𝑧, 𝑂 (𝑖 ) ,
+                𝑡                  𝑡                                            
+   N𝜃𝑚 {𝑀 (𝑖 ) }𝑖=1 Q, 𝑧, {𝑂 (𝑖 ) }𝑖=1       =                                        4.2.1 High-performing. The experimental results in Table 1 demon-
+                                                 𝑖=1                                  strate that DAAO effectively constructs high-performing agentic
+                                                                            (18)      workflows. Compared to existing automated orchestration methods,
+where 𝜋 (𝑀 ) (· | Q, 𝑧, 𝑂 (𝑖 ) ) is the layer-agnostic LLM policy for the             DAAO achieves an average accuracy improvement of 3.5% ∼ 15.2%,
+𝑖-th selected operator. For each selected operator, we define a                       and outperforms recent LLM routing methods by 3.2% ∼ 10.2%.
+temperature-scaled softmax over LLM candidates indexed by 𝑚 ∈                         On the MATH benchmark, DAAO attains a best-in-class score of
+{1, . . . , 𝑁𝑀 }:                                                                     55.37%, surpassing the second-best method, MasRouter, by 2.95%.
+                                                                    
+                                              exp ⟨ℎˆ (𝑖 ) , 𝑒ˆ𝑚 ⟩/𝑇                  Across five datasets, DAAO consistently outperforms all baselines,
+   𝜋 (𝑀 ) 𝑀 (𝑖 ) = 𝑀𝑚 Q, 𝑧, 𝑂 (𝑖 ) = Í
+                                                                                     highlighting its versatility and robustness.
+                                                                        . (19)
+                                             𝑁𝑀           ˆ
+                                             𝑢=1 exp ⟨ℎ (𝑖 ) , 𝑒ˆ𝑢 ⟩/𝑇
+                                                                                         Table 2 further compares DAAO with existing automated sys-
+                                                                                     tems on the GAIA benchmark—a challenging, high-complexity eval-
+where ℎ (𝑖 ) = FFNcomb FFN𝑞 (Q) ∥ 𝑊𝑧 𝑧 ∥ FFN𝑜 (𝑂 (𝑖 ) ) ∈ R𝑑 , is                     uation suite for multi-agent systems in realistic, multimodal, and
+the combined contextual embedding of the query, difficulty, and                       tool-augmented settings. Unlike traditional benchmarks focused
+operator. 𝑒𝑚 = FFN𝑚 (𝑀𝑚 ) ∈ R𝑑 is the projected embedding of                          on static question answering or single-step reasoning, GAIA tasks
+candidate LLM 𝑀𝑚 and 𝑇 is the temperature parameter controlling                       require multi-step planning, cross-modal understanding, and tool
+the sharpness of the distribution. The dot product ⟨·, ·⟩ measures                    interaction (e.g., web browsing, file system access). While AFlow
+cosine similarity after the embeddings are normalized.                                uses a fixed workflow and MaAS does not fully exploit LLM spe-
+   This routeing policy enables the system to route operators to                      cialization, DAAO dynamically generates query-specific workflows
+diverse LLMs based on query difficulty and operator context, pro-                     and allocates tasks to LLMs based on domain expertise. As a re-
+moting specialized and adaptive reasoning across the workflow.                        sult, DAAO outperforms AFlow and MaAS by 17.97% and 8.33%,
+                                                                                      respectively, demonstrating its effectiveness in complex, real-world
+4 Experiments                                                                         scenarios.
+4.1 Experiment Setup                                                                  4.2.2 Cost-effective. We emphasize the cost-efficiency of our agen-
+   Benchmarks. We evaluate DAAO on six public benchmarks cov-                         tic automation framework across two key dimensions: training ex-
+ering three domains: (1) math reasoning, GSM8K [4] and MATH [12];                     penditure and inference overhead. We compare against AFlow and
+(2) code generation, HumanEval [3] and MBPP [1]); GAIA [27].                          MaAS, where AFlow represents the state-of-the-art (SOTA) among
+Additionally, we include MMLU [11], a benchmark covering 57                           task-level frameworks, and MaAS is the SOTA among query-level
+academic subjects, to assess general knowledge and multitask lan-                     frameworks. As shown in Table 3, AFlow incurs a substantial train-
+guage understanding. For the MATH benchmark, we follow [13] in                        ing cost of $22.50 and inference cost of $1.66, totaling $24.16. In
+selecting a harder subset (617 problems). The dataset metric are in                   contrast, our method significantly reduces these costs to $2.34 for
+Appendix C.                                                                           training and $0.27 for inference—only 10.4% and 16.3% of AFlow’s
+                                                                                      respective costs. MasRouter adopts a collaborative paradigm, as-
+   Baselines. We compare DAAO with three of agentic baselines:
+                                                                                      signing multiple LLMs to role-play in handling a query. However, it
+(1) single-agent approaches, including CoT [45], ComplexCoT [9],
+                                                                                      suffers from two drawbacks: (1) redundant participation of LLMs in
+Self-Consistency [43]; (2) autonomous agentic workflows, including
+                                                                                      each collaborative step, and (2) lack of adaptation for easy queries,
+ADAS [14], AFlow [54] and MaAS [53]. (3) LLM routers, PromptLLM [8],
+                                                                                      leading to excessive cost without proportional performance gains.
+RouteLLM [29] and MasRouter [51].
+                                                                                      Notably, our method not only reduces cost but also achieves the
+   LLM Backbones. We select LLM Pool with varying sizes and                           highest accuracy of 55.37%, outperforming both AFlow and MaAS.
+capacities, including gpt-4o-mini-0718 [30], gemini-1.5-flash [40],                      This cost-efficiency is attributed to two strategies: (1) Our difficulty-
+llama-3.1-70b [7], Qwen-2-72b [47]. LLMs are accessed via APIs,                       awareness strategy, which generates adaptive workflows for queries,
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.                                                                              Jinwei Su et al.
+
+
+Table 1: Performance comparison across baseline prompting strategies, single-agent methods, autonomous agentic workflows,
+and LLM routing approaches. Bold numbers indicate the best performance, while underlined numbers denote the second-best.
+The LLM pool comprises both lightweight and high-capacity models to support diverse routing strategies.
+
+                      Method                        LLM           MMLU     GSM8K    MATH       HumanEval       MBPP       Avg.
+                                               gpt-4o-mini         77.81   87.45     46.29         85.71        72.20     73.89
+                                               qwen-2-72b          80.22   85.40     46.10         64.65        73.90     70.05
+                      Vanilla
+                                             gemini-1.5-flash      80.04   86.76     48.00         82.61        73.00     74.08
+                                              llama-3.1-70b        79.08   86.68     45.37         80.75        68.20     72.01
+                                               gpt-4o-mini         78.43   87.10     46.40         86.69        69.60     73.64
+                       CoT [45]
+                                             gemini-1.5-flash      81.35   86.47     48.00         81.37        73.00     74.04
+                                               gpt-4o-mini         81.05   86.89     46.53         87.58        75.80     75.57
+                      ComplexCoT [9]
+                                             gemini-1.5-flash      80.74   86.01     48.28         80.12        71.80     73.39
+                                               gpt-4o-mini         81.05   87.57     47.91         87.58        73.00     75.42
+                      SC(CoT) [43]
+                                             gemini-1.5-flash      81.66   87.50     48.73         80.75        72.00     74.13
+                                               gpt-4o-mini         79.54   86.12     43.18         84.19        68.13     72.23
+                      ADAS [14]
+                                             gemini-1.5-flash      79.68   86.00     45.89         80.69        68.00     72.05
+                                               gpt-4o-mini         83.10   91.16     51.82         90.93        81.67     79.73
+                      AFlow [54]
+                                             gemini-1.5-flash      82.35   90.43     52.00         85.69        76.00     77.29
+                                               gpt-4o-mini         83.01   92.30     51.82         92.85        82.17     80.43
+                      MaAS [53]
+                                             gemini-1.5-flash      83.42   92.00     52.25         90.55        82.69     80.18
+                      PromptLLM [8]              LLM Pool          78.43   88.68     52.30         86.33        73.60     75.86
+                      RouteLLM [29]              LLM Pool          81.04   89.00     51.00         83.85        72.60     75.50
+                      MasRouter [51]             LLM Pool          84.25   92.00     52.42         90.62        84.00     80.66
+                      Ours                       LLM Pool          84.90   94.40     55.37         94.65        86.95    83.26
+
+
+Table 2: Performance comparison on the GAIA benchmark.                        employing simple workflows for easy queries while allocating more
+Results are reported across three difficulty levels, with av-                 resources to the generation of workflows for more complex queries;
+erage scores shown in the last column. The best results are                   (2) Our adaptive model selection strategy, which dynamically lever-
+highlighted in bold.                                                          ages more affordable models (such as LLaMA-3.1 or Qwen-2-72B)
+                                                                              when sufficient, rather than defaulting to high-cost models like
+       Method             Level 1      Level 2      Level 3     Avg.          GPT-4o-mini.
+       GPT-4o-mini           7.53        4.40              0    4.65
+                                                                              4.3    Case Study
+       ADAS                 13.98         4.40         0       6.69
+                                                                              As shown in Figure 2, DAAO generates different workflows for
+       AFlow                10.75         8.81        4.08     8.00
+                                                                              queries of varying difficulty. For simple queries, it produces stream-
+       MaAS                 20.45        18.61        6.25     17.64
+                                                                              lined workflows, sometimes using only a single operator. For medium
+       Ours                 30.42       24.00         8.50     25.97          or difficult queries, it constructs deeper and more complex work-
+                                                                              flows by exploring a broader combination of operators. This demon-
+Table 3: Training, inference, and overall cost (in USD) on the                strates DAAO’s difficulty-aware paradigm: selecting economical
+MATH benchmark, along with corresponding accuracy. Our                        workflows for simple queries to enable rapid completion, while
+method achieves the lowest cost and highest accuracy. AFlow                   leveraging sophisticated workflows for complex queries to meet
+and MaAS use GPT-4o-mini, while other methods utilize an                      higher demands.
+LLM pool.
+                                                                              4.4    Inductive Ability Analysis
+      Method          Training       inference       overall     Acc.         4.4.1 Cross-domain Optimization. We present the performance
+      AFlow              22.50           1.66          24.16    51.82         results of our cross-domain training experiments (see Table 4),
+      MaAS               3.38            0.42          3.80     51.82         evaluating the impact of multi-domain joint optimization on gener-
+      MasRouter          3.56            0.65          4.21     52.42         alization. We observe that single-domain training achieves baseline
+                                                                              performance on the MATH dataset, with strong transfer to GSM8K,
+      Ours                2.34           0.27          2.61     55.37
+                                                                              primarily due to their shared mathematical reasoning requirements.
+                                                                              Moreover, since MATH problems are generally more challenging
+                                                                              than those in GSM8K, training on MATH equips the framework
+Difficulty-Aware Agentic Orchestration for Query-Specific Multi-Agent Workflows                      WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.
+
+
+
+
+Figure 2: The visualization of the workflow generated by DAAO. Colors represent different models assigned to each operator.
+
+      Table 4: Cross-domain optimization performance                              joint training (e.g., MATH+GSM8K and HumanEval+MATH), with-
+                                                                                  out inducing catastrophic forgetting, indicating that our simultane-
+                    Train on                Test on        Perf.                  ous exposure to multiple domains promotes shared representation
+                                                                                  learning and enhances model robustness.
+                      MATH                  MATH            55.37
+                                                                                     Overall, our multi-domain setup not only preserves intra-domain
+                      MATH                  GSM8K           95.44
+                                                                                  proficiency but also slightly boosts cross-domain generalization.
+                MATH+GSM8K                  MATH            56.42                 Furthermore, within the same domain, training on more complex
+                MATH+GSM8K                  GSM8K           95.70                 benchmark datasets can further enhance the framework’s ability
+                                                                                  to generate workflows for complex queries.
+                   HumanEval             HumanEval          94.65
+                   HumanEval               MATH             54.46
+              HumanEval+MATH             HumanEval          95.00
+              HumanEval+MATH               MATH             55.50
+
+
+
+
+with advanced problem-solving skills that effectively generalize
+to the relatively simpler GSM8K. In contrast, we find that single-
+domain training on HumanEval yields high fidelity on code gener-
+ation (94.65%) but limited transfer to MATH (54.46%), underscoring                Figure 3: Distribution of LLM selections made by DAAO on
+domain-specific overfitting. Notably, we achieve modest improve-                  the MATH and MMLU benchmarks.
+ments across target tasks (approximately 0.35%–1.05%) through
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.                                                                                Jinwei Su et al.
+
+
+4.4.2 LLM Router Analysis. In this section, we validate that DAAO
+does not exhibit a preference for any particular LLM and demon-
+strate its ability to generalize well to unseen LLMs without requir-
+ing extensive pretraining. Figure 3 illustrates the distribution of
+LLMs selected by DAAO on the MATH and MMLU datasets before
+and after the addition of DeepSeek-v3, with the new model being
+chosen 29% and 15% of the time, respectively. By intelligently se-
+lecting models that match the difficulty and domain of each query,
+DAAO improved the accuracy on MATH from 55.37% to 56.20% and            Figure 4: Sensitivity analysis of DAAO on HumanEval. The
+increased the accuracy on MMLU from 84.90% to 85.66%.                   unit of cost per query (right) and performance (left) is 10−3 ·
+                                                                        $ and pass@1 (%), respectively.
+Table 5: Ablation study of DAAO on HumanEval and MATH.
+We report performance (Pass@1 or Accuracy) and corre-
+                                                                        Table 6: Performance(%) and Average Cost(10−3 $) across
+sponding inference cost. w/o DA removes the difficulty-aware
+                                                                        thresholds 𝑃 on HumanEval and GSM8K.
+module; w/o LS disables LLM selection; w/o C(·) omits the
+cost-awareness component.
+                                                                         Dataset      Metric     0.1     0.2     0.3     0.4     0.5     0.6     0.7
+                                                                                      Perf.     92.80   93.60   94.65   94.42   94.80   94.77   94.80
+         Dataset          HumanEval                   MATH               HumanEval
+                                                                                      Cost       0.86    0.94    1.10    1.29   1.28    1.78    2.30
+                      Pass@1        Cost       Accuracy     Cost                      Perf.     91.99   93.46   94.40   94.34   94.70   94.75   94.40
+          Metric                                                         GSM8K
+                        (%)        (10−3 $)      (%)       (10−3 $)                   Cost       0.40    0.45    0.50    0.59   0.68    0.77    0.96
+
+         Vanilla        94.65        1.10        55.37       0.55
+        w/o DA          92.21        1.64        52.18       0.88       we selected 𝐿𝑚𝑎𝑥 = 5. For the parameter 𝜆, we found that larger 𝜆
+         w/o LS         92.69        1.38        53.24       0.79       values led DAAO to favor more cost-efficient solutions, but with
+        w/o C(·)        94.72        1.88        55.40       1.00       a slight performance degradation. For the parameter 𝐾, we note
+                                                                        that performance is suboptimal with highest variance when 𝐾 = 2.
+                                                                        Increasing 𝐾 to 4 effectively achieves a satisfactory low-variance
+4.5     Framework Analysis                                              estimation. For the threshold 𝜏, as shown in Table 6, performance
+                                                                        improves as the threshold 𝜏 increases. However, the gain stops
+4.5.1 Ablation Study. We conduct an ablation study on three key         growing beyond 0.3. At the same time, a higher threshold 𝜏 raises
+components of our DAAO framework: (1) w/o DA, removing the              inference costs because more operators are activated in each layer.
+difficulty-aware module; and (2) w/o LS, removing the LLM selector      Therefore, we set the threshold 𝜏 to 0.3 to balance performance and
+and routing all subtasks to a fixed LLM;(3) w/o C(·), eliminating the   efficiency.
+cost constraint in Equation (5). As shown in Table 5, removing the
+difficulty-aware module leads to the largest drop in both accuracy      5   Conclusion
+and efficiency, especially on the MATH dataset. This highlights
+                                                                        In this work, we propose DAAO, a difficulty-aware agentic orches-
+the importance of adaptive reasoning control based on estimated
+                                                                        tration framework that dynamically adapts reasoning workflows
+query difficulty (e.g., dynamically adjusting the number of reason-
+                                                                        to query complexity and domain. By estimating query difficulty,
+ing layers instead of using a fixed number). Removing the LLM
+                                                                        allocating modular operators, and routing to heterogeneous LLMs,
+router slightly affects accuracy, but leads to a notable increase in
+                                                                        DAAO builds flexible and cost-efficient workflows. It moves be-
+inference cost, as it prevents the system from using lightweight
+                                                                        yond one-size-fits-all designs by leveraging complementary LLM
+models when appropriate. Removing C(·) does not significantly
+                                                                        strengths and adapting workflow depth per query. Experiments
+impact the performance, but it disrupts the adaptive capability of
+                                                                        across six benchmarks show that DAAO outperforms existing multi-
+DAAO to query difficulty. Overall, the results demonstrate that
+                                                                        agent and routing systems, achieving up to 11.21% higher accuracy
+both components are crucial for balancing performance and cost in
+                                                                        with up to 36% lower cost. These results highlight the value of
+multi-step reasoning tasks.
+                                                                        difficulty-guided modular orchestration for scalable LLM agents.
+4.5.2 Sensitivity Analysis. We analyzed the sensitivity of DAAO         Future work includes extending DAAO to multi-modal queries and
+to four core parameters: the maximum number of layers in the            incorporating real-time feedback.
+agentic supernet 𝐿𝑚𝑎𝑥 in Equation Equation (14), the cost penalty
+coefficient 𝜆 in Equation (5), the sampling count 𝐾 and the thresh-     6   Acknowledgement
+old 𝜏 in Equation Equation (17). The results are shown in Figure 4      This work was supported by the National Natural Science Founda-
+and Table 6. For the parameter 𝐿𝑚𝑎𝑥 , we observed a significant         tion of China under Grant 52308250 and Autoagents.AI.
+performance improvement when 𝐿𝑚𝑎𝑥 increased from 4 to 5 (from
+92.9% to 94.6%). However, further increases in 𝐿𝑚𝑎𝑥 only yielded        References
+marginal performance gains while significantly increasing the in-       [1] Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk
+ference cost per query. Considering both performance and cost,              Michalewski, David Dohan, Ellen Jiang, Carrie Cai, Michael Terry, Quoc Le,
+Difficulty-Aware Agentic Orchestration for Query-Specific Multi-Agent Workflows                                   WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.
+
+
+     et al. 2021. Program synthesis with large language models. arXiv preprint                 Learning. https://api.semanticscholar.org/CorpusID:281080364
+     arXiv:2108.07732 (2021).                                                             [22] Ziming Li, Qianbo Zang, David Ma, Jiawei Guo, Tuney Zheng, Minghao Liu,
+ [2] Simone Barandoni, Filippo Chiarello, Lorenzo Cascone, Emiliano Marrale, and               Xinyao Niu, Yue Wang, Jian Yang, Jiaheng Liu, et al. 2024. AutoKaggle: A Multi-
+     Salvatore Puccio. 2024. Automating Customer Needs Analysis: A Comparative                 Agent Framework for Autonomous Data Science Competitions. arXiv preprint
+     Study of Large Language Models in the Travel Industry. arXiv:2404.17975 [cs.CL]           arXiv:2410.20424 (2024).
+     https://arxiv.org/abs/2404.17975                                                     [23] Tian Liang, Zhiwei He, Wenxiang Jiao, Xing Wang, Yan Wang, Rui Wang, Yujiu
+ [3] Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de                       Yang, Zhaopeng Tu, and Shuming Shi. 2023. Encouraging Divergent Thinking
+     Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg            in Large Language Models through Multi-Agent Debate. CoRR abs/2305.19118
+     Brockman, Alex Ray, Raul Puri, Gretchen Krueger, Michael Petrov, Heidy Khlaaf,            (2023).
+     Girish Sastry, Pamela Mishkin, Brooke Chan, Scott Gray, Nick Ryder, Mikhail          [24] Dingyuan Liu, Qiannan Shen, and Jiaci Liu. 2026. The Health-Wealth Gradient in
+     Pavlov, Alethea Power, Lukasz Kaiser, Mohammad Bavarian, Clemens Winter,                  Labor Markets: Integrating Health, Insurance, and Social Metrics to Predict Em-
+     Philippe Tillet, Felipe Petroski Such, Dave Cummings, Matthias Plappert, Fo-              ployment Density. Computation 14, 1 (2026), 22. doi:10.3390/computation14010022
+     tios Chantzis, Elizabeth Barnes, Ariel Herbert-Voss, William Hebgen Guss, Alex            Open Access.
+     Nichol, Alex Paino, Nikolas Tezak, Jie Tang, Igor Babuschkin, Suchir Balaji, Shan-   [25] Yuwei Lou, Hao Hu, Shaocong Ma, Zongfei Zhang, Liang Wang, Jidong Ge, and
+     tanu Jain, William Saunders, Christopher Hesse, Andrew N. Carr, Jan Leike, Josh           Xianping Tao. 2025. DRF: LLM-AGENT Dynamic Reputation Filtering Framework.
+     Achiam, Vedant Misra, Evan Morikawa, Alec Radford, Matthew Knight, Miles                  In International Conference on Neural Information Processing. Springer, 127–141.
+     Brundage, Mira Murati, Katie Mayer, Peter Welinder, Bob McGrew, Dario Amodei,        [26] Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler Hallinan, Luyu Gao, Sarah
+     Sam McCandlish, Ilya Sutskever, and Wojciech Zaremba. 2021. Evaluating Large              Wiegreffe, Uri Alon, Nouha Dziri, Shrimai Prabhumoye, Yiming Yang, Shashank
+     Language Models Trained on Code. arXiv:2107.03374 pages.                                  Gupta, Bodhisattwa Prasad Majumder, Katherine Hermann, Sean Welleck, Amir
+ [4] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun,                    Yazdanbakhsh, and Peter Clark. 2023. Self-Refine: Iterative Refinement with
+     Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano,           Self-Feedback. In NeurIPS. http://papers.nips.cc/paper_files/paper/2023/hash/
+     Christopher Hesse, and John Schulman. 2021. Training Verifiers to Solve Math              91edff07232fb1b55a505a9e9f6c0ff3-Abstract-Conference.html
+     Word Problems. arXiv prepring abs/2110.14168 (2021).                                 [27] Grégoire Mialon, Clémentine Fourrier, Craig Swift, Thomas Wolf, Yann LeCun,
+ [5] Xiang Deng, Yu Gu, Boyuan Zheng, Shijie Chen, Sam Stevens, Boshi Wang,                    and Thomas Scialom. 2023. Gaia: a benchmark for general ai assistants. arXiv
+     Huan Sun, and Yu Su. 2024. Mind2web: Towards a generalist agent for the web.              preprint arXiv:2311.12983 (2023).
+     Advances in Neural Information Processing Systems 36 (2024).                         [28] Yohei Nakajima. 2023. BabyAGI. https://github.com/yoheinakajima/babyagi.
+ [6] Yilun Du, Shuang Li, Antonio Torralba, Joshua B. Tenenbaum, and Igor Mor-            [29] Isaac Ong, Amjad Almahairi, Vincent Wu, Wei-Lin Chiang, Tianhao Wu, Joseph E.
+     datch. 2023. Improving Factuality and Reasoning in Language Models through                Gonzalez, M Waleed Kadous, and Ion Stoica. 2024. RouteLLM: Learning to Route
+     Multiagent Debate. CoRR abs/2305.14325 (2023).                                            LLMs with Preference Data. arXiv:2406.18665 [cs.LG] https://arxiv.org/abs/2406.
+ [7] Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad                   18665
+     Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Amy Yang, Angela Fan,          [30] OpenAI. 2024. GPT-4O Mini: Advancing cost-efficient intelligence. https://
+     et al. 2024. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 (2024).          openai.com/index/gpt-4o-mini-advancing-cost-efficient-intelligence
+ [8] Tao Feng, Yanzhen Shen, and Jiaxuan You. 2024. GraphRouter: A Graph-based            [31] N Reimers. 2019. Sentence-BERT: Sentence Embeddings using Siamese BERT-
+     Router for LLM Selections. arXiv:2410.03834 [cs.AI] https://arxiv.org/abs/2410.           Networks. arXiv preprint arXiv:1908.10084 (2019).
+     03834                                                                                [32] Reworkd. 2023. AgentGPT. https://github.com/reworkd/AgentGPT.
+ [9] Yao Fu, Hao Peng, Ashish Sabharwal, Peter Clark, and Tushar Khot. 2022.              [33] Toran Bruce Richards and et al. 2023. Auto-GPT: An Autonomous GPT-4 Experi-
+     Complexity-based prompting for multi-step reasoning. In The Eleventh Inter-               ment. https://github.com/Significant-Gravitas/Auto-GPT.
+     national Conference on Learning Representations.                                     [34] Jon Saad-Falcon, Adrian Gamarra Lafuente, Shlok Natarajan, Nahum Maru, Hristo
+[10] Qingyan Guo, Rui Wang, Junliang Guo, Bei Li, Kaitao Song, Xu Tan, Guoqing                 Todorov, Etash Guha, E Kelly Buchanan, Mayee Chen, Neel Guha, Christopher
+     Liu, Jiang Bian, and Yujiu Yang. 2023. Connecting large language models with              Ré, et al. 2024. Archon: An architecture search framework for inference-time
+     evolutionary algorithms yields powerful prompt optimizers. arXiv preprint                 techniques. arXiv preprint arXiv:2409.15254 (2024).
+     arXiv:2309.08532 (2023).                                                             [35] Noam Shazeer, Azalia Mirhoseini, Krzysztof Maziarz, Andy Davis, Quoc Le,
+[11] Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn                Geoffrey Hinton, and Jeff Dean. 2017. Outrageously large neural networks: The
+     Song, and Jacob Steinhardt. 2021. Measuring Massive Multitask Language Under-             sparsely-gated mixture-of-experts layer. arXiv preprint arXiv:1701.06538 (2017).
+     standing. Proceedings of the International Conference on Learning Representations    [36] Qiannan Shen and Jing Zhang. 2025. AI-Enhanced Disaster Risk Prediction
+     (ICLR) (2021).                                                                            with Explainable SHAP Analysis: A Multi-Class Classification Approach Using
+[12] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric             XGBoost. (December 2025). doi:10.21203/rs.3.rs-8437180/v1 Preprint.
+     Tang, Dawn Song, and Jacob Steinhardt. 2021. Measuring Mathematical Problem          [37] Noah Shinn, Beck Labash, and Ashwin Gopinath. 2023. Reflexion: an autonomous
+     Solving With the MATH Dataset. NeurIPS (2021).                                            agent with dynamic memory and self-reflection. arXiv preprint abs/2303.11366
+[13] Sirui Hong, Yizhang Lin, Bang Liu, Bangbang Liu, Binhao Wu, Ceyao Zhang,                  (2023). doi:10.48550/arXiv.2303.11366
+     Chenxing Wei, Danyang Li, Jiaqi Chen, Jiayi Zhang, et al. 2024. Data interpreter:    [38] Chan Hee Song, Jiaman Wu, Clayton Washington, Brian M Sadler, Wei-Lun
+     An llm agent for data science. arXiv preprint arXiv:2402.18679 (2024).                    Chao, and Yu Su. 2023. Llm-planner: Few-shot grounded planning for embodied
+[14] Shengran Hu, Cong Lu, and Jeff Clune. 2024. Automated design of agentic                   agents with large language models. In Proceedings of the IEEE/CVF International
+     systems. arXiv preprint arXiv:2408.08435 (2024).                                          Conference on Computer Vision. 2998–3009.
+[15] Dong Huang, Qingwen Bu, Jie M Zhang, Michael Luck, and Heming Cui. 2023.             [39] Wenxi Sun, Qiannan Shen, Yijun Gao, Qinkai Mao, Tongsong Qi, and Shuo
+     Agentcoder: Multi-agent-based code generation with iterative testing and opti-            Xu. 2025. Objective over Architecture: Fraud Detection Under Extreme Imbal-
+     misation. arXiv preprint arXiv:2312.13010 (2023).                                         ance in Bank Account Opening. Computation 13, 12 (2025), 290. doi:10.3390/
+[16] Quzhe Huang, Zhenwei An, Nan Zhuang, Mingxu Tao, Chen Zhang, Yang Jin, Kun                computation13120290
+     Xu, Liwei Chen, Songfang Huang, and Yansong Feng. 2024. Harder Tasks Need            [40] Gemini Team, Petko Georgiev, Ving Ian Lei, Ryan Burnell, Libin Bai, Anmol
+     More Experts: Dynamic Routing in MoE Models. arXiv preprint arXiv:2403.07652              Gulati, Garrett Tanzer, Damien Vincent, Zhufeng Pan, Shibo Wang, et al. 2024.
+     (2024).                                                                                   Gemini 1.5: Unlocking multimodal understanding across millions of tokens of
+[17] Yunjie Ji, Sitong Zhao, Xiaoyu Tian, Haotian Wang, Shuaiting Chen, Yiping Peng,           context. arXiv:2403.05530 [cs.CL] https://arxiv.org/abs/2403.05530
+     Han Zhao, and Xiangang Li. 2025. How Difficulty-Aware Staged Reinforcement           [41] Yuxuan Tong, Xiwen Zhang, Rui Wang, Rui Min Wu, and Junxian He. 2024.
+     Learning Enhances LLMs’ Reasoning Capabilities: A Preliminary Experimental                DART-Math: Difficulty-Aware Rejection Tuning for Mathematical Problem-
+     Study. ArXiv abs/2504.00829 (2025). https://api.semanticscholar.org/CorpusID:             Solving. ArXiv abs/2407.13690 (2024). https://api.semanticscholar.org/CorpusID:
+     277468428                                                                                 271270574
+[18] Dongfu Jiang, Xiang Ren, and Bill Yuchen Lin. 2023. LLM-Blender: Ensembling          [42] Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan Yang, and Ming Zhou.
+     Large Language Models with Pairwise Ranking and Generative Fusion. In Proceed-            2020. Minilm: Deep self-attention distillation for task-agnostic compression of
+     ings of the 61st Annual Meeting of the Association for Computational Linguistics          pre-trained transformers. Advances in Neural Information Processing Systems 33
+     (Volume 1: Long Papers). Association for Computational Linguistics, Toronto,              (2020), 5776–5788.
+     Canada, 14165–14178.                                                                 [43] Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V Le, Ed H. Chi, Sharan Narang,
+[19] Omar Khattab, Arnav Singhvi, Paridhi Maheshwari, Zhiyuan Zhang, Keshav                    Aakanksha Chowdhery, and Denny Zhou. 2023. Self-Consistency Improves
+     Santhanam, Sri Vardhamanan, Saiful Haq, Ashutosh Sharma, Thomas T Joshi,                  Chain of Thought Reasoning in Language Models. In The Eleventh International
+     Hanna Moazam, et al. 2023. Dspy: Compiling declarative language model calls               Conference on Learning Representations.
+     into self-improving pipelines. arXiv preprint arXiv:2310.03714 (2023).               [44] Zhenhailong Wang, Shaoguang Mao, Wenshan Wu, Tao Ge, Furu Wei, and Heng Ji.
+[20] Diederik P Kingma and Max Welling. 2014. Auto-Encoding Variational Bayes.                 2023. Unleashing Cognitive Synergy in Large Language Models: A Task-Solving
+     arXiv preprint arXiv:1312.6114 (2014).                                                    Agent through Multi-Persona Self-Collaboration. arXiv:2307.05300 pages. work
+[21] Ang Li, Zhihang Yuan, Yang Zhang, Shouda Liu, and Yisen Wang. 2025. Know
+     When to Explore: Difficulty-Aware Certainty as a Guide for LLM Reinforcement
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.                                                                                         Jinwei Su et al.
+
+                                                                                                       Ð
+     in progress.                                                                           • V = 𝐿ℓ=1 Vℓ: The layered decomposition of workflow
+[45] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia,           nodes across 𝐿 layers.
+     Ed Chi, Quoc Le, and Denny Zhou. 2022. Chain-of-Thought Prompting Elicits
+     Reasoning in Large Language Models.                                                    • 𝐿: The number of workflow layers (depth).
+                                                                                                                       𝐿
+[46] Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Shaokun Zhang, Erkang                 • A = {𝜋𝑙 (𝑂)}𝑂 ∈O 𝑙=1 : Layered operator-selection policy,
+     Zhu, Beibin Li, Li Jiang, Xiaoyun Zhang, and Chi Wang. 2023. AutoGen: Enabling
+     Next-Gen LLM Applications via Multi-Agent Conversation Framework.                        where 𝜋ℓ (𝑂) is the probability of selecting operator 𝑂 at
+[47] An Yang, Baosong Yang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Zhou, Cheng-               layer ℓ.
+     peng Li, Chengyuan Li, Dayiheng Liu, Fei Huang, Guanting Dong, Haoran Wei,
+     Huan Lin, Jialong Tang, Jialin Wang, Jian Yang, Jianhong Tu, Jianwei Zhang,
+                                                                                            • 𝜋 (𝐿) (𝐿 | Q, 𝑧): Distribution over workflow depth given Q
+     Jianxin Ma, Jin Xu, Jingren Zhou, Jinze Bai, Jinzheng He, Junyang Lin, Kai Dang,         and 𝑧.
+     Keming Lu, Ke-Yang Chen, Kexin Yang, Mei Li, Min Xue, Na Ni, Pei Zhang, Peng           • 𝜋𝑙(𝑂 ) (𝑂 | Q, 𝑙, 𝑧): Distribution over operators at layer ℓ con-
+     Wang, Ru Peng, Rui Men, Ruize Gao, Runji Lin, Shijie Wang, Shuai Bai, Sinan
+     Tan, Tianhang Zhu, Tianhao Li, Tianyu Liu, Wenbin Ge, Xiaodong Deng, Xiao-               ditioned on Q and difficulty embedding 𝑧.
+     huan Zhou, Xingzhang Ren, Xinyu Zhang, Xipin Wei, Xuancheng Ren, Yang Fan,             • 𝜋 (𝑀 ) (𝑀 | Q, 𝑂, 𝑧): Model-routing policy assigning an LLM
+     Yang Yao, Yichang Zhang, Yunyang Wan, Yunfei Chu, Zeyu Cui, Zhenru Zhang,                𝑀 to operator 𝑂 based on Q and 𝑧.
+     and Zhi-Wei Fan. 2024. Qwen2 Technical Report. ArXiv abs/2407.10671 (2024).
+     https://api.semanticscholar.org/CorpusID:271212307                                     • 𝑧 ∈ R𝑘 : Latent difficulty embedding of the query produced
+[48] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan,          by the difficulty estimator 𝑁𝜃𝑑 .
+     and Yuan Cao. 2023. ReAct: Synergizing Reasoning and Acting in Language
+     Models. In The Eleventh International Conference on Learning Representations.
+                                                                                            • 𝑑 ∈ (0, 1): Scalar difficulty score decoded from 𝑧, where
+[49] Rui Ye, Xiangrui Liu, Qimin Wu, Xianghe Pang, Zhenfei Yin, Lei Bai, and Siheng           larger 𝑑 indicates a harder query.
+     Chen. 2025. X-MAS: Towards Building Multi-Agent Systems with Heterogeneous             • 𝑁𝜃𝑑 : Difficulty estimator (a VAE with a learned difficulty
+     LLMs. ArXiv abs/2505.16997 (2025). https://api.semanticscholar.org/CorpusID:
+     278788601                                                                                head).
+[50] Siyu Yuan, Kaitao Song, Jiangjie Chen, Xu Tan, Dongsheng Li, and Deqing Yang.          • 𝑁𝜃𝑜 : Operator allocator that selects operators per layer.
+     2024. EvoAgent: Towards Automatic Multi-Agent Generation via Evolutionary              • 𝑁𝜃𝑚 : Cost-aware LLM router that selects models for opera-
+     Algorithms. arXiv preprint arXiv:2406.14228 (2024).
+[51] Yanwei Yue, Gui-Min Zhang, Boyang Liu, Guancheng Wan, Kun Wang, Dawei                    tors.
+     Cheng, and Yiyan Qi. 2025. MasRouter: Learning to Route LLMs for Multi-Agent           • 𝑁𝜃 𝐿 : Workflow depth selector determining 𝐿 based on 𝑧.
+     Systems. ArXiv abs/2502.11133 (2025). https://api.semanticscholar.org/CorpusID:
+     276408048
+                                                                                            • 𝑈 (𝐺; Q, 𝑎): Utility (e.g., accuracy) achieved by executing
+[52] Guibin Zhang, Yanwei Yue, Zhixun Li, Sukwon Yun, Guancheng Wan, Kun                      workflow 𝐺 on query Q.
+     Wang, Dawei Cheng, Jeffrey Xu Yu, and Tianlong Chen. 2024. Cut the Crap: An            • 𝐶 (𝐺; Q): Inference cost (e.g., token usage, latency) of work-
+     Economical Communication Pipeline for LLM-based Multi-Agent Systems. arXiv
+     preprint arXiv:2410.02506 (2024).                                                        flow 𝐺 for query Q.
+[53] Gui-Min Zhang, Luyang Niu, Junfeng Fang, Kun Wang, Lei Bai, and Xiang                  • 𝜆: Trade-off coefficient balancing utility and cost in Eq. (5).
+     Wang. 2025. Multi-agent Architecture Search via Agentic Supernet. ArXiv                • 𝑣 (·): Text or operator embedding function (e.g., MiniLM,
+     abs/2502.04180 (2025). https://api.semanticscholar.org/CorpusID:276161505
+[54] Jiayi Zhang, Jinyu Xiang, Zhaoyang Yu, Fengwei Teng, Xionghui Chen, Jiaqi                SBERT).
+     Chen, Mingchen Zhuge, Xin Cheng, Sirui Hong, Jinlin Wang, et al. 2024. Aflow:          • 𝜏: Cumulative evidence threshold controlling layer width
+     Automating agentic workflow generation. arXiv preprint arXiv:2410.10762 (2024).
+[55] Jixiao Zhang and Chunsheng Zuo. 2025. GRPO-LEAD: A Difficulty-Aware Rein-
+                                                                                              (Eq. (17)).
+     forcement Learning Approach for Concise Mathematical Reasoning in Language             • 𝐾: The number of samples in each data set.
+     Models. ArXiv abs/2504.09696 (2025). https://api.semanticscholar.org/CorpusID:
+     277780631
+[56] Qinlin Zhao, Jindong Wang, Yixuan Zhang, Yiqiao Jin, Kaijie Zhu, Hao Chen,
+                                                                                        B Technical Details
+     and Xing Xie. 2023. Competeai: Understanding the competition behaviors in
+     large language model-based agents. arXiv preprint arXiv:2310.17512 (2023).
+                                                                                        B.1 Operator Space
+[57] Jun-Peng Zhu, Peng Cai, Kai Xu, Li Li, Yishen Sun, Shuai Zhou, Haihuang Su,        In this section, we detail the initialization of operator nodes as
+     Liu Tang, and Qi Liu. 2024. AutoTQA: Towards Autonomous Tabular Question
+     Answering through Multi-Agent Large Language Models. Proceedings of the            follows:
+     VLDB Endowment 17, 12 (2024), 3920–3933.                                               (1) Chain-of-Thought (CoT). CoT [45] reasoning encourages
+[58] Mingchen Zhuge, Wenyi Wang, Louis Kirsch, Francesco Faccio, Dmitrii
+     Khizbullin, and Jürgen Schmidhuber. 2024. GPTSwarm: Language Agents as                     the LLM to think step by step rather than directly outputting
+     Optimizable Graphs. In Forty-first International Conference on Machine Learning.           an answer. This approach enhances its capability to solve
+[59] Barret Zoph and Quoc V Le. 2017. Neural Architecture Search with Reinforcement             complex problems through intermediate reasoning steps,
+     Learning. In Proceedings of the International Conference on Learning Representa-
+     tions (ICLR).                                                                              improving task handling and providing greater transparency
+                                                                                                in the decision-making process.
+A     Notations                                                                             (2) LLM-Debate. LLM-Debate [6] allows multiple LLMs to de-
+                                                                                                bate, leveraging diverse perspectives to identify better solu-
+     • 𝑂 = 𝑀, 𝑆: An agentic operator defined by pairing an LLM 𝑀
+                                                                                                tions. In practice, we initialize three debaters and permit up
+       with a protocol 𝑆.
+                                                                                                to two debate rounds.
+     • 𝑀: A large language model (LLM) instance.
+                                                                                            (3) Self-Consistency. Adopting the methodology from [43],
+     • M: The set of all available LLMs.
+                                                                                                this operator aggregates five CoT reasoning paths and deter-
+     • 𝑆: A collaboration or reasoning protocol (e.g., Chain-of-Thought,
+                                                                                                mines the final answer through majority voting.
+       Debate).
+                                                                                            (4) Self-Refine. Following [26], this operator initially generates
+     • S: The set of all feasible protocols.
+                                                                                                an answer using CoT reasoning, then prompts the agent to
+     • O ⊆ M × S: The catalog of feasible agentic operators.
+                                                                                                self-reflect iteratively. We set a maximum of five refinement
+     • 𝐺 = V, E: A directed acyclic graph (DAG) representing an
+                                                                                                iterations.
+       agentic workflow, with operator nodes V and dependency
+                                                                                            (5) Ensemble. Inspired by LLM-Blender [18], this operator in-
+       edges E.
+                                                                                                volves three LLM-powered agents from different sources
+Difficulty-Aware Agentic Orchestration for Query-Specific Multi-Agent Workflows                WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.
+
+
+       outputting answers to the same query. The pairwise ranking                 Embedding Prompt
+       is used to evaluate and aggregate their responses into a final
+       solution.                                                                  prompt = """You are a highly proficient expert in
+   (6) Testing. Following the test designer in AgentCoder [15], this                   designing and defining operators for large
+       operator is used for generating test cases for the generated                    language models (LLMs). Your primary
+                                                                                       objective is to meticulously generate the `
+       code.
+                                                                                       description` and `interface` fields for a
+   (7) ReAct. Following [48], this operator enables the agent to                       specified operator based on its provided
+       leverage versatile tools, including code interpreter, web search-               Python implementation. The generated content
+       ing, external knowledge database, etc., to handle diverse user                  must be accurate, efficient, and precisely
+       demands.                                                                        reflect the functionality of the operator's
+                                                                                       code.
+
+B.2     Embedding Function                                                        To ensure consistency, quality, and adherence to
+Following established practices [8], we first employ an LLM to                         best practices, refer to the following
+                                                                                       examples of previously defined operators:
+generate a comprehensive profile description for each operator.
+                                                                                  {
+Subsequently, a lightweight text embedding model (in our case,                        "Generate": {
+MiniLM [42]) is used to encode the profile into a fixed-dimensional                       "description": "Generates anything based
+embedding. The prompt for generating the operator profile is as                                on customized input and instruction
+follows:                                                                                       .",
+                                                                                          "interface": "generate(input: str,
+                                                                                               instruction: str) -> dict with key '
+                                                                                               response' of type str"
+                                                                                      },
+                                                                                      "ScEnsemble": {
+                                                                                          "description": "Uses self-consistency to
+                                                                                               select the solution that appears most
+                                                                                                frequently in the solution list,
+                                                                                               improving the selection to enhance
+                                                                                               the choice of the best solution.",
+                                                                                          "interface": "sc_ensemble(solutions: List[
+                                                                                               str], problem: str) -> dict with key
+                                                                                               'response' of type str"
+                                                                                      }
+                                                                                  }
+WWW ’26, April 13–17, 2026, Dubai, United Arab Emirates.                                                            Jinwei Su et al.
+
+
+                                                                    • HumanEval: uses Pass@k as the primary metric to mea-
+    Now, given the following operator code. This code
+         encompasses the function signature,                          sure the proportion of correctly generated samples in code
+         parameters with type annotations, internal                   generation tasks.
+         logic, and return statements essential for                 • MBPP: also uses Pass@k to evaluate the model’s ability to
+         comprehensively understanding the operator's                 generate solutions for programming problems.
+         purpose and behavior.Please provide its `
+         description` and `interface` fields in the
+                                                                    • GSM8K: uses Accuracy to assess the model’s correctness
+         same format.                                                 in mathematical reasoning problems.
+    [operator code]                                                 • MATH: uses Accuracy as the core metric to evaluate the
+                                                                      model’s performance on solving mathematics problems.
+      """
+                                                                    • MMLU: uses Accuracy to measure the model’s performance
+                                                                      on multi-domain knowledge question-answering tasks.
+                                                                    • GAIA: uses Accuracy as the primary metric to evaluate the
+C     Experimental Details                                            model’s performance on general AI tasks.
+In this section, we introduce each dataset along with its primary
+evaluation metric.
+

@@ -1,0 +1,850 @@
+                                          ClinicalAgents: Multi-Agent Orchestration for Clinical Decision
+                                                           Making with Dual-Memory
+                                                             Zhuohan Ge                                                Haoyang Li∗                                     Yubo Wang
+                                                   The Hong Kong Polytechnic                                The Hong Kong Polytechnic                   The Hong Kong University of Science
+                                                           University                                               University                                   and Technology
+                                                     Hong Kong SAR, China                                     Hong Kong SAR, China                            Hong Kong SAR, China
+                                                  zhuohan.ge@connect.polyu.hk                              haoyang-comp.li@polyu.edu.hk                      ywangnx@connect.ust.hk
+
+                                                               Nicole Hu                                          Chen Jason Zhang                                        Qing Li
+                                                   The Hong Kong Polytechnic                                 The Hong Kong Polytechnic                        The Hong Kong Polytechnic
+
+
+
+
+arXiv:2603.26182v2 [cs.CL] 27 May 2026
+                                                           University                                                 University                                      University
+                                                     Hong Kong SAR, China                                       Hong Kong SAR, China                            Hong Kong SAR, China
+                                                   hulan.hu@connect.polyu.hk                                 jason-c.zhang@polyu.edu.hk                        csqli@comp.polyu.edu.hk
+
+                                         Abstract                                                                                ACM Reference Format:
+                                         While Large Language Models (LLMs) have demonstrated potential                          Zhuohan Ge, Haoyang Li, Yubo Wang, Nicole Hu, Chen Jason Zhang,
+                                                                                                                                 and Qing Li. 2026. ClinicalAgents: Multi-Agent Orchestration for Clini-
+                                         in healthcare, they often struggle with the complex, non-linear
+                                                                                                                                 cal Decision Making with Dual-Memory. In Proceedings of the 32nd ACM
+                                         reasoning required for accurate clinical diagnosis. Existing meth-                      SIGKDD Conference on Knowledge Discovery and Data Mining V.2 (KDD ’26),
+                                         ods typically rely on static, linear mappings from symptoms to                          August 09–13, 2026, Jeju Island, Republic of Korea. ACM, New York, NY, USA,
+                                         diagnoses, failing to capture the iterative, hypothesis-driven rea-                     12 pages. https://doi.org/10.1145/3770855.3818931
+                                         soning inherent in human clinicians. To bridge this gap, we intro-
+                                         duce ClinicalAgents, a novel multi-agent framework designed to
+                                         simulate the cognitive workflow of expert clinicians. Unlike rigid                      1    Introduction
+                                         sequential chains, ClinicalAgents employs a dynamic orchestra-                          Clinical decision-making (CDM) is a complex, continuous process
+                                         tion mechanism modeled as a Monte Carlo Tree Search (MCTS)                              that involves evaluating evidence and patient symptoms to provide
+                                         process. This allows an orchestrator to iteratively generate hy-                        accurate diagnoses and effective treatment [10]. CDM is one of the
+                                         potheses, actively verify evidence, and trigger backtracking when                       most crucial and challenging aspects of clinical medicine and a core
+                                         critical information is missing. The foundation of this framework                       responsibility of physicians. It requires physicians to continuously
+                                         is a Dual-Memory architecture: a mutable working memory that                            collect information based on patients’ symptoms in a highly uncer-
+                                         maintains the evolving patient state for context-aware reason-                          tain environment and comprehensively process multimodal data,
+                                         ing, and a static experience memory that retrieves clinical guide-                      including electronic health records (EHRs), medical imaging, and
+                                         lines and historical cases via an active feedback loop. Extensive                       laboratory tests, dynamically update differential diagnoses, and
+                                         experiments demonstrate that ClinicalAgents achieves the best                           align with medical guidelines [36, 38]. To cope with such complex-
+                                         performance among evaluated baselines, significantly enhancing                          ity, Artificial Intelligence (AI) has emerged as a powerful auxiliary
+                                         both diagnostic accuracy and explainability compared to strong                          tool in healthcare [43, 48]. By automating the analysis of massive,
+                                         single-agent and multi-agent baselines. Our code is released at                         diverse medical data, AI significantly reduces physicians’ workload
+                                         https://github.com/ZhuohanGe/ClinicalAgents-Code.                                       and enhances the overall efficiency of the decision-making process.
+                                                                                                                                    Modern AI approaches in healthcare can be broadly categorized
+                                         CCS Concepts                                                                            into two paradigms: deep learning (DL) and pre-trained language
+                                         • Computing methodologies → Artificial intelligence; • Ap-                              models (PLMs). DL models, such as UNETR [13] and HiTANet [24],
+                                         plied computing → Health care information systems.                                      have demonstrated strong capability in analyzing structured data
+                                                                                                                                 and medical imaging. With the introduction of transformer-based
+                                         Keywords                                                                                PLMs like Med-BERT [32] and Hi-BEHRT [21], AI systems have
+                                                                                                                                 further advanced by capturing rich semantic patterns from struc-
+                                         Large Language Models, Agent Orchestration, Multi-Agent Systems,
+                                                                                                                                 tured clinical records. However, both DL and PLM-based models
+                                         Clinical Decision Making, Healthcare
+                                                                                                                                 are fundamentally limited in their ability to perform the complex,
+                                         ∗ Corresponding author.                                                                 multi-step reasoning and iterative hypothesis evaluation required
+                                                                                                                                 for clinical decision-making. They typically lack the capacity to
+                                                                                                                                 dynamically align with clinical guidelines, adapt to new evidence
+                                                                                                                                 during the diagnostic process, and provide robust rationales that
+                                         This work is licensed under a Creative Commons Attribution 4.0 International License.   are essential for accuracy and trustworthiness in clinical practice.
+                                         KDD ’26, Jeju Island, Republic of Korea                                                    In recent years, LLMs have gained widespread attention for
+                                         © 2026 Copyright held by the owner/author(s).
+                                         ACM ISBN 979-8-4007-2259-2/2026/08                                                      their superior contextual understanding and reasoning abilities [25].
+                                         https://doi.org/10.1145/3770855.3818931                                                 Early research aimed to improve clinical reasoning by enhancing
+KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea                                                                     Zhuohan Ge et al.
+
+
+individual LLMs with advanced prompting strategies [8, 35] and           • We propose ClinicalAgents, a CDM-oriented multi-agent frame-
+reinforcement learning [47, 49]. However, as demonstrated by re-           work that explicitly instantiates a hypothesis-guided, evidence-
+cent studies [8, 11, 35, 47, 49], single LLMs remain insufficient for      seeking diagnostic loop aligned with clinicians’ hypothetico-
+complex clinical decision-making processes, motivating system-             deductive reasoning.
+level designs that integrate retrieval, verification, and specialized    • We design an orchestration mechanism that adaptively selects,
+modules. In response, Multi-Agent Systems (MAS) have been in-              reorders, and iterates agent actions through MCTS, overcoming
+troduced, where multiple specialized agents collaborate to solve           the rigidity of pre-scripted workflows and enabling evidence-
+tasks beyond the capacity of a single model. This approach more            triggered backtracking.
+accurately reflects the multidisciplinary nature of clinical practice.   • We integrate a dual-memory architecture that combines a muta-
+In MAS, memory management is a key design component that                   ble working memory for state tracking with an experience mem-
+maintains a shared, persistent record of evidence and intermedi-           ory, and uses a hybrid RAG mechanism that supports both passive
+ate conclusions across agents, enabling consistent coordination            augmentation and active evidence-seeking, reducing information
+across multi-round interactions. Building on this paradigm, recent         loss and redundancy, and improving reasoning consistency across
+frameworks employ role-playing agents (e.g., specialists and crit-         multi-round interactions.
+ics) [37, 41] and incorporate debate mechanisms [6, 18] or realistic     • Our experiments demonstrate that ClinicalAgents achieves state-
+workflow simulations [20, 22] to improve reasoning consensus and           of-the-art performance on a multi-stage clinical workflow bench-
+adaptability, where agent state is commonly maintained via con-            mark compared with existing single-agent and multi-agent base-
+versation history and intermediate summaries.                              lines. Furthermore, ablation studies, backbone sensitivity analy-
+   However, existing MAS for CDM still face significant challenges.        ses, and detailed case studies further validate the framework’s
+First, many existing MAS are implemented with a static, pre-scripted       robustness.
+interaction workflow, where agents act in a predetermined order,
+and the control flow provides limited support for replanning or          2 Related Work
+backtracking when new evidence emerges. Such rigidity under-
+                                                                         2.1 LLMs in Clinical Decision-Making (CDM)
+mines flexibility and error recovery, making it difficult to accommo-
+date the dynamic and uncertain nature of CDM. Second, existing           Motivated by the strong performance on medical licensing exams,
+MAS often treat memory as a window-bounded dialogue context,             early works primarily focused on enhancing the reasoning capabili-
+which can easily fragment, causing agents to lose critical details       ties of single LLMs for static, offline tasks through advanced prompt-
+and drift from the overall objective. In CDM, this information loss      ing and fine-tuning strategies. For instance, Med-PaLM 2 [35] in-
+and fragmentation can lead to unstable information exchange and          troduced ensemble refinement, a strategy that iteratively critiques
+inconsistent intermediate states across agents, ultimately result-       and refines reasoning chains to improve diagnostic accuracy on
+ing in non-convergent diagnoses. Third, many existing LLM-based          USMLE-style benchmarks. Similarly, HuaTuoGPT [49] leverages
+diagnostic studies still treat diagnosis as a mostly static genera-      hybrid feedback from distilled data and physicians to align models
+tion task, where a model reads a fixed clinical case and outputs         with medical protocols, while FineMedLM-o1 [47] incorporates
+diagnostic results. In contrast, clinical diagnosis is often described   test-time training to enhance reasoning stability during inference.
+as a hypothetico-deductive process [29]: clinicians start with a         While these methods excel in single-turn QA, they fundamentally
+set of hypotheses, collect evidence to narrow the search space,          treat CDM as a static prediction task rather than a dynamic process.
+and iteratively revise the hypotheses until they reach diagnostic           To address the issues of hallucinations and insufficient theoretical
+closure [9, 15]. Without this method of reasoning, MAS may over-         depth in long-chain reasoning, researchers have introduced verifi-
+estimate how sufficient the given information is and settle on a         cation and retrieval mechanisms. Chain-of-Verification (CoV) [8]
+diagnosis even when key evidence or details are missing, increasing      introduces explicit verification steps to detect and correct factual
+the risk of misdiagnosis [27, 50].                                       errors, thereby mitigating hallucination risks. Recognizing that
+   To bridge these fundamental gaps, we present ClinicalAgents,          CDM is not a single QA session, recent research has begun explor-
+a novel multi-agent framework that operationalizes the expert            ing agentic scaffolds to support multi-step reasoning. ReAct [46]
+clinician’s cognitive workflow. Unlike existing MAS that rely on         interleaves reasoning traces with tool-using actions (e.g., retrieval),
+static, sequential workflows, ClinicalAgents implements a dynamic,       providing a general paradigm that motivates the shift from passive
+hypothesis-driven reasoning mechanism. This mechanism orches-            LLMs to active agentic systems. This approach attempts to bridge
+trates specialized agents to iteratively generate diagnostic hypothe-    the gap between static knowledge and dynamic decision-making.
+ses, actively seek verifying evidence, and refine diagnoses through      However, these lines of work still largely model CDM as offline rea-
+continuous falsification cycles. To maintain a coherent state across     soning over a fixed case, lacking an explicit mechanism to surface
+multi-round interactions, we introduce a dual-memory design: a           evidence and drive iterative evidence acquisition.
+structured working memory that preserves the evolving patient
+state for context-aware revision, and an experience memory that en-      2.2    Multi-Agent Systems in CDM
+codes reusable clinical knowledge. Finally, we introduce a backtrack-    To simulate the multidisciplinary nature of clinical practice, re-
+ing mechanism formulated as a Monte Carlo Tree Search (MCTS)             search has increasingly pivoted from monolithic models to MAS.
+based search process [3, 34], ensuring that clinical decisions are       Foundational frameworks like MedAgents [37] utilize role-playing
+both rigorous and transparent. In summary, our paper makes the           mechanisms where specialized agents (e.g., diagnosticians, pharma-
+following major contributions:                                           cologists) collaborate to synthesize comprehensive medical reports.
+ClinicalAgents: Multi-Agent Orchestration for Clinical Decision Making with Dual-Memory                       KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea
+
+
+                   Table 1: Important Notations.                                          • Agent Pool: This component contains specialized agents repre-
+                                                                                            senting specific medical roles and tasks.
+ Notation           Definition                                                            • Clinical Orchestrator: Serving as the executive controller, it
+ Mwork
+    𝑡               Working Memory at step 𝑡 , defined as ⟨ E𝑡 , H𝑡 , 𝜏𝑡 ⟩.                 manages task distribution, information flow, and the execution
+ Mexp               Experience Memory, defined as ⟨ Dguide , Dcdc ⟩.                        of backtracking procedures. Details are discussed in Sec. 3.2.
+ Dguide             Structured guideline database.                                        • Dual-Memory System: This system facilitates state synchro-
+ Dcdc               Historical case database.                                               nization across agents, consisting of a mutable Working Memory
+ K𝑡                 Retrieved guideline knowledge at step 𝑡 .
+                                                                                            Mwork and a static Experience Memory Mexp . Sec. 3.3 elaborates
+ E𝑡                 Accumulated evidence set at step 𝑡 .                                    on its design and functionality.
+ H𝑡                 Diagnostic hypothesis set at step 𝑡 .
+ E𝑡𝑚                Missing critical evidence verified by the orchestrator.               The workflow follows a rigorous sequence: Perceive → Hypothesize
+    𝑝
+ E𝑡                 Potentially missing evidence suggested by Mexp .                      → Verify → Update. Within this cycle, the Clinical Orchestrator
+ 𝑐𝑡                 Confidence of the top hypothesis at step 𝑡 .
+                                                                                          dynamically activates agents to generate candidate hypotheses and
+ A                  Action space, A = Aagent ∪ {𝑎 rag , 𝑎 back , 𝑎 term }.                validates them against clinical guidelines. Crucially, this process
+ 𝜏𝑡                 Action trajectory (𝑎 0 , 𝑎 1 , . . . , 𝑎𝑡 ).
+ R𝑡                 Reward at step 𝑡 .
+                                                                                          is reinforced by an active Backtracking Mechanism: if the ver-
+ T                  Terminal state.                                                       ification step reveals insufficient evidence, the system reverts to
+ 𝜂                  Maximum orchestration step.                                           the perception phase to retrieve, inspect, or request the missing
+ 𝑄 (·)              MCTS action-value estimate.                                           information from the case record, marking it as unresolved if it
+ 𝜆                  Balance factor in PUCT.
+ 𝛼, 𝛽, 𝛾            Weighting coefficients in R𝑡 .                                        remains unavailable. In the subsequent sections, we provide details
+ 𝛾𝑑                 Discount factor for cumulative return.                                on the design and implementation of these core modules.
+ O (·)              LLM orchestrator.
+ I(·)               Instruction prompt (select / miss / conf / update).                   3.2    Clinical Orchestrator
+ Φ(·)               Backtracking decision function.
+ I[ · ]             Indicator function.                                                   The Clinical Orchestrator functions as the central control unit of
+ 𝐼𝑚𝑝 (·)            Importance function.                                                  the ClinicalAgents framework, responsible for orchestrating the in-
+                                                                                          teractions and task execution across specialized agents. Overall, we
+                                                                                          formulate the agent orchestration as a memory-based Monte Carlo
+This approach is extended by ColaCare [41], which bridges EHR                             Tree Search (MCTS) procedure [3, 34], with a hypothesis-driven ex-
+modeling with LLM reasoning through collaboration to enhance                              pansion strategy and a backtracking mechanism to acquire missing
+interpretability. To improve adaptability, MDAgents [19] dynami-                          evidence and produce a final diagnosis. In each expansion step of
+cally adjusts team size based on medical complexity, routing simple                       the MCTS, we carry out agent selection within the Markov Decision
+cases to solo agents and complex ones to groups.                                          Process (MDP) [31], where the orchestrator dynamically selects
+   Beyond simple collaboration, improving consensus and learning                          and activates the most suitable agents according to the patient’s
+capabilities is a key focus. Kaesberg et al. [18] and ReConcile [6]                       current status and evolving diagnostic requirements. Specifically,
+demonstrated that while voting is efficient, debate mechanisms                            we give our problem definition as follows:
+are superior for reasoning tasks. AMIE [39] highlights the poten-
+tial of conversational agents optimized through self-play, while                             Definition 3.1 (The Memory-based MCTS Problem). In each step
+Agent Hospital [20] introduces simulation-based learning, allow-                          𝑡, given a Markov Decision Process (MDP) defined as the tuple
+ing agents to evolve through interactions in a virtual environment.                       ⟨Mwork
+                                                                                              𝑡   , A, R, T , 𝜂⟩, where:
+Tree-of-Reasoning [30] further structures these interactions into                         • Mwork
+                                                                                                𝑡       is the working memory at step 𝑡, which includes the
+interpretable evidence trees. Recent efforts have aimed to model re-                        evidence set E𝑡 , hypothesis set H𝑡 , and action trajectory 𝜏𝑡 =
+alistic clinical processes. MedChain [22] provides a highly realistic                       (𝑎 0, 𝑎 1, · · · , 𝑎𝑡 ):
+end-to-end diagnostic workflow, covering five key stages with per-                                                    𝑡
+                                                                                                                     Mwork = ⟨E𝑡 , H𝑡 , 𝜏𝑡 ⟩              (1)
+sonalization and sequential decision dependencies. Nevertheless,
+                                                                                          • A is the action space,
+most MAS for CDM still rely on pre-scripted interaction protocols
+                                                                                          • R represents the reward function,
+and window-bounded memory, offering limited replanning and
+                                                                                          • T is the terminal state (e.g., clinical closure reached with a con-
+backtracking under incomplete or evolving patient information.
+                                                                                            firmed diagnosis),
+                                                                                          • 𝜂 is the maximum orchestration step.
+3     Methodology
+In this section, we present an overview of ClinicalAgents, a novel                           The objective of our MCTS is to approximate the optimal policy
+multi-agent system designed to enhance CDM through effective                              𝜋 ∗ : Mwork
+                                                                                                 𝑡    → A starting from step 𝑡 = 0, maximizing the expected
+orchestration of specialized agents.                                                      information gain with reward function R (Eq. (4)). The MDP ends
+                                                                                          when it reaches the terminal state T , or reaches the maximum
+3.1        Framework Overview                                                             orchestration step 𝜂.
+The architecture of ClinicalAgents is built around a diverse array of                        In each step 𝑡, given the working memory Mwork
+                                                                                                                                          𝑡   , the LLM or-
+specialized doctor agents that encompass the entire clinical work-                        chestrator O estimates the probability of taking a specific action
+flow, from the initial patient visit to the final diagnosis. As illustrated               𝑎 to advance the diagnosis with reward function R. In the MDP
+in Figure 1, the framework comprises three core components:                               procedure, the action space A includes:
+KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea                                                                                                    Zhuohan Ge et al.
+
+
+                                                                                                       Retrieval
+                        Agent Pool                                                                                                    Dual-Memory System
+                                                                                                                              Working Memory          Experience Memory
+
+                                                                                                                                  Evidence            Medical Guidelines
+   Referral    Doctor      Imaging    Diagnosis   Treatment               Clinical Orchestrator                                                            𝑫𝒈𝒖𝒊𝒅𝒆
+    Agent      Agent        Agent      Agent        Agent
+                                                                  MCTS –based Root State                                         Hypothesis
+                                                                  Orchestration                                                                         Historical Cases
+                                                                                                           Unexplored         Action Trajectory               𝑫𝑪𝑫𝑪
+                                                                                                             State
+
+                                                                       Explored State
+                                     Task Distribution                                        Select
+                                                                                                                            Update & Store
+                                                                                        Node to Expand
+
+  ● Patient Case
+
+         Symptoms
+                                        Perceive                   Hypothesize                                Verify                   Update                Diagnosis
+                                                                                                                                                             Treatment
+   ☷
+         Clinical
+         History
+
+
+
+Figure 1: Overview of the ClinicalAgents framework. A Clinical Orchestrator coordinates a pool of specialized agents and a
+dual-memory system (working memory and experience memory) to execute an iterative Perceive–Hypothesize–Verify–Update
+loop with evidence-triggered backtracking.
+
+
+(i) Aagent : It calls specific agents (e.g., image diagnosis agent,                               respectively; ΔE𝑡𝑚 and Δ𝑐𝑡 denote the change in missing evidence
+treatment agent, ...) to carry out certain tasks as needed.                                       and hypothesis confidence at step 𝑡 (Eq. (3)). The search concludes
+(ii) 𝑎 rag : It calls the knowledge retrieval action from the experi-                             when the terminal action 𝑎 term is selected, which denotes that the
+ence memory Mexp , to provide new evidence or guidance.                                           clinical closure is reached via a confirmed diagnosis and treatment
+(iii) 𝑎 back : It calls the orchestrator O to carry out backtracking                              plan; or when the maximum orchestration length 𝜂 is reached with-
+and decide the backtracking point in trajectory 𝜏.                                                out resolving diagnostic uncertainty.
+(iv) 𝑎 term : It terminates the orchestration process when clinical                                   With the action space A and reward function R defined, we
+closure is reached.                                                                               describe the decision-making process of the orchestrator O as fol-
+                     A = Aagent ∪ {𝑎 rag, 𝑎 back, 𝑎 term }.       (2)                             lows. Starting from an initial Mwork𝑡     (the current working memory
+With backtracking enabled, our orchestration is modeled as a search-                              snapshot), the orchestrator repeatedly:
+able decision process, rather than hard-coded rules, allowing the                                 (i) Selects an action 𝑎𝑡 ∈ A;
+                                                                                                  (ii) Samples the next Mwork  𝑡 +1 with the orchestrator O considering
+system to revert to the perception phase when current evidence is
+insufficient to verify a hypothesis.                                                              the current Mwork
+                                                                                                                 𝑡     and action 𝑎𝑡 , by executing the chosen agent/tool
+    Next, we introduce our reward function R, which is based on the                               call and updating the working memory and workflow stage;
+information gain after introducing each evidence item and making                                  (iii) Receives rewards with reward function R, shaped to encour-
+each hypothesis. Let E𝑡𝑚 be the set of missing critical evidence at                               age evidence completion and increased top-hypothesis confidence.
+step 𝑡, and let 𝑐𝑡 ∈ [0, 1] be the confidence of the top hypothesis                               (iv) Repeats (i)-(iii) until the orchestration terminates.
+ℎ𝑡 ∈ H𝑡 generated by the LLM. Define:                                                                 Next, we introduce our MCTS-based Expansion and Backtrack-
+              E𝑡𝑚 = LLM(E𝑡 , Imiss ),       𝑐𝑡 = LLM(ℎ𝑡 , Iconf ),                                ing strategy. Given the current Mwork   𝑡    , the orchestrator model O
+                                                                                   (3)            outputs an action selection score distribution O (𝑎 | Mwork  𝑡   , Iselect )
+                    ΔE𝑡𝑚 = E𝑡𝑚−1 − E𝑡𝑚 ,          Δ𝑐𝑡 = 𝑐𝑡 − 𝑐𝑡 −1 .
+                                                                                                  over all actions 𝑎 ∈ A. We first construct a candidate set by taking
+where E𝑡𝑚 denotes the set of missing critical evidence and 𝑐𝑡 denotes                             the top-𝐾 actions:
+the confidence score at step 𝑡, E𝑡 and H𝑡 denote the evidence set                                                                             𝑡
+                                                                                                                        A𝐾 = TopK𝑎∈ A O (𝑎 | Mwork , Iselect ).              (5)
+and hypothesis set at step 𝑡, Imiss and Iconf denote the missing
+evidence detection and confidence-scoring instruction. To guide                                    For each candidate action 𝑎 ∈ A𝐾 , we run 𝑁 independent rollouts
+the search toward a verified conclusion, our reward function R                                     and estimate its action value 𝑄 (Mwork
+                                                                                                                                      𝑡     , 𝑎) at step 𝑡 by the average
+mirrors the clinical goal of narrowing differential diagnoses, and                                 rollout return:
+provides positive feedback only when an action effectively reduces                                                               𝑁 𝐿𝑖
+                                                                                                                              1 ∑︁ ∑︁
+the evidence gap (ΔE𝑡𝑚 > 0) or solidifies diagnostic confidence                                                    𝑡
+                                                                                                             𝑄 (Mwork  , 𝑎) =          𝛾𝑑𝑘 −𝑡 R𝑘(𝑖 ) , 𝑎 ∈ A𝐾 ,        (6)
+                                                                                                                              𝑁 𝑖=1
+(Δ𝑐𝑡 > 0). For any non-terminal action (𝑎𝑡 ≠ 𝑎 term ), the reward is:                                                                     𝑘=𝑡
+
+R𝑡 = 𝛼 ·max(0, ΔE𝑡𝑚 ) +𝛽 ·max(0, Δ𝑐𝑡 ) −𝛾 ·I ΔE𝑡𝑚 ≤ 0 ∧ Δ𝑐𝑡 ≤ 0 ,                                 where 𝐿𝑖 is the terminal step of the 𝑖-th rollout and R𝑘(𝑖 ) is the reward
+                                                                  
+
+                                                                  (4)                             obtained at step 𝑘 in that rollout, and 𝛾𝑑 ∈ (0, 1] is a discount factor
+where 𝛼, 𝛽, 𝛾 ≥ 0 are weighting coefficients for missing-evidence re-                             that bounds the cumulative return and prevents bias toward longer
+duction, confidence improvement, and uninformative-action penalty,                                rollouts. For each candidate action 𝑎, each rollout is initialized by
+ClinicalAgents: Multi-Agent Orchestration for Clinical Decision Making with Dual-Memory                        KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea
+
+
+taking 𝑎 at step 𝑡. During tree traversal, node selection is governed                     each step 𝑡, the orchestrator updates the working memory by incor-
+by the LLM-prior-guided Predictor and Upper Confidence bound                              porating new evidence E𝑡new and new hypotheses H𝑡new collected
+for Trees (PUCT), which selects an action 𝑎 ∗ at step 𝑡:                                  from the agent interactions:
+     𝑎 ∗ = arg max 𝑄 (Mwork                                                                      E𝑡 = E𝑡 −1 ∪ E𝑡new,        H𝑡 = UpdateHyp(H𝑡 −1, H𝑡new ).
+                            𝑡                      𝑡               
+                                , 𝑎) + 𝜆 · O (𝑎 | Mwork , Iselect ) , (7)
+                𝑎∈ A𝐾
+                                                                                          This design enables real-time, multi-turn synchronization of all
+where 𝜆 > 0 is a balance factor.
+                                                                                          agents, providing a comprehensive and continuously updated con-
+   Inspired by MCTS backpropagation, we design a novel back-
+                                                                                          text for coherent clinical reasoning and decision-making.
+tracking mechanism in our orchestration that serves as a dynamic
+corrective measure to address diagnostic uncertainty arising from                         3.3.2 Experience Memory. The experience memory Mexp equips
+insufficient evidence.                                                                    ClinicalAgents with external, context-aware knowledge that goes
+   First, after each hypothesis generation, the generated hypotheses                      beyond the immediate patient state. Formally, the experience mem-
+and their respective evidence are updated in the working memory                           ory is defined as a static external memory store:
+Mwork
+    𝑡   , and then the orchestrator model verifies whether the cur-                                              Mexp = Dguide, Dcdc ,
+rent evidence is adequate to support the hypothesis based on Mwork
+                                                                𝑡    .
+Here, with the missing key evidence set at step 𝑡 as E𝑡 in Eq. (3),
+                                                          𝑚                               where Dguide denotes the structured guideline database and Dcdc
+if critical evidence is absent (i.e., E𝑡𝑚 ≠ ∅), the system identifies                     denotes the historical case database.
+these gaps and triggers the backtracking process. This behavior is                            At each reasoning step 𝑡, given the accumulated evidence E𝑡
+mechanistically driven by the decision function Φ(Mwork  𝑡  ):                            and the evolving diagnostic hypotheses H𝑡 , experience memory
+                                          (                                               supports the system in two main ways: (1) by retrieving relevant
+                                            1, if E𝑡𝑚 ≠ ∅                                 clinical knowledge K𝑡 from medical guidelines Dguide , and (2) by
+             Φ(Mwork
+                   𝑡
+                                      
+                       ) = I |E𝑡𝑚 | > 0 =                         (8)
+                                            0, otherwise                                  identifying potentially missing but clinically important evidence
+                                                                                            𝑝
+                                                                                          E𝑡 for the current diagnostic context using the historical case data-
+   Next, if the evidence is insufficient (e.g., a missing CT result or a
+                                                                                          base Dcdc . The experience memory produces step-specific retrieval
+crucial symptom), our backtracking mechanism is triggered, and
+                                                                                          outputs:
+the orchestrator O decides where to resume the workflow. The                                                   𝑝                               
+key idea is that different missing evidence types imply different                                       (K𝑡 , E𝑡 ) = RetrieveExp Mexp, E𝑡 , H𝑡 .
+task-stage rollbacks: for example, missing imaging results should                            First, for the retrieval of guideline-based knowledge, given the
+route the process back to an imaging interpretation stage, while                          structured guideline database Dguide (including authoritative recom-
+missing history/symptoms should route back to the information-                            mendations, evidence-based protocols, and diagnostic pathways),
+gathering stage. Formally, conditioned on the missing-evidence E𝑡𝑚                        along with the current evidence E𝑡 and diagnostic hypotheses H𝑡 ,
+at step 𝑡 and the updated working memory Mwork     𝑡 +1 , the orchestrator
+                                                                                          the system retrieves relevant knowledge as
+O selects the backtracking target stage and action 𝑎 call (action in                                                                             
+                                                                                                         K𝑡 = Retriever E𝑡 ⊕ H𝑡 , Dguide, 𝑛 guide ,
+A):
+                    𝑡 +1       𝑡                                                          where Retriever refers to our previously proposed retrieval model
+                   Mwork ← O (Mwork , E𝑡𝑚 , Iupdate ),
+                                                                            (9)           AGRAG [40], 𝑛 guide denotes the number of retrieved guideline
+                                           𝑡 +1
+                          𝑎 call ∼ O (· | Mwork , Iselect ).                              chunks, and ⊕ denotes the concatenation of evidence and hypothe-
+                                                                                          ses to form the input query. AGRAG combines chunk-level retrieval
+3.3     Dual-Memory System                                                                with knowledge-graph-based entity importance, enabling the sys-
+To support consistent multi-turn reasoning, ClinicalAgents adopts a                       tem to capture not only contextual relevance but also the clini-
+dual-memory architecture ⟨Mwork, Mexp ⟩. Here, the working mem-                           cal significance of retrieved entities, ensuring comprehensive and
+ory Mwork maintains the evolving sets of evidence and hypotheses                          meaningful guidance extraction.
+throughout the reasoning process, while the experience memory                                Second, for identifying missing potential evidence, the system
+                                                                                                                |D |
+Mexp provides access to external medical guidelines and historical                        utilizes Dcdc = {𝑑𝑖 }𝑖=1cdc , a repository of historical clinical cases.
+diagnostic cases. This design enables ClinicalAgents to integrate                         Each case 𝑑𝑖 = ⟨E𝑑𝑖 , H𝑑∗𝑖 , P𝑑∗𝑖 ⟩ ∈ Dcdc is represented as a Causal
+                                                                                                              ∗
+real-time patient context with established clinical knowledge, en-                        Diagnostic Chain (CDC), where E𝑑∗𝑖 denotes the diagnostic evidence,
+suring logical coherence across multiple reasoning steps. We detail                       H𝑑∗𝑖 is the diagnosis, and P𝑑∗𝑖 specifies the treatment plan. Given
+the structure and function of each memory below.                                          the current evidence E𝑡 and diagnostic hypotheses H𝑡 , the system
+3.3.1 Working Memory. The working memory Mwork acts as the                                retrieves the top-𝑛 cdc most similar historical cases,
+central state board for the entire ClinicalAgents system, synchro-                                                                               
+                                                                                                         D̃cdc = Retriever E𝑡 ⊕ H𝑡 , Dcdc, 𝑛 cdc ,
+nizing all agents’ understanding of the current patient context and
+diagnostic progress. By aggregating and sharing the latest evidence                       where ⊕ denotes concatenation for query formation and 𝑛 cdc de-
+and hypotheses, it ensures that all agent actions remain consistent                       notes the number of retrieved clinical cases.
+and informed throughout multi-turn reasoning. Formally, the work-                            Then, we identify key evidence items likely to be missing from
+ing memory at step 𝑡 − 1 is defined as: Mwork𝑡 −1 = ⟨E                                    the current diagnostic context E𝑡 based on the retrieved clinical
+                                                      𝑡 −1 , H𝑡 −1 , 𝜏𝑡 −1 ⟩,
+where E𝑡 −1 is the set of accumulated evidence (such as symptoms                          case set D̃cdc .
+and test results), H𝑡 −1 is the evolving set of diagnostic hypotheses,                       Next, with D̃cdc , we take the union of their key evidence fields to
+                                                                                          form Ẽcdc = 𝑑𝑖 ∈ D̃cdc ,𝑒 ∈ E ∗ 𝑒, where 𝑒 ∈ E𝑑∗𝑖 denotes a key evidence
+                                                                                                       Ð
+and 𝜏𝑡 −1 records the sequence of actions taken up to step 𝑡 − 1. At                                                   𝑑𝑖
+KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea                                                                                Zhuohan Ge et al.
+
+
+item 𝑒 in case 𝑑𝑖 . Then, for each 𝑒 ∈ Ẽcdc , the system computes an                 Table 2: Dataset statistics in our experiments. T=Text,
+importance score as follows:                                                          I=Image; “5-step pipeline” denotes a five-stage workflow.
+                                𝑛 cdc
+                              1 ∑︁                                                       Dataset          # Samples    Modality           Task
+𝐼𝑚𝑝 (𝑒 |E𝑡 , D̃cdc, H𝑡 ) =               sim(E𝑡 ⊕H𝑡 , 𝑑𝑖 )·I[𝑒 ∈ E𝑑∗𝑖 ]·I[𝑒 ∉ E𝑡 ],
+                             𝑛 cdc 𝑖=1
+                                                                                         MedChain [22]       12,163       T+I        5-stage pipeline
+                                                                                         MedDG [23]          17,864        T       dialogue generation
+where sim(·) is a cosine similarity metric, and I[·] is the indicator
+                                                                                         MedQA [16]           1,273        T           multiple QA
+function, returning 1 if the condition is satisfied and 0 otherwise.                     PubMedQA [17]         500         T          y/n/maybe QA
+   The set of missing but clinically significant evidence is then                        MedBullets [4]        308         T           multiple QA
+determined by                                                                            PathVQA [14]         3,362        I            binary QA
+             𝑝   
+            E𝑡 = 𝑒 ∈ Ẽcdc | 𝐼𝑚𝑝 (𝑒 |E𝑡 , D̃cdc, H𝑡 ) > 𝛿 ,
+
+where 𝛿 is a predefined significance threshold. This approach en-
+ables the system to proactively identify and highlight crucial, yet                   • Task 1: Specialty Referral determines case urgency and routes
+previously overlooked, evidence items, thereby supporting more                          the patient to an appropriate clinical department. We use Accu-
+robust and context-aware diagnostic reasoning.                                          racy for first-level department and Intersection over Union
+                                                                                        (IoU) for second-level department assignment.
+4     Experiments                                                                     • Task 2: Test Ordering specifies examinations/tests to be or-
+                                                                                        dered. We use IoU to measure set overlap between predicted and
+In this section, we systematically evaluate ClinicalAgents’ per-                        reference medical items (coverage and precision).
+formance on multi-stage clinical workflow reasoning tasks and                         • Task 3: Examination summarizes the results of requested ex-
+compare it with strong baselines, including general LLM/VLM,                            aminations, including medical image interpretation and report
+single-agent systems, and representative multi-agent systems. We                        drafting. We use DocLens [45] to assess the quality of generated
+also conduct ablation of key components, sensitivity experiments                        image interpretation compared to references.
+on different backbone models, and an efficiency analysis against                      • Task 4: Diagnosis integrates evidence from Tasks 1–3 to produce
+test-time compute baselines. Specifically, we explore the following                     a diagnostic conclusion. We use LLM-as-a-Judge to evaluate
+research questions (RQs):                                                               diagnostic correctness and reasoning coherence.
+• RQ1: How does ClinicalAgents perform compared to strong                             • Task 5: Treatment formulates a patient-specific treatment plan
+  baselines on the MedChain benchmark [22]? (Sec. 4.2)                                  under clinical constraints. We use IoU to measure overlap be-
+• RQ2: What is the contribution of each component of ClinicalA-                         tween predicted and reference treatment items.
+  gents to the overall performance? (Sec. 4.3)
+• RQ3: How sensitive is ClinicalAgents to different backbone                             Since Task 3 involves medical image interpretation, we focus on
+  LLMs? (Sec. 4.4)                                                                    the image-containing subset (3,034 cases) to assess multimodal
+• RQ4: Do the gains of ClinicalAgents arise from multi-agent or-                      clinical reasoning. From this subset, we randomly sample two-thirds
+  chestration rather than from larger test-time compute budgets?                      of the cases (2,023) for the main experiments using a fixed random
+  (Sec. 4.5)                                                                          seed (seed=42). For text-only cases, we use them as historical cases
+                                                                                      in the experience memory, and the test cases are strictly held out
+                                                                                      from the experience memory to prevent data leakage.
+4.1     Experimental Settings
+In this subsection, we describe the experimental settings, including                  4.1.2 Baselines. Our evaluation is designed to be comprehensive,
+the datasets and their corresponding tasks, the evaluation metrics,                   covering increasingly structured paradigms from single LLMs to
+the baseline methods for comparison, and the overall implementa-                      single-agent prompting/tool-use and finally to multi-agent systems.
+tion details of our experiments.
+                                                                                      • Five large language models: We include both closed-source
+4.1.1 Datasets and Evaluation Metrics. We primarily evaluate on                         and open-source models to balance strong proprietary systems
+MedChain [22], and further test generalization on MedDG [23]                            with reproducible open models, and to cover text-only and multi-
+and four medical QA datasets. Dataset statistics are summarized in                      modal capabilities. The closed-source model is GPT-5.2 [28], while
+Table 2. Detailed descriptions of the MedDG and four QA datasets                        the open-source models include Qwen3-VL-235B [2], DeepSeek-
+are provided in Appendix A.                                                             R1 [12], Llama-4-Maverick [26], and Intern-S1 [1, 7].
+                                                                                      • Three fine-tuned medical LLMs: We additionally evaluate
+   MedChain (Benchmark). MedChain [22] is organized as a sequen-                        domain-specialized models that are explicitly trained or fine-
+tial, interdependent clinical workflow:                                                 tuned for medical reasoning and QA, serving as strong in-domain
+           Task 1 → Task 2 → Task 3 → Task 4 → Task 5.                                  baselines: MedGemma-4B [33], HuaTuoGPT-o1-7B [5, 49], and
+                                                                                        FineMedLM-o1-8B [47].
+Outputs from earlier stages are explicitly fed into subsequent ones,                  • Single-agent: We compare ClinicalAgents with widely adopted
+enforcing cross-stage correlation and sequential consistency                            single-agent paradigms that progressively increase structure and
+across the pipeline. Concretely, the five stage-level tasks and their                   external knowledge usage, including: Few-shot + CoT [42], RAG
+evaluation metrics are:                                                                 and ReAct [46].
+ClinicalAgents: Multi-Agent Orchestration for Clinical Decision Making with Dual-Memory                       KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea
+
+
+• Multi-agent systems: To benchmark orchestration and coor-                                 ground truth. ClinicalAgents attains a Test Ordering IoU of
+  dination benefits, we include representative multi-agent frame-                           0.4820, ranking first among all methods. It improves over the
+  works that have been used across reasoning and domain tasks:                              backbone GPT-5.2 (0.3870) by +0.0950 (+24.5%), and surpasses
+  ReConcile [6], AutoGen [44], MedAgents [37], MDAgents [19],                               the strongest baseline MedChain-Agents (0.4382) by +0.0438
+  and ColaCare [41], together with MedChain-Agents [22], a strong                           (+10.0%). We attribute this gain to the orchestrator’s verification-
+  task-specific baseline on the MedChain benchmark.                                         and-backtracking mechanism, which iteratively queries for miss-
+   We select baselines using three criteria: (i) representativeness                         ing evidence and refines the examination plan by adding critical
+(widely used or commonly adopted in prior work), (ii) strength                              tests while removing redundant or low-yield items.
+(competitive or state-of-the-art performance in general or medical                        • ClinicalAgents achieves performance gains even on the
+domains), and (iii) coverage (spanning closed/open models, text-                            vision-based Examination task. Although ClinicalAgents’ vi-
+only and multimodal settings).                                                              sual processing primarily depends on the visual capability of its
+                                                                                            backbone LLM, it still achieves performance gains on the Ex-
+4.1.3 Implementation Details. We implement all methods in a uni-                            amination task (Task 3), which requires visual understanding.
+fied pipeline to ensure consistent preprocessing, prompt formatting,                        The improvement mainly stems from hypothesis-driven exam-
+and evaluation.                                                                             ination selection: ClinicalAgents leverages current hypotheses
+• Backbone models. Unless otherwise specified, we use GPT-5.2                               and experience memory to select targeted examinations, and
+  as the backbone for all single-agent and multi-agent baselines,                           subsequently injects these hypotheses into the imaging-agent
+  as well as ClinicalAgents, to ensure a fair comparison.                                   prompt as clinically relevant targets to guide the model’s atten-
+• LLM-as-a-Judge. We use Gemini-2.5-Pro (temperature = 0) to                                tion toward findings associated with each candidate diagnosis.
+  score diagnostic correctness and reasoning coherence on an inte-
+                                                                                             Reliability of LLM-as-a-Judge. Because Task 4 relies on an LLM
+  ger scale of 1 to 5, with a rubric grounded in established clinical
+                                                                                          judge, we validated its reliability against human experts. We con-
+  diagnostic principles that tolerates synonymous expressions and
+                                                                                          ducted a human study on a 20% sample of the held-out set (𝑁 = 202
+  reasonable granularity differences. The full prompt and rubric
+                                                                                          out of 1,011 cases not used in the main experiments), with two clin-
+  are provided in Appendix C.
+                                                                                          icians independently scoring each case using the same 1–5 rubric.
+• Parameters. We set the maximum orchestration length to 𝜂 = 4
+                                                                                          As shown in Table 4, the LLM judge achieves strong agreement
+  and enable early stopping when the orchestrator reaches a confi-
+                                                                                          with both clinicians (Cohen’s 𝜅 ≈ 0.80 and within-one-point Toler-
+  dent diagnosis or selects the terminal action. The full configura-
+                                                                                          ance Accuracy ≥ 88%), comparable to the inter-clinician agreement,
+  tion file will be released with the code repository.
+                                                                                          supporting its validity as an evaluation proxy.
+
+4.2     Overall Results (RQ1)                                                                Reliability of the backtracking mechanism. To probe whether
+In this subsection, we present the overall performance of Clini-                          the orchestrator can detect and recover from initially incorrect
+calAgents compared to strong baselines on the MedChain bench-                             but plausible hypotheses, we compute three reliability statistics
+mark [22], addressing RQ1. To assess generalization beyond the                            over our experiments (Table 5). When the initial hypothesis is
+MedChain workflow setting, we additionally conduct experiments                            wrong, the orchestrator successfully triggers backtracking in 83%
+on multiple medical dialogue and QA datasets; these results are                           of such cases and ultimately recovers the correct diagnosis in 64%.
+reported in Appendix A.                                                                   Across all cases, at least one unsupported hypothesis is explicitly
+    The main experimental results are reported in Table 3. Overall,                       pruned 94% of the time, showing active hypothesis exclusion rather
+our method ClinicalAgents achieves the best performance among                             than uniform expansion. Detailed analysis of case studies of the
+all compared approaches, reaching an average score of 0.5107. No-                         backtracking mechanism is provided in Appendix B.
+tably, ClinicalAgents attains the best score on 5 out of 6 reported
+metrics, indicating robust improvements across different stages of                        4.3    Ablation Study (RQ2)
+the MedChain benchmark [22]. Specifically, we provide the follow-                         In this subsection, we assess the contribution of each key compo-
+ing detailed observations and analysis:                                                   nent to address RQ2. We isolate the marginal effect of the Dual-
+• ClinicalAgents achieves the best performance with an av-                                Memory (working memory + experience memory) and the Clinical
+  erage score of 0.5107. Compared with the backbone GPT-5.2                               Orchestrator (MCTS-based action selection with backtracking) via
+  (0.4521), ClinicalAgents improves the average score by +0.0586,                         four configurations:
+  corresponding to a +13.0% relative gain. In addition, ClinicalA-                        • Backbone: a fixed five-stage pipeline with standard prompt
+  gents consistently outperforms strong agentic baselines: it ex-                           chaining. It does not use working memory, experience mem-
+  ceeds the best multi-agent baseline MedChain-Agents (0.4880)                              ory, or MCTS orchestration. It remains functional because each
+  by +0.0227 (+4.7%), and the strongest single-agent baseline ReAct                         stage’s output is passed directly to the next stage.
+  (0.4696) by +0.0411 (+8.8%). This substantial improvement sug-                          • + Dual-Memory: Backbone augmented with working memory
+  gests that ClinicalAgents effectively enhances clinical reasoning                         and experience memory; the workflow remains fixed (no MCTS,
+  through the orchestrator’s backtracking mechanism, reducing                               no backtracking).
+  error accumulation and improving cross-stage consistency.                               • + Orchestrator: Backbone augmented with working memory and
+• ClinicalAgents delivers particularly strong gains on Task                                 the MCTS-based orchestrator (with backtracking), but without
+  2 (Test Ordering), achieving the best alignment with the                                  experience memory.
+KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea                                                                                                Zhuohan Ge et al.
+
+
+Table 3: Overall results on the MedChain benchmark. We compare ClinicalAgents with single-LLM, single-agent, and multi-
+agent baselines across five tasks representing workflow stages, and report score for each task and the average score. The symbol
+‘—’ indicates that the model is a text-only LLM and not applicable to a visual examination task, and average score is computed
+over applicable non-visual metrics only. The LLM-judge score was normalized to 0–1 by dividing by 5 before averaging.
+
+                                                                                                 MedChain
+        Category           Methods                                                                                                                         Average
+                                                          Specialty Referral         Test Ordering   Examination         Diagnosis    Treatment
+                                                        Acc. (Lv1)       IoU (Lv2)       IoU          DocLens            LLM-judge          IoU
+                           GPT-5.2                        0.5467          0.3045        0.3870          0.4276               0.5754        0.4716           0.4521
+                           DeepSeek-R1                    0.5744          0.3124        0.3475            —                  0.4968        0.4296           0.4321
+                           Qwen3-VL-235B                  0.5719          0.3604        0.2867          0.3915               0.5798        0.5017           0.4487
+                           Llama-4-Maverick-17B           0.5620          0.3386        0.3075          0.3579               0.5675        0.4048           0.4231
+        Single LLM         Intern-S1                      0.5783          0.3406        0.3317          0.4192               0.4810        0.3964           0.4245
+                           MedGemma-4B                    0.4014          0.2477        0.2630          0.4063               0.5467        0.4380           0.3838
+                           HuaTuoGPT-o1-7B                0.3609          0.2037        0.1537            —                  0.5442        0.4647           0.3454
+                           FineMedLM-o1-8B                0.3688          0.1948        0.2140            —                  0.4716        0.4157           0.3330
+                           Few-shot + CoT                 0.5680          0.3047        0.3886          0.4434               0.5762        0.4839           0.4608
+        Single Agent
+                           RAG                            0.5675          0.3041        0.3789          0.4499               0.5781        0.4876           0.4610
+                           ReAct [46]                     0.5803          0.3212        0.3961          0.4543               0.5820        0.4835           0.4696
+                           ReConcile [6]                  0.5882          0.3431        0.4026         0.4790                0.5774        0.4869          0.4795
+                           AutoGen [44]                   0.5615          0.3243        0.4156         0.4404                0.5764        0.5022          0.4701
+                           MedAgents [37]                 0.5344          0.2921        0.3961         0.4676                0.5442        0.4938          0.4547
+        Multi-Agents       MDAgents [19]                  0.5442          0.2887        0.4072         0.4582                0.5759        0.4825          0.4594
+                           ColaCare [41]                  0.5798          0.3273        0.3994         0.4441                0.5623        0.4920          0.4675
+                           MedChain-Agents [22]           0.5937          0.3531        0.4382         0.4528                0.5863        0.5041          0.4880
+                           Ours                           0.6243          0.3543        0.4820         0.4800                0.5976        0.5259          0.5107
+
+
+Table 4: Agreement between the LLM judge (Gemini 2.5 Pro)                                Table 6: Ablation experiments, where SP denotes Specialty
+and two clinicians on the Task 4 diagnostic score. Cohen’s 𝜅                             Referral, TO denotes Test Ordering, EX denotes Examina-
+corrects for chance agreement; Tolerance Accuracy (Δ ≤ 1) is                             tion, Diag denotes Diagnosis, Treat denotes Treatment. The
+the percentage of cases where two raters’ scores differ by no                            backbone model is GPT-5.2.
+more than one point on the 1–5 scale.
+                                                                                                                  SP           TO     EX          Diag        Treat
+                                                                                          Ablation                                                                    Average
+     Agreement Pair                     Cohen’s 𝜅         Tol. Acc. (Δ ≤ 1)                                 Acc        IoU    IoU DocLens LLM-judge IoU
+     Clinician A vs. LLM Judge              0.77                   88%                    Backbone       0.5467 0.3045 0.3870 0.4276              0.5754      0.4716 0.4521
+     Clinician B vs. LLM Judge              0.82                   92%                    + Dual-Memory 0.6095 0.3187 0.4157 0.4460               0.5811      0.4863 0.4762
+     Clinician A vs. Clinician B            0.88                   94%                    + Orchestrator 0.6125 0.3391 0.4649 0.4673              0.5914      0.5022 0.4962
+                                                                                          ALL            0.6243 0.3543 0.4820 0.4800           0.5976        0.5259 0.5107
+Table 5: Reliability statistics of the orchestrator’s backtrack-
+ing mechanism. The trigger and recovery rates are computed
+over cases whose initial hypothesis was judged incorrect.
+                                                                                         while adding the orchestrator (without experience memory) raises
+        Metric                                                      Value                it to 0.4962 (+9.8%). When all three components are jointly enabled,
+        Backtracking trigger rate (initially wrong cases)                83%             the average score further reaches 0.5107 (+13.0% over Backbone),
+        Recovery success rate (initially wrong cases)                    64%             exceeding either single addition and indicating that the two mod-
+        Cases with at least one excluded hypothesis                      94%             ules are complementary rather than redundant.
+                                                                                             Regarding single-stage effects, the Dual-Memory variant shows
+                                                                                         the largest gain on Specialty Referral accuracy (+11.5%), consistent
+• ALL: the full ClinicalAgents with working memory, experience                           with improved cross-agent state synchronization through struc-
+  memory, and the MCTS-based orchestrator.                                               tured memory. The orchestrator variant shows the largest gain on
+As shown in Table 6, both Dual-Memory and the orchestrator inde-                         the Test Ordering (+20.1%), suggesting that backtracking-driven
+pendently yield substantial gains over the backbone model. Adding                        verification refines evidence acquisition by adding missing critical
+Dual-Memory raises the average score from 0.4521 to 0.4762 (+5.3%),                      tests while pruning redundant ones.
+ClinicalAgents: Multi-Agent Orchestration for Clinical Decision Making with Dual-Memory                       KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea
+
+
+Table 7: Backbone sensitivity results. We test ClinicalAgents                                To answer this, we compare ClinicalAgents under the same GPT-
+with different backbone models and report the performance.                                5.2 backbone against two reference points: (i) Self-Consistency
+The symbol ‘—’ indicates that the model is a text-only LLM                                (SC-𝑘), which executes the sequential backbone pipeline 𝑘 times
+and not applicable to a visual examination task.                                          independently and aggregates outputs by majority voting; and (ii)
+                                                                                          representative multi-agent baselines, MedAgents and MedChain-
+                       SP            TO      EX       Diag        Treat                   Agents. For each method, we report the average score, total tokens
+Backbone                                                                  Average
+                                                                                          per case, end-to-end serial latency, and API cost in Table 8. We can
+                 Acc        IoU   IoU DocLens LLM-judge IoU
+                                                                                          summarize the key observations as follows:
+Qwen3-VL 0.6273 0.3779 0.3717 0.4369                 0.5908     0.5229 0.4879
+HuaTuoGPT 0.4948 0.2839 0.3034      —                0.5746     0.5082 0.4330             • Simply scaling test-time compute yields marginal returns.
+DeepSeek-R1 0.6322 0.3621 0.4561    —                0.5427     0.4695 0.4925               Increasing SC-𝑘 from 3 to 7 raises the average score by only
+GPT-5.2     0.6243 0.3543 0.4820 0.4800              0.5976     0.5259 0.5107               +0.0010 at 2.3× tokens and 2.4× cost.
+                                                                                          • ClinicalAgents achieves the highest score and the lowest
+                                                                                            token cost. It attains the highest average score (0.5107) with the
+Table 8: Efficiency comparison across representative methods                                fewest tokens (23,438) and the lowest cost (0.0658 USD); against
+under the GPT-5.2 backbone. Latency is reported as serial                                   SC-7, it gains +0.0524 (+11.4%) using only ∼22% of SC-7’s tokens
+wall-clock time per case. Best results are in bold.                                         and cost.
+                                                                                          These results show that the gains of ClinicalAgents come from more
+ Method                 Avg. Score        Tokens    Latency (s)    Cost (USD)             effective compute allocation through orchestration and evidence-
+ Backbone + SC-3            0.4573         45,265      731.51         0.1215              driven revision, rather than larger compute budgets alone.
+ Backbone + SC-5            0.4579         76,058     1243.62         0.2148
+ Backbone + SC-7            0.4583        104,733     1681.43         0.2962              5   Conclusions
+ MedAgents                  0.4547         44,599      581.07         0.1264
+                                                                                          We introduced ClinicalAgents, a multi-agent framework designed
+ MedChain-Agents            0.4880         30,892      433.28         0.0879
+                                                                                          to emulate professional clinicians’ iterative, hypothesis-driven rea-
+ ClinicalAgents             0.5107        23,438      369.07          0.0658
+                                                                                          soning. ClinicalAgents departs from static, pre-scripted workflows
+                                                                                          by using an MCTS-based orchestrator that adaptively selects and
+                                                                                          reorders agent actions, enabling evidence-triggered backtracking
+4.4     Backbone Sensitivity (RQ3)                                                        when verification indicates missing or insufficient information. We
+In this subsection, we analyze the sensitivity of ClinicalAgents                          further proposed a dual-memory (working memory and experience
+to different backbone LLMs (RQ3). The results shown in Table 7                            memory) design that stabilizes multi-round reasoning, enabling con-
+demonstrate that ClinicalAgents is robust to backbone choice.                             sistent state tracking and evidence-aware updates across iterations.
+   We use four different backbone LLMs (HuaTuoGPT-o1-7B, Qwen3-                           Across a five-stage workflow benchmark, ClinicalAgents achieves
+VL-235B, DeepSeek-R1, and GPT-5.2) and compare against their                              consistent improvements over strong single-agent and multi-agent
+corresponding single-LLM baselines under the same evaluation pro-                         baselines, and ablation studies validate that orchestration and dual-
+tocol. Overall, ClinicalAgents is moderately sensitive to the back-                       memory contribute complementary gains. ClinicalAgents provides
+bone, with absolute performance (Average) ranging from 0.4330 to                          a practical step toward more transparent and dependable agentic
+0.5107; yet it remains robust, consistently improving over the single-                    systems for clinical decision support.
+LLM counterpart across all backbones. Specifically, ClinicalAgents
+increases from 0.3454 to 0.4330 for HuaTuoGPT-o1-7B (+0.0876,                             6   Limitations and Ethical Considerations
++25.4%), from 0.4487 to 0.4879 for Qwen3-VL-235B (+0.0392, +8.7%),                        The responsible deployment of ClinicalAgents necessitates address-
+from 0.4321 to 0.4925 for DeepSeek-R1 (+0.0604, +14.0%), and from                         ing several key ethical considerations. First, the system must func-
+0.4521 to 0.5107 for GPT-5.2 (+0.0586, +13.0%). Notably, the largest                      tion strictly as a supportive tool to augment, rather than replace,
+relative gain is observed on the weakest backbone (HuaTuoGPT-                             human clinical judgment. Second, to mitigate potential biases inher-
+o1-7B), suggesting that ClinicalAgents provides stronger compen-                          ent in LLMs, continuous monitoring across diverse demographics
+sation when the backbone alone is less capable. Moreover, the                             is essential to prevent exacerbating healthcare disparities. Third,
+performance spread across backbones is reduced after applying                             stringent adherence to data privacy regulations and anonymization
+ClinicalAgents (range decreases from 0.1067 to 0.0777 in Average),                        protocols is paramount for maintaining trust and legal compliance.
+indicating improved stability against backbone variation. These
+results demonstrate that ClinicalAgents can effectively leverage                          Acknowledgments
+different backbone LLMs, consistently enhancing clinical reasoning
+                                                                                          This work was partially funded by the Guangdong Basic and Ap-
+performance while mitigating sensitivity to backbone choice.
+                                                                                          plied Basic Research Foundation (Project No. 2026A1515010227),
+                                                                                          PolyU TDG25-28/TBP/11-IICA, NSFC/RGC Joint Research Scheme
+4.5     Efficiency Analysis (RQ4)                                                         (N_PolyU5179/25), Hong Kong RGC (PolyU25600624), Innovation
+In this subsection, we examine whether the gains of ClinicalAgents                        Technology Fund (ITS/052/23MX, PRP/009/22FX), industrial spon-
+arise from its multi-agent orchestration or merely from additional                        sors and RMGS (P0045948, P0048183, P0048191, P0046453, P0060272),
+test-time compute (RQ4).                                                                  NSFC under the joint application scheme (T2541073).
+KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea                                                                                                      Zhuohan Ge et al.
+
+
+References                                                                                       intelligence/.
+ [1] Lei Bai, Zhongrui Cai, et al. 2025. Intern-S1: A scientific multimodal foundation      [27] Geoff Norman, Kevin Barraclough, Lisa Dolovich, and David Price. 2009. Iterative
+     model. arXiv preprint arXiv:2508.15763 (2025).                                              diagnosis. BMJ 339 (2009).
+ [2] Shuai Bai, Yuxuan Cai, et al. 2025. Qwen3-VL technical report. arXiv preprint          [28] OpenAI. 2025. Introducing GPT-5.2. https://openai.com/index/introducing-gpt-
+     arXiv:2511.21631 (2025).                                                                    5-2/.
+ [3] Cameron B Browne, Edward Powley, et al. 2012. A survey of Monte Carlo tree             [29] Vimla L Patel and Guy J Groen. 1986. Knowledge based solution strategies in
+     search methods. IEEE Transactions on Computational Intelligence and AI in                   medical reasoning. Cognitive Science 10, 1 (1986), 91–116.
+     Games 4, 1 (2012), 1–43.                                                               [30] Qi Peng, Jialin Cui, et al. 2025. Tree-of-reasoning: Towards complex medical
+ [4] Hanjie Chen, Zhouxiang Fang, Yash Singla, and Mark Dredze. 2025. Benchmark-                 diagnosis via multi-agent reasoning with evidence tree. In Proceedings of the
+     ing large language models on answering and explaining challenging medical                   33rd ACM International Conference on Multimedia. 1744–1753.
+     questions. In Proceedings of the 2025 Conference of NAACL. 3563–3599.                  [31] Martin L Puterman. 1990. Markov decision processes. Handbooks in operations
+ [5] Junying Chen, Zhenyang Cai, et al. 2024. HuatuoGPT-o1: Towards medical                      research and management science 2 (1990), 331–434.
+     complex reasoning with LLMs. arXiv preprint arXiv:2412.18925 (2024).                   [32] Laila Rasmy, Yang Xiang, Ziqian Xie, Cui Tao, and Degui Zhi. 2021. Med-BERT:
+ [6] Justin Chen, Swarnadeep Saha, and Mohit Bansal. 2024. ReConcile: Round-                     pretrained contextualized embeddings on large-scale structured electronic health
+     table conference improves reasoning via consensus among diverse LLMs. In                    records for disease prediction. NPJ Digital Medicine 4, 1 (2021), 86.
+     Proceedings of the 62nd Annual Meeting of the Association for Computational            [33] Andrew Sellergren, Sahar Kazemzadeh, et al. 2025. MedGemma technical report.
+     Linguistics (Volume 1: Long Papers). 7066–7085.                                             arXiv preprint arXiv:2507.05201 (2025).
+ [7] Zhe Chen, Jiannan Wu, et al. 2024. InternVL: Scaling up vision foundation models       [34] David Silver, Aja Huang, et al. 2016. Mastering the game of Go with deep neural
+     and aligning for generic visual-linguistic tasks. In Proceedings of the IEEE/CVF            networks and tree search. Nature 529, 7587 (2016), 484–489.
+     conference on computer vision and pattern recognition. 24185–24198.                    [35] Karan Singhal, Tao Tu, et al. 2025. Toward expert-level medical question answer-
+ [8] Shehzaad Dhuliawala, Mojtaba Komeili, Jing Xu, Roberta Raileanu, Xian Li, Asli              ing with large language models. Nature Medicine 31, 3 (2025), 943–950.
+     Celikyilmaz, and Jason Weston. 2024. Chain-of-verification reduces hallucina-          [36] Reed T Sutton, David Pincock, et al. 2020. An overview of clinical decision
+     tion in large language models. In Findings of the association for computational             support systems: benefits, risks, and strategies for success. NPJ Digital Medicine
+     linguistics: ACL 2024. 3563–3578.                                                           3, 1 (2020), 17.
+ [9] Quang Hung Duong, To Nhu Pham, Lorenna Reynolds, Yan Yeap, Steven Walker,              [37] Xiangru Tang, Anni Zou, Zhuosheng Zhang, Ziming Li, Yilun Zhao, Xingyao
+     and Kayley Lyons. 2023. A scoping review of therapeutic reasoning process                   Zhang, Arman Cohan, and Mark Gerstein. 2024. MedAgents: Large language
+     research. Advances in Health Sciences Education 28, 4 (2023), 1289–1310.                    models as collaborators for zero-shot medical reasoning. In Findings of the
+[10] Arthur S Elstein and Alan Schwarz. 2002. Clinical problem solving and diagnostic            Association for Computational Linguistics: ACL 2024. 599–621.
+     decision making: selective review of the cognitive literature. BMJ 324, 7339 (2002),   [38] Jennifer Tiffen, Susan J Corbridge, and Lynda Slimmer. 2014. Enhancing clin-
+     729–732.                                                                                    ical decision making: development of a contiguous definition and conceptual
+[11] Zhuohan Ge, Darian Li, et al. 2025. Survey and Experiments on Mental Disorder               framework. Journal of Professional Nursing 30, 5 (2014), 399–405.
+     Detection via Social Media: From Large Language Models and RAG to Agents.              [39] Tao Tu, Mike Schaekermann, Anil Palepu, Khaled Saab, Jan Freyberg, Ryutaro
+     arXiv preprint arXiv:2504.02800 (2025).                                                     Tanno, Amy Wang, Brenna Li, Mohamed Amin, Yong Cheng, et al. 2025. Towards
+[12] Daya Guo, Dejian Yang, et al. 2025. DeepSeek-R1: Incentivizing reasoning ca-                conversational diagnostic artificial intelligence. Nature 642, 8067 (2025), 442–450.
+     pability in LLMs via reinforcement learning. arXiv preprint arXiv:2501.12948           [40] Yubo Wang, Haoyang Li, et al. 2025. AGRAG: Advanced graph-based retrieval-
+     (2025).                                                                                     augmented generation for LLMs. arXiv preprint arXiv:2511.05549 (2025).
+[13] Ali Hatamizadeh, Yucheng Tang, et al. 2022. UNETR: Transformers for 3D                 [41] Zixiang Wang, Yinghao Zhu, et al. 2025. ColaCare: Enhancing electronic health
+     medical image segmentation. In Proceedings of the IEEE/CVF winter conference                record modeling through large language model-driven multi-agent collaboration.
+     on applications of computer vision. 574–584.                                                In Proceedings of the ACM on Web Conference 2025. 2250–2261.
+[14] Xuehai He, Yichen Zhang, Luntian Mou, Eric Xing, and Pengtao Xie. 2020.                [42] Jason Wei, Xuezhi Wang, et al. 2022. Chain-of-thought prompting elicits rea-
+     PathVQA: 30000+ questions for medical visual question answering. arXiv preprint             soning in large language models. Advances in Neural Information Processing
+     arXiv:2003.10286 (2020).                                                                    Systems 35 (2022), 24824–24837.
+[15] Joy Higgs, Gail M Jensen, Stephen Loftus, Franziska V Trede, and Sandra Grace.         [43] World Health Organization. 2021. Ethics and governance of artificial intelligence
+     2024. Clinical reasoning in the health professions. Elsevier Health Sciences.               for health. Technical Report. WHO.
+[16] Di Jin, Eileen Pan, et al. 2021. What disease does this patient have? A large-scale    [44] Qingyun Wu, Gagan Bansal, et al. 2024. AutoGen: Enabling next-gen LLM applica-
+     open domain question answering dataset from medical exams. Applied Sciences                 tions via multi-agent conversations. In First conference on language modeling.
+     11, 14 (2021), 6421.                                                                   [45] Yiqing Xie, Sheng Zhang, et al. 2024. DocLens: Multi-aspect fine-grained medical
+[17] Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William Cohen, and Xinghua Lu.                     text evaluation. In Proceedings of the 62nd Annual Meeting of the Association
+     2019. PubMedQA: A dataset for biomedical research question answering. In                    for Computational Linguistics (Volume 1: Long Papers). 649–679.
+     Proceedings of the 2019 conference on EMNLP-IJCNLP. 2567–2577.                         [46] Shunyu Yao, Jeffrey Zhao, et al. 2023. ReAct: Synergizing reasoning and acting
+[18] Lars Benedikt Kaesberg, Jonas Becker, Jan Philip Wahle, Terry Ruas, and Bela                in language models. In International Conference on Learning Representations
+     Gipp. 2025. Voting or consensus? Decision-making in multi-agent debate. arXiv               (ICLR).
+     preprint arXiv:2502.19130 (2025).                                                      [47] Hongzhou Yu, Tianhao Cheng, Ying Cheng, and Rui Feng. 2025. FineMedLM-o1:
+[19] Yubin Kim, Chanwoo Park, et al. 2024. MDAgents: An adaptive collaboration of                Enhancing the medical reasoning ability of LLM from supervised fine-tuning to
+     LLMs for medical decision-making. Advances in Neural Information Processing                 test-time training. arXiv preprint arXiv:2501.09213 (2025).
+     Systems 37 (2024), 79410–79452.                                                        [48] Kun-Hsing Yu, Andrew L Beam, and Isaac S Kohane. 2018. Artificial intelligence
+[20] Junkai Li, Yunghwei Lai, et al. 2024. Agent hospital: A simulacrum of hospital              in healthcare. Nature Biomedical Engineering 2, 10 (2018), 719–731.
+     with evolvable medical agents. arXiv preprint arXiv:2405.02957 (2024).                 [49] Hongbo Zhang, Junying Chen, et al. 2023. HuatuoGPT: Towards taming language
+[21] Yikuan Li, Mohammad Mamouei, et al. 2022. Hi-BEHRT: hierarchical transformer-               model to be a doctor. In Findings of the association for computational linguistics:
+     based model for accurate prediction of clinical events using multimodal longitudi-          EMNLP 2023. 10859–10885.
+     nal electronic health records. IEEE Journal of Biomedical and Health Informatics       [50] Shuang Zhou, Jiashuo Wang, et al. 2025. Uncertainty-aware large language
+     27, 2 (2022), 1106–1117.                                                                    models for explainable disease diagnosis. npj Digital Medicine 8, 1 (2025), 690.
+[22] Jie Liu, Wenxuan Wang, et al. 2025. Medchain: Bridging the gap between llm
+     agents and clinical practice with interactive sequence. Advances in Neural
+     Information Processing Systems 38.
+                                                                                            A     Supplemental Experiments and Analysis
+[23] Wenge Liu, Jianheng Tang, et al. 2022. MedDG: An entity-centric medical consul-        In this appendix, we present a study to evaluate the generalization
+     tation dataset for entity-aware medical dialogue generation. In CCF International
+     Conference on Natural Language Processing and Chinese Computing (NLPCC).               performance of ClinicalAgents across general medical datasets,
+     Springer, 447–459.                                                                     addressing the question: How well does ClinicalAgents generalize to
+[24] Junyu Luo, Muchao Ye, Cao Xiao, and Fenglong Ma. 2020. HiTANet: Hierarchical           standard medical dialogue and QA benchmarks beyond MedChain?
+     time-aware attention networks for risk prediction on electronic health records. In
+     Proceedings of the 26th ACM SIGKDD international conference on knowledge                  We first examine performance on four standard medical QA
+     discovery & data mining. 647–656.                                                      benchmarks, then extend the evaluation to a more challenging
+[25] Munib Mesinovic, Peter Watkinson, and Tingting Zhu. 2025. Explainability in
+     the age of large language models for healthcare. Communications Engineering
+                                                                                            multi-turn clinical dialogue setting (MedDG), thereby character-
+     4, 1 (2025), 128.                                                                      izing where the gains of our framework arise and how they scale
+[26] Meta AI. 2025. The Llama 4 Herd: The Beginning of a New Era of Na-                     with task complexity.
+     tively Multimodal AI Innovation. https://ai.meta.com/blog/llama-4-multimodal-
+ClinicalAgents: Multi-Agent Orchestration for Clinical Decision Making with Dual-Memory                       KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea
+
+
+   Medical dialogue and QA datasets. To validate effectiveness be-                           Success case. Table 11 shows a multi-pathology case (ground
+yond MedChain, we also evaluate on four medical QA datasets and                           truth: Lung Cancer, Tuberculosis, Pneumonia) where unexpected
+one medical dialogue dataset:                                                             imaging findings trigger a productive revision from a single-infection
+• MedQA [16]: we report results on the official US test subset.                           hypothesis to a joint malignancy-and-infection diagnosis.
+• PubMedQA [17]: we report results on its official test split (PQA-                          Failure case. Table 12 shows a multisystem case (stage IV cervical
+  L), with answers in {yes, no, maybe}.                                                   cancer after chemo-radiotherapy) where the orchestrator triggers
+• MedBullets [4]: we report results on the official test split for                        backtracking twice and correctly identifies missing evidence, but
+  multiple-choice clinical QA.                                                            several ground-truth conditions remain unresolved because the
+• PathVQA [14]: we filter the evaluation to yes/no-type ques-                             required confirmatory examinations are not available in the case
+  tions and cast them into a standardized binary-choice format for                        record.
+  comparability.
+• MedDG [23]: an entity-centric multi-turn medical consultation                           C    Prompt Templates
+  dataset for entity-aware medical dialogue generation; we report
+                                                                                          Here we provide the prompt for LLM-as-a-Judge used in our experi-
+  BLEU, ROUGE, and Entity-F1 on its official test split.
+                                                                                          ments (task 4) in the MedChain benchmark. Other prompt templates
+   Results on medical QA. As shown in Table 9, ClinicalAgents gen-                        for the doctor agents are provided in the repository of our code.
+eralizes well to four standard open-domain medical QA benchmarks
+and achieves the best overall Average of 0.8053. It outperforms                            Diagnosis correctness evaluation prompt
+the strongest multi-agent baseline MedChain-Agents (0.7990) by                             You are a physician specializing in diagnostic evaluation. Below,
++0.0063 (+0.8%), indicating that our framework remains beneficial                           a diagnosis result will be provided alongside the ground-truth
+even on single-turn QA tasks, not just on a multi-stage pipeline.                          diagnosis. Your task is to assess the accuracy of the diagnosis
+                                                                                           result by comparing it to the ground truth. Use the following
+The gains are most evident on PubMedQA (0.7660) and MedBullets                             criteria to assign an accuracy score from 1 to 5. You should only
+(0.8279), suggesting improved answer selection via better infor-                            output the score as a single number without any explanation.
+mation consolidation. In contrast, the gap on MedQA is marginal
+(0.8995 vs. 0.9002), where strong backbones already perform near                           Evaluation Logic (Step-by-Step):
+                                                                                           1. Normalization: Treat synonyms as identical (e.g., "URI" == "
+saturation. In such relatively simple QA settings, the orchestrator’s
+                                                                                           Upper Respiratory Infection", "Ca" == "Cancer", "HBP" == "
+verification/backtracking loop provides less additional benefit, and                       Hypertension").
+the remaining gains are mainly attributed to the Dual-Memory                               2. Core Match: Does the prediction capture the primary pathology?
+that stabilizes intermediate reasoning states. Finally, performance                           - GT: "Appendicitis" vs Pred: "Acute Appendicitis" -> Score 5
+on PathVQA (0.7278) is constrained by the backbone’s visual un-                            (Match).
+                                                                                              - GT: "Acute Appendicitis" vs Pred: "Gastritis" -> Score 1 (
+derstanding capability, limiting further improvement from coordi-                          Mismatch).
+nation alone. We further computed 95% CIs and paired bootstrap                             3. Granularity:
+significance tests for all methods. Because static, single-turn queries                       - If GT is specific ("Type 2 Diabetes") and Pred is general ("
+rarely trigger our MCTS-based backtracking mechanism, the im-                              Diabetes"), deduct 1 point (Score 4).
+                                                                                              - If GT is general ("Fracture") and Pred is specific ("Tibial
+provements on these QA datasets are not statistically significant
+                                                                                           Fracture"), accept as correct (Score 5).
+(𝑝 > 0.05); nevertheless, ClinicalAgents still maintains the highest
+overall average.                                                                           Scoring Rubric:
+                                                                                           - 1 (Wrong): The diagnosis is completely inaccurate, with no
+   From marginal to significant: scaling to complex clinical dialogue.                     elements matching the ground truth diagnosis. e.g., appendicitis
+To better probe our complex reasoning capabilities, we conduct                             is diagnosed as a migraine.
+additional experiments on a more challenging dataset, MedDG [23].                          - 2 (Major Miss): The diagnosis is mostly inaccurate, with only a
+As shown in Table 10, ClinicalAgents consistently outperforms                               few elements matching the ground truth diagnosis, and the
+                                                                                           overall deviation is significant. e.g., asthma is diagnosed as
+representative baselines across all five metrics. It scores 42.67 on                       pneumonia.
+BLEU-1 and 23.36 on BLEU-4, outperforming the strongest baseline,                          - 3 (Partial): The diagnosis is partially accurate, with some
+MedChain-Agents, by 3.82% and 5.99%, respectively. For ROUGE-1,                            correct elements that are relevant to the ground truth diagnosis,
+ClinicalAgents obtains 18.43, improving over MedAgents by 24.11%.                           but the overall result shows large discrepancies. e.g., Crohn's
+                                                                                           disease is diagnosed as irritable bowel syndrome (IBS).
+For ROUGE-2 and Entity-F1, ClinicalAgents achieves 8.42 and 20.72,
+                                                                                           - 4 (Minor Issue): The diagnosis is mostly accurate, with most
+surpassing MedChain-Agents by 27.58% and 22.89%, respectively.                             elements matching the ground truth diagnosis, but there are minor
+Furthermore, ClinicalAgents achieves statistically significant im-                          errors or omissions. e.g., type 1 diabetes is diagnosed as type
+provements (𝑝 < 0.05) over the strongest baseline (underlined) on                          2 diabetes.
+each metric. This indicates that the orchestrator’s hypothesize-then-                      - 5 (Perfect): The diagnosis is completely accurate and matches
+                                                                                           the ground truth diagnosis entirely, or it is a different name for
+verify loop effectively grounds the generated responses in clinically                       the same condition, with no significant difference in meaning. e.
+relevant entities, while experience memory retrieves precedent                             g., "myocardial infarction" vs. "heart attack", or "upper
+dialogues to stabilize entity selection across turns.                                      respiratory infection" vs. "URI".
+
+B    Case Study
+We present two representative cases that illustrate when the back-
+tracking mechanism succeeds and when it fails.
+KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea                                                                                      Zhuohan Ge et al.
+
+
+Table 9: Generalization results on four open-domain medical QA datasets. For text-only models, the average is computed over
+applicable text-only datasets. The best result for each metric is highlighted in bold, and the second-best result is underlined.
+The symbol ‘—’ indicates that the model is a text-only LLM and not applicable to the visual QA task.
+
+                                                                         MedQA       PubMedQA      MedBullets       PathVQA
+                        Category            Methods                                                                               Average
+                                                                          Acc.          Acc.         Acc.             Acc.
+                                            GPT-5.2                       0.8845       0.6820          0.7890         0.6835        0.7598
+                                            DeepSeek-R1                   0.8987       0.6200          0.7987           —           0.7725
+                                            Qwen3-VL-235B                 0.8209       0.5620          0.6721         0.7377        0.6982
+                                            Intern-S1                     0.8256       0.7580          0.7240         0.7374        0.7613
+                        Single LLM
+                                            Llama-4-Maverick-17B          0.8798       0.6880          0.7695         0.6880        0.7563
+                                            MedGemma-4B                   0.6677       0.6680          0.5812         0.5455        0.6156
+                                            HuaTuoGPT-o1-7B               0.7101       0.5520          0.5974           —           0.6198
+                                            FineMedLM-o1-8B               0.6787       0.6440          0.6039           —           0.6422
+                                            Few-shot + CoT                0.8916       0.7460          0.7987         0.7017        0.7845
+                        Single Agent        RAG                           0.8963       0.7180          0.7922         0.7112        0.7794
+                                            ReAct                         0.8947       0.7320          0.8019         0.7174        0.7865
+                                            ReConcile [6]                 0.8924      0.7640          0.8052         0.7124        0.7935
+                                            AutoGen [44]                  0.8767      0.7140          0.7955         0.7344        0.7801
+                                            MedAgents [37]                0.8790      0.7240          0.8084         0.6829        0.7736
+                        Multi-Agents        MDAgents [19]                 0.8932      0.7420          0.7727         0.7397        0.7869
+                                            ColaCare [41]                 0.8932      0.7240          0.7662         0.6901        0.7684
+                                            MedChain-Agents [22]          0.9002      0.7420          0.8182         0.7356        0.7990
+                                            Ours                          0.8995      0.7660          0.8279         0.7278        0.8053
+
+
+Table 12: Failure case. Ground truth: Viral Hepatitis Spec-                           Table 10: Performance comparison across representative
+trum, Sinus Tachycardia, Pleural Effusion, Hydronephrosis,                            methods on MedDG. The best result for each metric is high-
+Pulmonary Infection.                                                                  lighted in bold, and the second-best result is underlined.
+
+ Phase                 Description                                                     Method             BLEU-1      BLEU-4      ROUGE-1     ROUGE-2     Entity-F1
+ Perceive (Ini-        Symptoms: Stage IV cervical cancer after chemo-                 GPT-5.2            39.88      21.25      13.14      4.56      15.59
+ tial)                 radiotherapy, rectal bleeding, history of HBV infec-            MedAgents          40.87      21.60   14.85±0.79    4.63      16.74
+                                                                                       MedChain-Agents 41.10±1.06 22.04±0.74    14.40   6.60±0.71 16.86±1.06
+                       tion, ureteral stricture, and hydronephrosis.                   ClinicalAgents  42.67±0.87 23.36±0.62 18.43±0.86 8.42±0.63 20.72±1.17
+ Hypothesize1          Broad hypothesis set: Sinus Tachycardia, Pleural Effu-
+                       sion, Hydronephrosis, Pulmonary Infection, Viral Hep-          Table 11: Success case. Ground truth: Lung Cancer, Tubercu-
+                       atitis Spectrum, Pericardial Effusion, Radiation Proctitis,    losis, Pneumonia.
+                       and Acute Blood Loss Anemia.
+ Verify1               Orders ECG, chest X-ray, CBC, liver panel, renal panel.          Phase              Description
+                       Sinus Tachycardia and Pleural Effusion are supported,
+                       and Acute Blood Loss Anemia is excluded by CBC, but              Perceive (Ini-     Symptoms: recurrent cough, purulent sputum, low-
+                       others remain unconfirmed. → Backtrack.                          tial)              grade fever, and weight loss.
+
+ Hypothesize2          Updates hypothesis set: Pulmonary Infection, Hy-                 Hypothesize1       Based on symptoms, the system initially hypothesizes
+                       dronephrosis, Viral Hepatitis Spectrum, Pericardial Ef-                             Typical Bacterial Pneumonia.
+                       fusion, and Radiation Proctitis remain active.                   Verify1            Orders Chest X-ray, CBC, CRP. Elevated markers (CR-
+ Verify2               Orders chest CT, abdominal ultrasound, HBV-DNA,                                     P/neutrophils) support infection, but X-ray unexpect-
+                       hepatitis serology panel. Pulmonary Infection is                                    edly reveals a spiculated mass and apical cavitation.
+                       strengthened, but others remain unresolved due to                                   Unexplained structural abnormalities trigger back-
+                       partial evidence return. → Backtrack.                                               tracking. → Backtrack.
+
+ Hypothesize3          Updates hypothesis set: Hydronephrosis and Viral Hep-            Hypothesize2       The single-infection belief is insufficient. The system
+                       atitis Spectrum remain unresolved.                                                  pivots to co-evaluate malignancy and chronic infec-
+                                                                                                           tion, updating its hypothesis to: Lung Cancer, Tuber-
+ Verify3 (Final)       Orders pelvic MRI and contrast-enhanced abdomi-                                     culosis, and Pneumonia.
+                       nal CT. Confirmatory evidence is unavailable. Final
+                       outcome: confirmed Sinus Tachycardia, Pleural Effu-              Verify2 (Final)    Orders targeted tests (high-resolution CT, biopsy, Gen-
+                       sion, Pulmonary Infection; excluded Acute Blood Loss                                eXpert, sputum culture). Results definitively confirm
+                       Anemia; unresolved Hydronephrosis, Viral Hepatitis                                  Lung Cancer alongside tuberculosis and pneumonia.
+                       Spectrum, Pericardial Effusion, Radiation Proctitis due
+                       to missing follow-up evidence.
+

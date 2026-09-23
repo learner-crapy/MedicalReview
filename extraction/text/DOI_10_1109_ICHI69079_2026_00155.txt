@@ -1,0 +1,575 @@
+                                        Human-Guided Agentic AI for Multimodal Clinical
+                                        Prediction: Lessons from the AgentDS Healthcare
+                                                           Benchmark
+                                                 Lalitha Pranathi Pulavarthy                           Raajitha Muthyala                       Aravind V Kuruvikkattil
+                                            Dept. Biomedical Eng. & Informatics             Dept. Biomedical Eng. & Informatics          Dept. Biomedical Eng. & Informatics
+                                              Indiana University Indianapolis                 Indiana University Indianapolis              Indiana University Indianapolis
+                                                     Indianapolis, USA                               Indianapolis, USA                            Indianapolis, USA
+                                                       lapula@iu.edu                                   rmuthya@iu.edu                              akuruvik@iu.edu
+
+                                                      Zhenan Yin                                 Rashmita Kudamala                          Saptarshi Purkayastha
+
+
+
+
+arXiv:2602.19502v2 [cs.AI] 9 Jun 2026
+                                        Dept. Biomedical Eng. & Informatics             Dept. Biomedical Eng. & Informatics          Dept. Biomedical Eng. & Informatics
+                                          Indiana University Indianapolis                 Indiana University Indianapolis              Indiana University Indianapolis
+                                                 Indianapolis, USA                               Indianapolis, USA                            Indianapolis, USA
+                                                    yin10@iu.edu                                   rakuda@iu.edu                               saptpurk@iu.edu
+
+
+
+
+                                           Abstract—Agentic AI systems are increasingly capable of                has shown considerable promise for predicting these clini-
+                                        autonomous data science workflows, yet clinical prediction tasks          cal events. Multimodal approaches that combine structured
+                                        demand domain expertise that purely automated approaches                  electronic health record (EHR) data with unstructured clinical
+                                        struggle to provide. We investigate how human guidance of
+                                        agentic AI can improve multimodal clinical prediction, presenting         notes and time-series vital signs have demonstrated superior
+                                        our approach to all three AgentDS Healthcare benchmark                    predictive performance over unimodal baselines, achieving
+                                        challenges: 30-day hospital readmission prediction (Macro-F1 =            AUROCs above 0.90 for 30-day readmission prediction in
+                                        0.8986), emergency department cost forecasting (MAE = $465.13),           elderly populations [2] and enabling earlier identification
+                                        and discharge readiness assessment (Macro-F1 = 0.7939). Across            of discharge-ready patients by 5-13 hours compared with
+                                        these tasks, human analysts directed the agentic workflow
+                                        at key decision points, multimodal feature engineering from               physician judgment [3]. Graph neural network architectures
+                                        clinical notes, scanned PDF billing receipts, and time-series             that jointly model EHR tabular data, clinical imaging,
+                                        vital signs; task-appropriate model selection; and clinically             and patient similarity have further improved readmission
+                                        informed validation strategies. Our approach ranked 5th overall           prediction by capturing spatiotemporal dependencies across
+                                        in the healthcare domain, with a 3rd-place finish on the                  admissions [4]. Yet despite these advances, the practical
+                                        discharge readiness task. Ablation studies reveal that human-
+                                        guided decisions compounded to a cumulative gain of +0.065 F1             deployment of such models remains constrained by the need to
+                                        over automated baselines, with multimodal feature extraction              balance automated optimization with clinical interpretability,
+                                        contributing the largest single improvement (+0.041 F1). We               reproducibility, and the integration of domain expertise,
+                                        distill three generalizable lessons: (1) domain-informed feature          a challenge that existing benchmarks have only partially
+                                        engineering at each pipeline stage yields compounding gains               addressed.
+                                        that outperform extensive automated search; (2) multimodal
+                                        data integration requires task-specific human judgment that                  The recent emergence of Agentic AI systems, autonomous
+                                        no single extraction strategy generalizes across clinical text,           agents capable of planning, reasoning, and executing multi-
+                                        PDFs, and time-series; and (3) deliberate ensemble diversity with         step workflows, offers a new paradigm for healthcare
+                                        clinically motivated model configurations outperforms random              data science [5], [6]. Unlike conventional machine learning
+                                        hyperparameter search. These findings offer practical guidance            pipelines that require manual orchestration, agentic systems
+                                        for teams deploying agentic AI in healthcare settings where
+                                        interpretability, reproducibility, and clinical validity are essential.   powered by large language models (LLMs) can autonomously
+                                                                                                                  perform data loading, feature engineering, model training,
+                                           Keywords—Agentic AI, Human-AI collaboration, Multimodal                and evaluation [7]. In the clinical domain, multi-agent
+                                        feature engineering, Clinical prediction.
+                                                                                                                  LLM frameworks such as MDAgents have demonstrated
+                                                                                                                  that adaptive collaboration structures can improve medical
+                                                                I. I NTRODUCTION
+                                                                                                                  decision-making accuracy by up to 11.8% on diagnostic
+                                          Hospital readmissions cost the U.S. healthcare system over              benchmarks [8], while EHRAgent has shown that LLM agents
+                                        $26 billion annually [1], while emergency department over-                equipped with code generation capabilities can outperform
+                                        crowding and suboptimal discharge timing continue to degrade              traditional baselines by up to 29.6% on complex EHR
+                                        patient outcomes and hospital efficiency [2]. Machine learning            reasoning tasks [9]. More broadly, surveys of LLM-based data
+science agents identify healthcare as a high-stakes application    are as important as raw predictive performance [14], [18].
+domain where fairness, explainability, and reproducibility            Contributions. (1) We demonstrate practical multimodal
+requirements impose additional constraints on agent design         feature engineering strategies across text, PDFs, and time-
+[7], [10].                                                         series data with ablation studies quantifying impact, showing
+   However, fully autonomous agentic workflows face well-          that human-guided multimodal extraction contributes +0.041
+documented limitations in clinical prediction contexts. Clinical   F1, the single largest improvement category. (2) We identify
+prediction tasks demand domain expertise that purely auto-         which modeling decisions generalize across tasks versus
+mated approaches struggle to provide: selecting appropriate        require task-specific adaptation, providing evidence that no
+text extraction strategies for heterogeneous clinical documents,   single extraction strategy works across all clinical data types.
+engineering physiologically meaningful features from vital         (3) We show that systematic domain-informed decisions
+sign time series, and making informed trade-offs between           outperform extensive automated search, achieving competitive
+model complexity and sample size [11]. Prior work on               results (within 0.006 F1 of top-performing systems on
+discharge readiness prediction has shown that handcrafted          readmission prediction) while maintaining interpretability, a
+features informed by clinical knowledge, such as statistical       finding consistent with recent evidence that tree-based models
+representations of early warning scores and domain-specific        with domain features remain competitive with deep learning
+temporal features, are critical for accurate predictions [12].     on moderate-scale clinical datasets [17], [19].
+Studies on ED cost forecasting emphasize that billing                 Our results demonstrate that principled human-AI collabo-
+code structures and cross-source feature engineering require       ration yields strong, reproducible performance across diverse
+human judgment to interpret correctly [13]. Furthermore,           healthcare prediction tasks, with human decisions contributing
+recent analyses of agentic AI in healthcare caution that           a cumulative +0.065 F1 improvement over agentic baselines.
+autonomous systems require robust governance frameworks,
+human oversight, and interdisciplinary collaboration to ensure                          II. M ETHODOLOGY
+patient safety [5], [14]. These observations suggest that the
+most effective paradigm may not be fully autonomous agentic           Our approach follows an iterative human-AI collaboration
+AI, but rather a human-AI collaboration loop in which domain       workflow in which an Agentic AI system handled routine
+experts guide the agent’s decisions at critical junctures [15].    data science operations, data loading, preprocessing, initial
+   The AgentDS Healthcare Data Challenge [16] provides             model training, and hyperparameter search via Bayesian
+a rigorous framework for evaluating such human-AI col-             optimization, while human analysts intervened at critical
+laboration through three standardized clinical prediction          decision points to redirect the pipeline. Each challenge
+tasks: (1) 30-day readmission prediction (binary classification,   progressed through multiple iterations: the agentic system
+N=5,000 train), (2) 3-year ED cost forecasting (regression,        produced a baseline, human analysts diagnosed limitations
+N=2,000 train), and (3) day-11 discharge readiness assess-         through cross-validation error analysis and clinical reasoning,
+ment (binary classification, N=1,000 train). The benchmark         and then guided the next iteration. We describe each
+evaluates human-AI collaboration using multimodal data-            challenge below, highlighting the specific human decision
+structured admission records, unstructured clinical notes,         points that drove performance gains and distinguishing them
+scanned PDF receipts, and time-series vital signs with             from automated steps. All models across the three challenges
+standardized metrics (Macro-F1 for classification, MAE for         were implemented using scikit-learn and XGBoost (Python
+regression), ensuring reproducible comparison. This design         3.11). PDF parsing used PyPDF2 with fallback error handling,
+addresses a critical gap in existing benchmarks, which             vital sign trends were computed via scipy.stats.linregress,
+typically evaluate either autonomous agent capabilities in         and NLP features used regex-based partial-stem keyword
+isolation [17] or purely manual modeling approaches, without       matching. Code, hyperparameters, and random seeds are
+systematically measuring the value added by human guidance         publicly available for full reproducibility at https://github.com/
+at each pipeline stage [7].                                        iupui-soic/agentds-challenge-2025.
+   Our approach combines domain-guided feature engineering
+                                                                   A. Challenge 1: 30-Day Readmission Prediction
+with transparent model selection, achieving 5th place overall
+in the healthcare domain on the public leaderboard, including         Task Overview. The readmission prediction task required
+a 3rd-place finish on the discharge readiness task. Rather         binary classification of whether an inpatient admission would
+than complex neural architectures or extensive hyperparameter      be followed by a readmission within 30 days. The training
+tuning, which prior work has shown to be less effective            set comprised 5,000 admissions (2,479 non-readmit, 2,521
+than feature engineering on modest clinical sample sizes           readmit; approximately balanced classes). We integrated
+[2], [17]. We focused on: (1) clinical knowledge-informed          data from three sources via left joins on patient and
+multimodal feature extraction, (2) task-appropriate model          admission identifiers: (1) structured admission records (length
+selection balancing performance and interpretability, and (3)      of stay, acuity level, Charlson comorbidity band, 6-month
+rigorous validation strategies. Critically, we document all hu-    ED visits, discharge weekday, primary diagnosis); (2) patient
+man decision points to maintain reproducibility, following the     demographics (age, sex, insurance type); and (3) 5-year ED
+principle that in healthcare ML, transparency and auditability     cost history (prior ED visits, prior ED costs). Each admission
+was also linked to an unstructured discharge note summary.              random state = 42.
+The evaluation metric was Macro-F1.                                 •   Logistic Regression-L1 (C = 0.3, solver = saga,
+   Human-Guided Feature Engineering. Our feature engi-                  class weight = balanced): Sparse feature selection;
+neering strategy progressed through two iterations informed by          random state = 777.
+domain analysis. The agentic system’s initial approach trained       All XGBoost models used tree_method=‘hist‘ with
+a single Optuna-tuned XGBoost (n=957, lr=0.28, depth=8)           scale pos weight computed from training class frequencies
+with one-hot encoding and 200 unigram TF-IDF features,            (≈ 0.98 given the nearly balanced classes). Different random
+achieving CV Macro-F1=0.846. Human analysis of per-class          seeds across variants ensured initialization diversity, while
+errors and clinical literature identified two limitations: (1)    deliberately varied depth and learning rate profiles created
+unigram TF-IDF missed multi-word clinical phrases critical        complementary decision boundaries.
+for readmission risk, and (2) a single model could not               Meta-learner: Logistic regression (C = 1.5, class weight =
+simultaneously capture the diverse decision boundaries present    balanced, solver = lbfgs) trained on 10-dimensional out-of-fold
+in structured versus text features. This guided the second        probability vectors (two class probabilities per base model).
+iteration with expanded features and an ensemble architecture.       Rationale for Human Decisions. The human-guided
+   Structured features (21 engineered + one-hot dummies):         second iteration lifted CV F1 from 0.846 to 0.896 (+0.050).
+We created domain-informed features organized by clini-           Key choices included: (1) multi-table integration: the agentic
+cal hypothesis: (1) temporal discharge patterns, weekend          system initially used only admission records; human analysts
+discharge flag and specific weekday indicators (Monday,           directed it to join patient demographics and ED cost history,
+Friday), motivated by studies showing discharge timing            providing cross-domain features (e.g., cost-per-visit ratio)
+affects readmission risk; (2) non-linear age and comorbidity      unavailable in any single table; (2) TF-IDF expansion:
+effects: age2 , Charlson2 , and threshold flags for elderly       upgrading from 200 unigrams to 850 trigrams captured
+(≥65) and very elderly (≥80) patients; (3) ED utilization         multi-word medical phrases (“ambulating without assistance,”
+patterns: cost-per-visit ratio with Laplace smoothing, recent-    “wound care instructions”); (3) deliberate ensemble diversity:
+to-historical visit ratio (6-month / 5-year), frequent ED user    the agentic system’s single-model approach was replaced
+flags (≥2, ≥3 visits), and new-patient indicator; (4) length-     with three XGBoost variants with different complexity
+of-stay features: log-transformed LOS and long-stay flag (≥5      profiles (depth 5/6/7, learning rates 0.02/0.015/0.03) plus two
+days); (5) interaction terms: age×Charlson, age×ED visits,        regularized linear models (L1/L2), ensuring complementary
+Charlson×ED visits, and LOS×ED visits; and (6) composite          feature usage; (4) 8-fold stacking CV: reduced meta-learner
+risk scores: two weighted combinations mimicking clinical         training variance while maintaining sufficient per-fold training
+stratification (e.g., age/100 + 0.5×Charlson + 0.3×ED visits).    size (N≈625).
+   Text features (850 TF-IDF): We applied TF-IDF vector-             Validation Strategy. We used a nested cross-validation
+ization with trigrams (ngram range=(1,3), max features=850,       scheme: an outer 5-fold stratified CV for score estimation, with
+min df=3, max df=0.95, sublinear tf=True). Expanding from         each outer fold training the full stacking pipeline (including
+the baseline’s 200 unigram features was a key human               an 8-fold inner CV for generating stacked features). This
+decision: domain analysis revealed that discharge notes contain   produced 200 base model fits total (5 outer × 8 inner × 5 base
+multi-word clinical phrases (“ambulating without assistance”,     models). Outer CV Macro-F1 was 0.8956 (accuracy 0.90),
+“wound care instructions”) requiring higher-order n-grams and     with per-class F1 of 0.89 (non-readmit) and 0.90 (readmit).
+greater dimensionality to capture.                                Final test predictions achieved Macro-F1 = 0.8986 on the
+   Model Architecture: Stacking Ensemble. We employed             public leaderboard, ranking 5th overall.
+a stacking ensemble with five base learners and 8-fold strat-
+ified internal cross-validation (stack method=‘predict proba’,    B. Challenge 2: ED Cost Forecasting
+passthrough=False):                                                  Task Overview. The ED cost forecasting task required
+   Base Models:                                                   predicting total emergency department costs over the next 3
+   • XGBoost-Optimized (n = 771, lr = 0.030, depth = 7,           years (regression). The training set comprised 2,000 patients
+      subsample = 0.68, colsample bytree = 0.81, γ =              with structured features (primary chronic condition, prior 5-
+      3.42): Hyperparameters selected via Optuna Bayesian         year ED visits, prior 5-year ED costs) and one PDF billing
+      optimization; random state = 42.                            receipt per patient containing detailed line-item charges with
+   • XGBoost-Deep (n = 1500, lr = 0.015, depth = 6,               CPT codes. The evaluation metric was Mean Absolute Error
+      subsample = 0.75, colsample bytree = 0.85, γ = 2.0,         (MAE) in dollars.
+      min child weight = 2): Conservative learning rate with         Human-Guided Feature Engineering. The agentic sys-
+      more iterations; random state = 999.                        tem’s initial approach used structured features with basic
+   • XGBoost-Shallow (n=1200, lr=0.02, depth=5, subsam-           PDF extraction (29 features) and a single XGBoost regressor,
+      ple=0.8, colsample bytree=0.9, γ=1.0): Shallower trees      yielding a 5-fold CV MAE of $467. Human analysts identified
+      for broader decision boundaries; random state=555.          two shortcomings: the PDF parser captured only raw totals
+   • Logistic Regression-L2 (C = 0.5, solver = saga,              without clinical detail, and a single model was unstable across
+      class weight = balanced): Preceded by StandardScaler;       folds (±$22 MAE). This guided an enhanced iteration with
+richer cross-source features and a weighted ensemble, yielding      features linking PDF and structured data (cost consistency
+approximately 40 features across three groups.                      ratio, visit discrepancies) captured billing patterns invisible to
+   Structured features (∼12): Beyond raw prior cost and visit       either source alone.
+counts, we engineered: (1) cost-per-visit ratio with Laplace           Validation Strategy. We used both 80/20 hold-out valida-
+smoothing; (2) log, square root, and squared transformations        tion for rapid iteration and 5-fold CV (KFold, shuffle=True) for
+of prior costs and visits to handle right-skewed distributions;     final estimation. CV MAE was $458.51 ± $19.93, with per-
+(3) cost×visit interaction; and (4) one-hot encoding for            fold MAEs ranging from $435 to $478. The final ensemble
+primary chronic condition (HF, DiabetesComp, Pneumonia).            achieved MAE = $465.13 on the public leaderboard, ranking
+   PDF-extracted features (∼16): We developed a PDF parsing         6th.
+pipeline using PyPDF2 with regex-based CPT code and
+cost extraction. Features included: (1) total billed amount         C. Challenge 3: Discharge Readiness Assessment
+and line item count; (2) visit complexity, counts of high-             Task Overview. The discharge readiness task required
+complexity (CPT 99284/99285), medium-complexity (99283),            predicting whether a patient would be ready for discharge
+and total ED visit codes (9928x prefix); (3) service utilization,   by day 11 of their hospital stay (binary classification). The
+laboratory test count (CPT 80000-89999) and imaging count           training set comprised 1,000 hospital stays (656 discharge-
+(CPT 70000-79999); (4) cost statistics, average, maximum,           ready, 344 not ready; 65.6%/34.4% class split) with structured
+minimum, and standard deviation of per-line costs; (5)              features (unit type, admission reason) and multimodal time-
+insurance type extracted from receipt text (private, Medicare,      series data: 10 days of vital signs (HR, SBP, DBP, temperature,
+Medicaid binary indicators); and (6) 3-digit ZIP code.              respiratory rate) plus daily progress notes. We additionally
+   Cross-source and derived features (∼14): A key human             merged patient demographics, admission records, and ED
+decision was engineering features that cross-referenced PDF         cost history via shared identifiers. The evaluation metric was
+and structured data: (1) cost consistency ratio (PDF total          Macro-F1.
+/ structured prior cost); (2) cost and visit discrepancies             Human-Guided Feature Engineering. This challenge
+between PDF and structured data; (3) complexity ratios: high-       required the most extensive human-AI iteration, progressing
+complexity and medium-complexity visits as fractions of total       through five rounds. The agentic system’s baseline used only
+visits; (4) per-visit service rates: lab tests and imaging per      two categorical features (unit type, admission reason) with
+ED visit; (5) cost variability: line-item cost standard deviation   a Random Forest, achieving CV F1 = 0.49. Human-guided
+normalized by mean; (6) service intensity score weighted            iterations added feature groups incrementally: (i) vital sign
+composite of complexity, lab, and imaging counts per visit;         statistics (+0.18 F1 to 0.67), (ii) NLP keyword features (no
+and (7) log-transformed PDF cost features.                          gain, prompting strategy revision), (iii) derived physiological
+   Model Architecture: Weighted Ensemble. We employed a             composites (+0.01), (iv) cross-dataset integration of admission
+five-model weighted ensemble with manually assigned weights         records and ED cost history (+0.05 to 0.73). The final model
+reflecting model reliability:                                       used ∼120 features. Missing numeric values were imputed
+   • XGBoost (35%): n = 700, lr = 0.03, depth =                     with training-set medians.
+      8, subsample = 0.8, colsample bytree = 0.8;                      Structured features (∼15): One-hot encoding for unit type,
+      StandardScaler                                                admission reason, sex, insurance, primary diagnosis, and
+   • Gradient Boosting (30%): n = 500, lr = 0.03, depth =           primary chronic condition, plus numeric age, prior 5-year
+      7, subsample = 0.8; StandardScaler                            ED visits, and prior 5-year ED costs. Merging across stays,
+   • Random Forest (15%): n = 500, depth = 20,                      patients, admissions, and ED cost tables, a human decision to
+      min samples split = 6; unscaled features                      exploit cross-dataset signal, added features unavailable in any
+   • Extra Trees (15%): n            = 500, depth = 20,             single source.
+      min samples split = 6; unscaled features                         Vital sign features (∼57): For each of five vital signs across
+   • Ridge Regression (5%): α = 5.0; StandardScaler                 10 days, we computed: (1) endpoint values: first and last day
+   Human decision rationale: (1) Weighted averaging over            readings; (2) distributional statistics: mean, median, standard
+stacking: the agentic system initially proposed a stacking          deviation, min, max, and range; (3) higher-order statistics:
+meta-learner, but human analysts overrode this: with only           coefficient of variation, skewness, and kurtosis for HR and
+N=2,000 samples, a learned meta-learner risked overfitting;         temperature; (4) trend indicators, linear regression slope via
+manually assigned weights based on hold-out MAE provided            scipy.stats.linregress; (5) change metrics: absolute and percent
+more stable combination. (2) Higher weight for boosting             change (last minus first); (6) recent-window features: last-3-
+models: hold-out validation showed XGBoost (MAE $435)               day means for key vitals; (7) volatility: rolling 3-day standard
+and Gradient Boosting (MAE $450) consistently outperformed          deviation for HR; and (8) clinical threshold crossings: days
+RF ($466), ET ($468), and Ridge ($507), justifying 65%              with HR>100, HR<60, temperature>37.5°C, and SBP>140.
+combined weight for boosting. (3) Selective scaling: tree-             Derived physiological features (∼22): We computed clin-
+based models (RF, ET) were trained on raw features since            ically meaningful composites: (1) hemodynamic features:
+they are scale-invariant, while boosting and linear models used     mean and last pulse pressure (SBP−DBP), pulse pressure
+StandardScaler. (4) Cross-source features: human-designed           change, mean arterial pressure (DBP + PP/3); (2) stability
+composites: vitals stability score (negative sum of HR, SBP,          Meta-Learner: Logistic regression (class weight=balanced,
+temperature, and RR standard deviations) and volatility score      max iter=1000) trained on out-of-fold predictions via pre-
+(sum of HR and temperature CVs); (3) binary improving flags:       dict proba.
+whether HR, temperature, SBP, and overall vital trends were           Rationale for Human Decisions. The five iterations
+improving; (4) normal-range flags: whether last-day HR (60-        moved CV F1 from 0.49 to 0.73 (+0.24), with human
+100), temperature (36.5-37.5°C), and SBP (90-140) fell within      decisions at each checkpoint: (1) Statistical aggregation over
+normal limits, plus a count of vitals in normal range; and (5)     raw time series (iteration i): the agentic system proposed
+age interactions: age×HR, age×stability, age×temperature,          feeding raw 10×5 vital matrices to an LSTM; human
+capturing how age modulates vital sign significance.               analysts redirected to statistical aggregation, recognizing
+   NLP features (∼37): We extracted clinical indicators            that N=1,000 would cause sequence model overfitting. This
+from the 10 daily progress notes using domain-specific             single decision yielded the largest gain (+0.18 F1). (2) NLP
+keyword matching (with partial stemming, e.g., “ambulat”           strategy pivot (iteration ii→iii): when TF-IDF produced no
+for ambulatory/ambulating). Feature groups included: (1)           improvement, human analysts diagnosed the failure (short
+positive/negative sentiment, keyword counts across 15 positive     notes, specialized vocabulary) and substituted clinical keyword
+terms (stable, improved, ambulatory, afebrile, tolerating, etc.)   matching, ultimately contributing via temporal aggregation
+and 15 negative terms (confused, fever, unstable, worsening,       in later iterations. (3) Cross-dataset integration (iteration
+decline, etc.); (2) mobility and independence, counts for 7        iv): merging admission and ED cost data added predictive
+mobility and 5 independence keywords, with last-day, mean,         context (diagnosis, prior utilization) absent from stays data
+and trend (linear slope) aggregations; (3) discharge readiness,    alone, this was the key insight of the final iteration (+0.05 F1).
+mentions of discharge-related terms (discharge, home, ready,       (4) Physiological composites: Mean arterial pressure, pulse
+cleared, planning); (4) complication indicators, mentions of       pressure, and vitals stability scores encode clinical knowledge
+complication, setback, concern, deterioration; (5) therapy         about hemodynamic status that raw vitals do not capture
+progress, physical/occupational therapy mentions; (6) pain         individually. (5) Five-model stacking: With class imbalance
+trajectory, pain keyword trend; (7) cognitive status, mean         (34.4% minority), diverse models with balanced class weights
+score from alert/oriented/responsive keywords; (8) temporal        and probability-based stacking improved minority class recall
+aggregations, last-3-day sentiment, note length trend, and         from 0.58 to 0.67.
+composite scores combining sentiment with mobility; and (9)           Validation Strategy. We used 5-fold stratified CV with
+meta-features, total note count and average note length.           Macro-F1 throughout all iterations. The final model achieved
+   Human decision: The agentic system initially applied            CV F1 = 0.732 ± 0.018 (per-class: 0.65 not-ready, 0.81 ready).
+generic TF-IDF to the daily notes, as it had for discharge         Feature importance analysis confirmed that avg note length
+summaries in Challenge 1. Human analysts observed that             (0.194), HR-related features, and sentiment trends dominated,
+this yielded no improvement (iteration ii above) because           validating the multimodal engineering approach. Final test
+daily notes were short (10-20 words) and lacked the lexical        predictions achieved Macro-F1 = 0.7939 on the public
+diversity that TF-IDF exploits. They redirected the system to      leaderboard, ranking 3rd.
+use domain-specific clinical keyword matching with partial
+stemming (“ambulat,” “discharge”) targeting discharge criteria                              III. R ESULTS
+terminology, which improved recall and, when combined with
+temporal aggregation, contributed to the final gains.                 We present performance results across all three AgentDS
+   Model Architecture: Five-Model Stacking Ensemble. We            Healthcare challenges, ablation studies quantifying the impact
+employed a stacking classifier with five base models and a         of human decisions, and cross-task analysis revealing gen-
+logistic regression meta-learner, trained via 5-fold stratified    eralizable patterns in human-AI collaboration for healthcare
+internal CV:                                                       prediction.
+   • XGBoost-A (n=400, lr=0.02, depth=7, subsample=0.85,
+                                                                   A. Overall Performance
+     colsample bytree=0.85): Primary gradient boosting
+     model; random state=42                                           Table I summarizes our final leaderboard performance
+   • XGBoost-B (n=300, lr=0.03, depth=9, subsample=0.8,            across all three challenges. To contextualize these results, we
+     colsample bytree=0.9): Deeper variant with slightly in-       contrast them with the agentic system’s unguided baselines:
+     flated scale pos weight (×1.1) for minority class; ran-       Challenge 1 improved from CV F1 = 0.846 (single Optuna-
+     dom state=43                                                  tuned XGBoost) to 0.896 after human-guided feature expan-
+   • Random            Forest         (n=400,        depth=25,     sion and ensemble design; Challenge 2 from CV MAE $467
+     min samples split=3, class weight=balanced): Robust           (single model, basic PDF parsing) to $459 with enriched cross-
+     bagging baseline                                              source features and weighted ensembling; and Challenge 3
+   • Extra Trees (n=300, depth=20, class weight=balanced):         from CV F1 = 0.49 (two categorical features) to 0.73 through
+     Randomized splitting for diversity                            four rounds of human-directed iteration. These gains, +0.050
+   • Gradient Boosting (n=300, lr=0.03, depth=7, subsam-           F1, -$8 MAE, and +0.24 F1 respectively, quantify the value
+     ple=0.85): Complementary sequential learner                   added by human guidance at each stage.
+                                                               TABLE I
+                                       P ERFORMANCE ON AGENT DS H EALTHCARE P UBLIC L EADERBOARD
+
+                                 Challenge                     Metric       Our Score      Rank    1st Place
+                                 Challenge 1: Readmission     Macro-F1         0.8986      5th       0.9044
+                                 Challenge 2: ED Cost        MAE (USD)        $465.13      6th      $448.75
+                                 Challenge 3: Discharge       Macro-F1         0.7939      3rd       0.8006
+                                 Domain Score                Aggregate        0.8430       5th      0.9426
+
+
+
+   Key Observations: (1) Cross-task consistency: We ranked                 Multimodal Data Integration: Removing the human-
+5th overall in the healthcare domain, with per-challenge rank-          directed multimodal features, trigram TF-IDF (Challenge 1),
+ings of 5th, 6th, and 3rd, respectively, demonstrating that the         enriched PDF parsing (Challenge 2), and vital sign statistics
+same human-guided workflow, iterative error analysis, domain-           (Challenge 3), resulted in the largest performance drop (-
+informed feature engineering, deliberate ensemble diversity,            0.037 F1 / +$20 MAE average). This corresponds directly
+transfers across classification, regression, and multimodal data        to the single highest-gain human decisions in each challenge:
+types without task-specific redesign. (2) Competitive with              expanding TF-IDF from 200 unigrams to 850 trigrams, adding
+minimal automation: Our readmission prediction (0.8986) was             CPT-code-level PDF extraction, and redirecting from raw
+within 0.0058 F1 of the top score (0.9044), and discharge               time series to statistical aggregation. Using only multimodal
+readiness (0.7939) ranked 3rd, despite using only tree-                 features without structured data also performed poorly (-0.083
+based models and manual feature engineering, no neural                  F1 / +$37 MAE), confirming that human-guided integration of
+architectures or automated feature search. (3) Validation               both modalities is critical.
+alignment: Test scores closely matched or exceeded cross-                  Domain Feature Engineering: Human-designed inter-
+validation estimates (Challenge 1: CV 0.896 vs test 0.899;              action terms (age×Charlson, chronic condition×cost) and
+Challenge 2: CV $459 vs test $465; Challenge 3: CV 0.732 vs             composite risk scores contributed modestly but consistently
+test 0.794), confirming that human-guided validation strategies         (-0.006 to -0.008 F1 / +$3-5 MAE). Replacing human-guided
+(stratified CV, appropriate metrics) prevented overfitting.             feature selection with automated selection (SelectKBest)
+                                                                        degraded performance by -0.014 F1 / +$11 MAE on
+B. Ablation Studies: Impact of Human Decisions                          average, illustrating that clinical intuition for feature relevance
+   To isolate the value of each human intervention, we                  outperformed statistical filtering on these sample sizes.
+conducted counterfactual ablation studies: for each decision               Ensemble Architecture: Reverting from the human-
+category, we reverted to what the agentic system would have             designed ensembles to the agentic system’s single-model
+done without human guidance and measured the resulting                  baselines degraded performance by -0.006 F1 / +$5 MAE,
+performance change. Table II presents 5-fold cross-validation           with the largest impact on Challenge 3 (N=1,000) where
+results on training sets.                                               ensemble diversity was most valuable for minority class
+                                                                        recall. Human-tuned hyperparameters outperformed agentic
+                                                                        defaults by -0.012 F1 / +$13 MAE, though notably this
+                            TABLE II
+            A BLATION S TUDY: Q UANTIFYING I MPACT OF                   was the smallest human contribution category, consistent with
+                        H UMAN D ECISIONS                               our recommendation to prioritize feature engineering over
+                                                                        hyperparameter tuning.
+          Configuration             Ch1       Ch2    Ch3
+                                    (F1)     (MAE)   (F1)               C. Cross-Task Analysis: Generalizable Patterns
+          Full Approach            0.895     $458    0.785
+                                                                          Table III shows top-5 features by importance across all three
+          Multimodal Feature Ablations:                                 challenges, revealing consistent patterns.
+          Text/PDF/TS features   0.858       $478    0.720
+          Only multimodal        0.812       $495    0.680
+                                                                                                      TABLE III
+          Domain Engineering:
+                                                                                 T OP -5 M OST I MPORTANT F EATURES BY C HALLENGE
+          Interaction terms        0.887     $463    0.780
+          Risk scores              0.889     $461    0.782
+          Automated selection      0.881     $469    0.770                   Challenge 1          Challenge 2        Challenge 3
+          Model Architecture:                                                Charlson band        Prior 5y cost      Avg note length
+          Ensemble (single)        0.889     $463    0.773                   Prior ED (6m)        Prior 5y visits    HR last
+          Default hyperparams      0.883     $471    0.768                   Age×Charlson         Line item count    Temp. last
+          Validation Strategy:                                               Length of stay       Cost/visit ratio   Sentiment trend
+          5-fold (vs 8-fold)       0.893     $460    0.783                   “wound” keyword      High-complexity    Mobility trend
+          No stratification        0.887     $458    0.772
+            Note: Ch1/Ch3 = Macro-F1, Ch2 = MAE                            Common Patterns: (1) Historical utilization dominates
+            (USD). Negative deltas indicate degradation.                (prior visits/costs, comorbidity); (2) Multimodal features
+appear in top-5 despite being <20% of features; (3) Domain           characteristics (document length, structure, domain-specific
+interactions (age×Charlson) rank above raw features; (4)             terminology).
+Trends outweigh absolutes (HR slope vs raw HR).                         3. Ensemble Diversity Over Complexity. Our stacking
+                                                                     ensembles (5 base models each) achieved competitive perfor-
+                             TABLE IV                                mance using only tree-based models and regularized linear
+             Q UANTIFIED I MPACT OF H UMAN D ECISIONS                models. The key was deliberate diversity: in Challenge 1,
+                                                                     three XGBoost variants with different depth/learning rate
+           Human Decision Category          Avg Gain                 profiles (depth 5/6/7) plus L1/L2 logistic regression; in
+           Multimodal feature extraction    +0.041 F1                Challenge 2, the human decision to use fixed weights instead
+           Domain interactions              +0.010 F1                of a learned meta-learner prevented overfitting on N=2,000
+           Ensemble diversity               +0.008 F1                samples. Insight: Manually-configured diverse ensembles
+           Clinical keywords                +0.015 F1
+           Hyperparameter choices           +0.014 F1                outperform random search, generating similar models.
+                                                                        4. Small Samples Favor Interpretability. With modest
+           Total contribution              +0.065 F1
+                                                                     training sizes (N=1,000-5,000), our statistical feature ag-
+                                                                     gregation (Challenge 3: vital trends, stability) and domain
+   Interpretation: Human decisions contributed approxi-              features outperformed deep learning approaches (LSTM,
+mately 7-8% relative improvement (+0.065 cumulative F1),             BERT), which require larger samples. This sample efficiency
+moving our approach from agentic-only baselines (mid-tier            enabled faster iteration and model interpretability through
+performance) to competitive top-5 results. While individual          feature importance analysis. Recommendation: For healthcare
+contributions appear modest (0.008-0.041), they compound             datasets with N<10,000, prioritize feature engineering and
+across pipeline stages, precisely the pattern predicted by our       tree-based models over deep learning.
+iterative methodology. The ordering of impact (multimodal               5. Validation Strategy Impacts Reliability. Stratified
+extraction > clinical keywords > hyperparameters > domain            CV was critical for imbalanced classification tasks (∆ = -
+interactions > ensemble diversity) suggests that early-stage         0.007 F1 when removed), while 8-fold vs 5-fold showed a
+decisions about what data to extract matter more than late-          negligible difference (∆ = -0.002). Guideline: Invest effort in
+stage decisions about how to model it.                               stratification and appropriate metrics (Macro-F1 for imbalance,
+                                                                     MAE for skewed costs) rather than excessive fold counts.
+                       IV. D ISCUSSION
+                                                                        6. Reproducibility Through Documentation. Our ap-
+   Our participation in the AgentDS Healthcare benchmark             proach’s primary strength is not novelty but systematic
+demonstrates that systematic human-AI collaboration can              documentation of every human decision with rationale. This
+achieve competitive performance (5th overall) across diverse         transparency enables: (1) peer review and critique, (2)
+clinical prediction tasks while maintaining interpretability         replication by other teams, (3) trust-building for clinical
+and reproducibility. We discuss key lessons, limitations, and        deployment. Principle: In healthcare ML, reproducibility and
+implications for healthcare ML practice, situating our findings      interpretability matter as much as raw performance.
+within the broader literature on human-AI collaboration, model
+selection, and clinical deployment.                                  B. Cross-Task Insights
+                                                                        What Generalized: Tree-based ensemble methods (XG-
+A. Key Lessons Learned                                               Boost, Gradient Boosting, RF, Extra Trees), domain-informed
+   1. Domain Knowledge Pays Dividends. Clinical intuition            interactions, and multimodal feature extraction proved uni-
+for feature engineering (age×Charlson interactions, mobility         versally effective. Historical utilization features (prior visits,
+keywords, vital sign trends) consistently outperformed auto-         costs, comorbidity) dominated importance rankings across all
+mated feature selection by 1-3% (Table II). This advantage           tasks.
+compounds across multiple decision points: our cumulative               What Required Adaptation: Text processing (TF-IDF vs
+human contribution (+0.065 F1 / -$38 MAE, Table IV)                  keywords), time-series handling (raw values vs aggregates vs
+moved us from mid-tier to top-5 performance. Implication:            trends), and class imbalance strategies varied by task. Rigid
+Healthcare ML practitioners should prioritize domain expertise       application of a single methodology across all tasks would
+in early pipeline stages (feature engineering) over extensive        have degraded performance by 5-10%.
+hyperparameter tuning in later stages.                                  Human vs Automated Roles: Our iteration logs reveal
+   2. Multimodal Integration Requires Task-Specific Strate-          a consistent division of labor. The agentic system excelled
+gies. While TF-IDF succeeded for discharge notes (Challenge          at how much: Optuna-based hyperparameter search (Chal-
+1), it failed for short daily notes (Challenge 3); clinical          lenge 1), automated CV estimation, and rapid model retraining.
+keyword extraction proved more effective. Similarly, PDF             Humans excelled at what and why: which tables to join (cross-
+parsing required a regex tailored to the billing receipt structure   dataset integration in Challenge 3, +0.05 F1), which NLP
+(Challenge 2). Lesson: No single approach generalizes across         strategy to use (keyword matching over TF-IDF for short
+all unstructured healthcare data types; human judgment is            notes), and when to override the system’s proposals (fixed
+required to select appropriate extraction methods based on data      ensemble weights over learned stacking in Challenge 2). The
+highest-value human decisions were early-stage choices about           For Healthcare Systems: Benchmark performance (5th
+data representation; the agentic system efficiently optimized       place, 0.8986 F1 readmission, $465 ED cost MAE, 0.7939
+the resulting models.                                               F1 discharge) suggests these models approach clinical utility
+                                                                    thresholds. However, external validation on real EHR data,
+C. Limitations                                                      prospective trials, and fairness audits (race, age, insurance
+   1. Synthetic Data Constraints. The AgentDS benchmark             bias) are prerequisites before deployment.
+uses synthetic data matching real distributions but lacking            For Researchers: The AgentDS benchmark successfully
+clinical noise (missing values, measurement errors, data            evaluates human-AI collaboration through: (1) multimodal
+entry inconsistencies). Our performance estimates may not           data requiring domain expertise, (2) standardized evalua-
+generalize to messier real-world EHR data. Mitigation:              tion preventing overfitting, (3) public leaderboards enabling
+External validation on real EHR datasets (MIMIC-IV, eICU)           comparison. We recommend similar benchmarks for other
+is needed before clinical deployment.                               healthcare domains (oncology, radiology, mental health).
+   2. Generalization vs Task-Specific Optimization. Our             E. Future Work
+unified methodology prioritized consistency across tasks              Short-term Extensions:
+over single-task performance, potentially leaving gains on
+                                                                      • Transformer-based text models: BioClinicalBERT em-
+the table. We ranked between 3rd and 6th on individual
+                                                                        beddings for discharge notes (Challenge 1) and daily
+challenges (5th overall by domain score), suggesting room for
+                                                                        notes (Challenge 3) may capture richer semantic content
+task-specific optimization. Trade-off: Generalization enables
+                                                                        than TF-IDF/keywords. Requires >5,000 samples for
+knowledge transfer across healthcare problems, but domain-
+                                                                        stable fine-tuning.
+specific competitions may require specialized approaches.
+                                                                      • Uncertainty quantification: Calibrated probability predic-
+   3. Limited Deep Learning Exploration. We did not
+                                                                        tions (isotonic regression, temperature scaling) enable
+extensively explore transformer models (BioClinicalBERT
+                                                                        clinicians to assess model confidence, critical for high-
+for text, LSTMs for vitals) due to sample size constraints
+                                                                        stakes decisions.
+(N<5,000). Larger datasets might favor end-to-end deep
+                                                                      • Fairness analysis: Stratify performance by patient demo-
+learning over manual feature engineering. Scope: Our findings
+                                                                        graphics (age, sex, insurance) to identify potential biases
+apply to common healthcare ML scenarios (N=1,000-10,000
+                                                                        in learned models.
+samples, tabular+text+time-series); different conclusions may
+hold for massive EHR databases (N>100,000).                           Long-term Directions:
+                                                                      • External validation: Apply our approach to real EHR
+   4. Computational Resources. Our GPU-accelerated train-
+ing (Challenge 1: 8 minutes) required hardware not available            datasets (MIMIC-IV, eICU) to assess generalization to
+to all practitioners. CPU-only training extends to 30-60                noisy clinical data.
+                                                                      • Prospective trials: Deploy readmission or discharge
+minutes, still acceptable but not trivial. Accessibility: Cloud-
+based training (Google Colab, AWS) democratizes access, but             models in live hospital settings (with clinician oversight)
+cost and technical barriers remain.                                     to measure impact on patient outcomes and costs.
+                                                                      • Automated multimodal feature learning: Investigate
+   5. Multimodal Feature Engineering Labor. Extracting
+PDF billing features, parsing clinical notes, and computing             whether end-to-end deep learning (multimodal
+vital trends required 10-15 hours of human effort per                   transformers) can match or exceed manual feature
+challenge. This investment is worthwhile for research or high-          engineering at scale (N>50,000).
+                                                                      • Continual learning: Adapt models to distribution shift
+stakes applications but may not scale to rapid prototyping
+scenarios. Pragmatism: Practitioners must balance effort vs             (COVID-19 pandemic, policy changes) through online
+performance gains.                                                      learning or periodic retraining.
+                                                                                          V. C ONCLUSION
+D. Implications for Healthcare ML Practice
+                                                                       We have presented a human-guided agentic AI approach
+   For Clinicians: Our feature importance rankings (Table III)      for multimodal clinical prediction, evaluated across three
+align with established clinical risk factors (Charlson index,       AgentDS Healthcare benchmark challenges: 30-day read-
+prior utilization, vital trends) [20], building trust that models   mission prediction (Macro-F1 = 0.8986, 5th), emergency
+capture medically-meaningful relationships. The interpretabil-      department cost forecasting (MAE = $465.13, 6th), and
+ity of tree-based methods enables clinician review of model         discharge readiness assessment (Macro-F1 = 0.7939, 3rd),
+decisions, critical for clinical deployment.                        achieving 5th place overall in the healthcare domain. Our
+   For ML Engineers: Start with domain-guided feature               central contribution is not the final models themselves but
+engineering before investing in complex architectures. Our          the iterative workflow through which human analysts guided
+ablations show that multimodal features (+0.041 F1) and             an agentic AI system from naive baselines to competitive
+interactions (+0.010) contributed 4-10× more than ensemble          performance.
+complexity (+0.006-0.008). Simple ensembles with good                  The iteration evidence is concrete. In Challenge 1, human-
+features outperform complex ensembles with default features.        directed expansion of text features (200 unigrams to 850
+trigrams) and the switch from a single model to a stacking                                  ACKNOWLEDGMENTS
+ensemble lifted CV F1 from 0.846 to 0.896. In Challenge 2,
+                                                                     We thank the AgentDS benchmark organizers for providing
+human analysis of per-model hold-out MAEs justified fixed
+                                                                  a rigorous evaluation framework for human-AI collaboration
+ensemble weights over the agentic system’s proposed learned
+                                                                  in healthcare data science.
+meta-learner, improving stability on N=2,000 samples. In
+Challenge 3, our strongest result (3rd place), four rounds of                                    R EFERENCES
+human intervention moved CV F1 from 0.49 to 0.73, with
+the largest single gain (+0.18) coming from a human decision       [1] E. G. Oh, S. Oh, S. Cho, and M. Moon, “Predicting readmission among
+                                                                       high-risk discharged patients using a machine learning model with
+to redirect the agentic system from raw time-series modeling           nursing data: Retrospective study,” JMIR Medical Informatics, vol. 13,
+to statistical vital sign aggregation. Across all challenges,          no. 1, p. e56671, 2025.
+ablation studies attribute +0.065 cumulative F1 to human           [2] R. Loutati, A. Ben-Yehuda, S. Rosenberg, and Y. Rottenberg,
+                                                                       “Multimodal machine learning for prediction of 30-day readmission risk
+decisions, with early-stage choices about data representation          in elderly population,” The American Journal of Medicine, vol. 137,
+(multimodal feature extraction: +0.041) contributing far more          no. 7, pp. 617–628, 2024.
+than late-stage model tuning (ensemble diversity: +0.008).         [3] C. P. Wu, R. B. Shirley, A. Milinovich, K. Liu, E. Mireles-Cabodevila,
+                                                                       H. Khouli, A. Duggal, and A. Bhattacharyya, “Exploring timely and safe
+   These results support three principles for deploying agentic        discharge from icu: a comparative study of machine learning predictions
+AI in healthcare settings:                                             and clinical practices,” Intensive Care Medicine Experimental, vol. 13,
+                                                                       no. 1, p. 10, 2025.
+  1) Human guidance compounds: Individual decisions ap-            [4] S. Tang, A. Tariq, J. A. Dunnmon, U. Sharma, P. Elugunti, D. L.
+     pear modest (0.008-0.041 F1), but they accumulate                 Rubin, B. N. Patel, and I. Banerjee, “Predicting 30-day all-cause hospital
+                                                                       readmission using multimodal spatiotemporal graph neural networks,”
+     across pipeline stages. Domain-informed feature engi-             IEEE Journal of Biomedical and Health Informatics, vol. 27, no. 4, pp.
+     neering at each stage outperformed extensive automated            2071–2082, 2023.
+     search, consistent with the observation that the agentic      [5] N. Karunanayake, “Next-generation agentic ai for transforming
+                                                                       healthcare,” Informatics and Health, vol. 2, no. 2, pp. 73–83, 2025.
+     system excelled at optimizing within a representation but     [6] V. G. Hinostroza Fuentes, H. A. Karim, M. J. T. Tan, and N. AlDahoul,
+     not at choosing which representation to optimize.                 “Ai with agency: a vision for adaptive, efficient, and ethical healthcare,”
+  2) No single extraction strategy generalizes across clinical         Frontiers in Digital Health, vol. 7, p. 1600216, 2025.
+                                                                   [7] M. Rahman, A. Bhuiyan, M. S. Islam, M. T. R. Laskar, R. Mahbub,
+     data types: TF-IDF succeeded for discharge summaries              A. Masry, S. Joty, and E. Hoque, “Llm-based data science agents: A
+     (Challenge 1) but failed for short daily notes (Chal-             survey of capabilities, challenges, and future directions,” arXiv preprint
+     lenge 3); the human decision to pivot to clinical                 arXiv:2510.04023, 2025.
+                                                                   [8] Y. Kim, C. Park, H. Jeong, Y. S. Chan, X. Xu, D. McDuff, H. Lee,
+     keyword matching was essential. PDF parsing re-                   M. Ghassemi, C. Breazeal, and H. W. Park, “Mdagents: An adaptive
+     quired billing-receipt-specific regex (Challenge 2). Task-        collaboration of llms for medical decision-making,” Advances in Neural
+     specific human judgment for unstructured data remains             Information Processing Systems, vol. 37, pp. 79 410–79 452, 2024.
+                                                                   [9] W. Shi, R. Xu, Y. Zhuang, Y. Yu, J. Zhang, H. Wu, Y. Zhu, J. C. Ho,
+     a bottleneck that current agentic systems do not resolve          C. Yang, and M. D. Wang, “Ehragent: Code empowers large language
+     autonomously.                                                     models for few-shot complex tabular reasoning on electronic health
+  3) Interpretability is a prerequisite, not a trade-off: Our          records,” in Proceedings of the 2024 Conference on Empirical Methods
+                                                                       in Natural Language Processing, 2024, pp. 22 315–22 339.
+     top features (Charlson band, prior ED utilization,           [10] P. Naliyatthaliyazchayil, R. Muthyala, J. W. Gichoya, and
+     vital sign trends, sentiment trajectory) align with               S. Purkayastha, “Evaluating the reasoning capabilities of large
+     established clinical risk factors, enabling clinician             language models for medical coding and hospital readmission risk
+                                                                       stratification: zero-shot prompting approach,” Journal of medical
+     trust. Tree-based ensembles with documented decision              Internet research, vol. 27, p. e74142, 2025.
+     rationale maintained this transparency while achieving       [11] P. N. Srinivasu, G. L. Aruna Kumari, S. Ahmed, and A. Alhumam,
+     competitive performance.                                          “Exploring agentic ai in healthcare: A study on its working mechanism
+                                                                       and swot analysis,” Frontiers in Medicine, vol. 12, p. 1753443, 2026.
+   Our approach has clear limitations: synthetic benchmark        [12] J. A. Bishop, H. A. Javed, R. El-Bouri, T. Zhu, T. Taylor, T. Peto,
+data lacks real-world clinical noise as our sample sizes               P. Watkinson, D. W. Eyre, and D. A. Clifton, “Improving patient flow
+                                                                       during infectious disease outbreaks using machine learning for real-time
+(N=1,000-5,000) favor feature engineering over deep learning,          prediction of patient readiness for discharge,” Plos one, vol. 16, no. 11,
+a conclusion that may not hold for larger EHR databases;               p. e0260476, 2021.
+and the human effort required (10-15 hours per challenge)         [13] S. Jahangiri, M. Abdollahi, E. Rashedi, and N. Azadeh-Fard, “A machine
+                                                                       learning model to predict heart failure readmission: toward optimal
+constrains scalability. Future work should validate on real            feature set,” Frontiers in Artificial Intelligence, vol. 7, p. 1363226, 2024.
+EHR data (MIMIC-IV, eICU), explore whether transformer-           [14] N. Maslej, L. Fattorini, R. Perrault, Y. Gil, V. Parli, N. Kariuki,
+based multimodal models can reduce human effort at scale,              E. Capstick, A. Reuel, E. Brynjolfsson, J. Etchemendy et al., “Artificial
+                                                                       intelligence index report 2025,” arXiv preprint arXiv:2504.07139, 2025.
+and conduct prospective trials measuring clinical impact.         [15] S. Purkayastha, R. Isaac, A. Veldandi, R. Saxena, P. Singh, P. Vaswani,
+   The AgentDS benchmark demonstrates that standardized                E. A. Krupinski, J. A. Danish, and J. W. Gichoya, “Measuring impact
+multimodal healthcare tasks can rigorously evaluate human-             of radiologist-ai collaboration: Efficiency, accuracy, and clinical impact,”
+                                                                       in 2024 IEEE International Symposium on Biomedical Imaging (ISBI).
+AI collaboration. Our results suggest that the most effective          IEEE, 2024, pp. 1–4.
+current paradigm is neither fully autonomous agentic AI nor       [16] A. Luo, J. Du, X. Xian, R. Specht, F. Tian, G. Wang, X. Bi, C. Fleming,
+traditional manual analysis, but an iterative loop in which            A. Kundu, J. Srinivasa, M. Hong, R. Zhang, T. Li, G. Jones, and
+                                                                       J. Ding, “AgentDS Technical Report: Benchmarking the Future of
+human domain expertise shapes the problem representation               Human-AI Collaboration in Domain-Specific Data Science,” 2026,
+and agentic systems efficiently optimize within it.                    arXiv:2603.19005. [Online]. Available: https://arxiv.org/abs/2603.19005
+[17] A. Ashfaq, A. Sant’Anna, M. Lingman, and S. Nowaczyk, “Readmission
+     prediction using deep learning on electronic health records,” Journal of
+     biomedical informatics, vol. 97, p. 103256, 2019.
+[18] S. Davis, J. Zhang, I. Lee, M. Rezaei, R. Greiner, F. A. McAlister,
+     and R. Padwal, “Effective hospital readmission prediction models using
+     machine-learned features,” BMC Health Services Research, vol. 22,
+     no. 1, p. 1415, 2022.
+[19] Y. Deng, S. Liu, Z. Wang, Y. Wang, Y. Jiang, and B. Liu, “Explainable
+     time-series deep learning models for the prediction of mortality,
+     prolonged length of stay and 30-day readmission in intensive care
+     patients,” Frontiers in Medicine, vol. 9, p. 933037, 2022.
+[20] S. N. Kasthurirathne, P. G. Biondich, S. J. Grannis, S. Purkayastha, J. R.
+     Vest, and J. F. Jones, “Identification of patients in need of advanced care
+     for depression using data extracted from a statewide health information
+     exchange: a machine learning approach,” Journal of medical Internet
+     research, vol. 21, no. 7, p. e13809, 2019.
+

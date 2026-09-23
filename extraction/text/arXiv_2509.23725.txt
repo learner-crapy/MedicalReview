@@ -1,0 +1,1348 @@
+                                                               MedLA: A Logic-Driven Multi-Agent Framework
+                                                         for Complex Medical Reasoning with Large Language Models
+                                                                          Siqi Ma1 * , Jiajie Huang1∗ , Fan Zhang3 , Yue Shen2∗ ,
+                                                                        Jinlin Wu3 , Guohui Fan4 , Zhu Zhang4 , Zelin Zang1,2,3†
+                                                                                                    1
+                                                                                               Westlake University
+                                                                                                  2
+                                                                                                    Ant Group
+                                                                       3
+                                                                         CAIR, Hong Kong Institute of Science and Innovation (HKISI), CAS
+                                                                                      4
+                                                                                        China-Japan Friendship Hospital
+
+                                                                    Abstract                                 et al. 2024; Tang et al. 2024). In clinical use, however, they
+
+
+
+
+arXiv:2509.23725v3 [cs.AI] 3 Mar 2026
+                                                                                                             may hallucinate drug dosages, misapply guidelines, or draw
+                                          Answering complex medical questions requires not only
+                                                                                                             invalid causal links, reducing diagnostic reliability (Liu, Li
+                                          domain expertise and patient-specific information, but also
+                                          structured and multi-perspective reasoning. Existing multi-        et al. 2023).
+                                          agent approaches often rely on fixed roles or shallow interac-        LLM-based medical reasoning follows two main
+                                          tion prompts, limiting their ability to detect and resolve fine-   paradigms. (a) Knowledge fine-tuning (Singhal et al.
+                                          grained logical inconsistencies. To address this, we propose       2023; Wang et al. 2025) retrains models on large medical
+                                          M ED LA, a logic-driven multi-agent framework built on large       corpora, improving accuracy at the cost of data, compute,
+                                          language models. Each agent organizes its reasoning process        and deployment agility. (b) Reasoning stimulation (Liévin
+                                          into an explicit logical tree based on syllogistic triads (major   et al. 2024) has been tried using multi-agent role-playing
+                                          premise, minor premise, and conclusion), enabling transpar-        to accomplish tasks through discussion and cooperation,
+                                          ent inference and premise-level alignment. Agents engage in
+                                                                                                             which is considered a flexible and low-cost solution (Moor,
+                                          a multi-round, graph-guided discussion to compare and itera-
+                                          tively refine their logic trees, achieving consensus through er-   Huang et al. 2023; Kim et al. 2024). However, we found that
+                                          ror correction and contradiction resolution. We demonstrate        most current multi-agent systems only engage in positional
+                                          that M ED LA consistently outperforms both static role-based       discussions based on their rulings and cannot argue about
+                                          systems and single-agent baselines on challenging bench-           logical details in depth. Current frameworks are not able to
+                                          marks such as MedDDx and standard medical QA tasks. Fur-           effectively localize logic/rule conflicts, thus be difficult to
+                                          thermore, M ED LA scales effectively across both open-source       improve the performance.
+                                          and commercial LLM backbones, achieving state-of-the-art              Inspired by the ‘major premise-minor premise-
+                                          performance and offering a generalizable paradigm for trust-       conclusion’ paradigm of the classical syllogism, we
+                                          worthy medical reasoning.
+                                                                                                             use the syllogism as a minimal reasoning unit (Khemlani
+                                                                                                             and Johnson-Laird 2012; Jiang and Yang 2023). Each triad
+                                        Code — https://github.com/alexander2618/MedLA                        consists of a generalized medical law (major premise), a
+                                        Extended version — https://arxiv.org/abs/2509.23725                  patient-specific fact (minor premise), and the corresponding
+                                                                                                             conclusion. By concatenating or parallelizing multiple
+                                                                  Introduction                               triads, we construct an inference tree whose leaf nodes
+                                                                                                             store empirical observations or domain rules, internal nodes
+                                        LLM has demonstrated significant advantages in the field             hold intermediate inferences, and the root node gives the
+                                        of medical reasoning, and its deep learning architecture can         final clinical decision (Howson 2005). Such inference
+                                        efficiently extract knowledge from massive amounts of lit-           trees offer two major advantages: (i) Traceability - each
+                                        erature and clinical cases to provide intelligent assistance in      conclusion can be traced back to its supporting premises; (ii)
+                                        diagnostic decision-making, and is expected to significantly         Comparability - each intelligence can align the reasoning
+                                        improve the accessibility and popularization of medical              tree (logical tree) to pinpoint conflicts or omissions at the
+                                        knowledge(Chang et al. 2024; Kasneci et al. 2023). Answer-           premise level. Embedding this explicit structure into a
+                                        ing complex medical questions with large language mod-               multi-agent framework provides an easily auditable logical
+                                        els (LLMs) remains difficult. A practical system must inte-          template for systematic cross-intelligence error correction
+                                        grate domain knowledge (Liu et al. 2024a), patient informa-          and consistency verification.
+                                        tion (Yang et al. 2022), and explicit logical reasoning (Goh            To this end, we propose a medical logical tree-based
+                                        et al. 2024). Recent general-purpose and domain-adapted              multi-agent framework (termed M ED LA) that enables
+                                        models achieve strong open-benchmark scores (Kim, Wang               multi-agent collaboration and discussion through a logic
+                                           * equal contribution                                              tree structure (in Fig. 1(a)). Although LLM cannot explic-
+                                           †
+                                             corresponding author.                                           itly handle tree logic, we can organize the answers to med-
+                                        Copyright © 2026, Association for the Advancement of Artificial      ical questions in the form of a logic tree by guiding them
+                                        Intelligence (www.aaai.org). All rights reserved.                    with prompt words. We design premise agents to extract the
+Figure 1: (a) Comparison between traditional role-based agent discussions and our proposed logic-based framework. (b) Per-
+formance and parameter comparison of M ED LA with existing systems. (a-Left) Traditional systems (e.g., MedAgent) assign
+agents fixed roles and aggregate their conclusions, leading to superficial discussions and difficulty identifying the root of dis-
+agreement. (a-Right) Our approach models each agent’s reasoning as a logic tree, enabling inter-agent analysis of logical
+and knowledge-based inconsistencies. (b) M ED LA outperforms existing systems in the average accuracy of two benchmarks,
+demonstrating its effectiveness in handling complex medical reasoning tasks.
+
+
+major premise and minor premise from the questions. Sub-            answers, and Ci ∈ Oi is the ground-truth correct answer.
+questions are generated by the premise agents and sent to the       The task for our system is to predict the correct answer
+logical agents. Then we use medical agents to reason about          from Oi given the input (Qi , Oi ). We primarily consider the
+the logical nodes and generate the logical tree with the final      Multiple-choice Question (MCQ) format (Pal, Umapathi,
+answer. Based on the logical tree, a multi-round discussion         and Sankarasubbu 2022).
+mechanism is designed to allow agents to discuss the logical
+tree and correct each other’s errors. The final answer is gen-      Syllogism and Syllogism-based logical tree. A min-
+erated based on the logical tree and the discussion results.        imal reasoning unit in medical diagnosis can be ab-
+   The experimental results show that our MedLA outper-             stracted as the classical syllogism (Smiley 1973), v :
+forms existing MedDDx benchmarks (Su et al. 2025a),                 (pmaj - major premise) ∧ (pmin - minor premise)
+medical QA benchmarks (Xiong et al. 2024), and medical              → (C - conclusion), where v is the syllogism node, which
+reasoning benchmarks (Zuo et al. 2025) by a large mar-              is a tuple of the major premise pmaj , the minor premise pmin ,
+gin on both open-source and commercial LLM (Fig. 1(b)).             and the conclusion C. By chaining or paralleling multiple
+Contributions. (a) We introduce M ED LA, the first multi-           syllogisms, we obtain a logical tree (Khemlani and Johnson-
+agent framework for medical reasoning that represents each          Laird 2012; Revlis 2015),
+agent’s thought process as an explicit logical tree. This de-                     T = (V, E), E ⊆ V × V,
+sign enables fine-grained traceability of inferences and sys-                                                                  (1)
+tematic detection of premise-level conflicts. (b) We develop                      V = {v1 , v2 , · · · , vi , · · · , vNK },
+a multi-round, graph-guided discussion mechanism in which           where T denotes the syllogism-based logical tree, V is the
+agents iteratively compare and revise their logical trees,          set of syllogism nodes,vi is defined in Eq. (1), and E is the
+leading to robust cross-agent error correction and conver-          set of directed edges. Each (vi1 , vi2 ) ∈ E means that vi1 is
+gence to high-confidence, self-consistent reasoning struc-          a necessary antecedent of vi2 . By constructing a logical tree,
+tures. (c) We perform comprehensive evaluations on both             we can represent the reasoning process in a structured man-
+differential diagnosis (M ED DD X) and standard medical QA          ner, allowing for better understanding and analysis of the
+benchmarks, demonstrating that M ED LA outperforms static           reasoning steps involved in concluding.We further establish
+role-based multi-agent systems and single LLM baselines.            the theoretical properties of this reasoning framework, such
+                                                                    as its convergence and stability, with proofs provided in the
+                         Methods                                    Appendix.
+Problem Definition, Syllogism, and Logical Tree
+In this work, each clinical QA task dataset D is de-                Agent Designs in MedLA
+fined as a set of tuples {(Qi , Oi , Ci )}N
+                                          i=1 , where Qi =          Based on the above definitions of logical tree, we propose
+‘What is the correct diagnosis/management for the patient?’         a multi-agent framework for complex medical reasoning,
+is the question text, Oi = {Oi1 , Oi2 , . . . , OiNK } is the       called M ED LA, which is designed to handle complex med-
+set of candidate answers, NK is the number of candidate             ical questions by dynamically invoking specialized agents
+Figure 2: Overview of the proposed MedLA for complex medical reasoning. The system decomposes a medical query into
+logical sub-tasks, dynamically invokes specialized agents, and engages in collaborative reasoning to generate answers.
+
+
+to collaboratively reason and generate comprehensive an-               Decompose Agent (D-Agent) for question splitting.
+swers (in Fig. 2). The proposed framework consists of four             Complex diagnostic problems often span multiple causal
+main components, including a Premise Agent (P-Agent)                   chains; decomposing these problems into atomic subprob-
+for major/minor premise extraction, a Decompose Agent                  lems allows for more comprehensive thinking and dis-
+(D-Agent) for question splitting, multiple Medical Agents              cussion. D-Agent recursively splits Q into item questions
+(M-Agents) for recursive tree generation, and a Credibil-              {q1 , q2 , . . . },
+ity Agent (C-Agent) for node calibration. The system is de-                                                        ⟨proD ⟩  
+                                                                                         S = {s1 , s2 , . . . } = OD-Agent Q , (3)
+signed to be modular and flexible, allowing for dynamic task
+decomposition and multi-agent collaboration.                              where OD-Agent (·) is the D-Agent function and ⟨proD ⟩ is
+                                                                       the prompt template (in the Appendix). The D-Agent prompt
+Premise Agent (P-Agent) for major/minor premise ex-
+                                                                       is designed to elicit a tree-like structure of questions, where
+traction. The first step maps free text Q and external
+                                                                       each question qs is a subproblem that can be answered in-
+knowledge into major/minor premises that seed later syllo-
+                                                                       dependently. In this work, we adopt an elimination-based
+gisms. From the question Q we extract entity-relation facts
+                                                                       reasoning strategy to construct the question tree: if candi-
+to obtain a patient fact set P min , and retrieve relevant rules
+                                                                       date answers are provided, the agent considers the plausibil-
+P maj from medical knowledge bases,
+                                                                       ity of each option in turn using a process of elimination; for
+                                               ⟨proP   ⟩
+ P maj = {pmaj          maj          maj               maj
+           1 , . . . , pr , . . . , p|Nmaj | } = OP-Agent (Q),
+                                                                       open-ended questions, the agent is first prompted to gener-
+                                                                 (2)   ate multiple possible answers and then considers each as an
+                                               ⟨proP   ⟩
+ P min = {pmin          min          min
+           1 , . . . , pr , . . . , p|Nmin | } = OP-Agent (Q),
+                                                       min             independent hypothesis.
+where P Q,k is the knowledge-major-premise set, P Q,min is             Medical Agents (M-Agents) for logical tree gener-
+the patient-minor-premise set; each pmaj,(n) denotes the n-th          ation. To obtain diverse and complementary reason-
+retrieved medical rule, and each pmin,(m) denotes the m-th             ing perspectives, we run multiple M-Agents M =
+patient fact extracted from Q, OP-Agent (·) is the P-Agent             {M (1) , . . . , M (j) , . . . , M (NM ) , } in parallel, where NM is
+function, and ⟨proPmaj ⟩ and ⟨proPmin ⟩ are the prompt tem-            the number of M-Agents. Agent M (j) independently gener-
+            Q         Q                                                ates the next batch of derivable conclusions,
+plates. |Nmaj | and |Nmin | are the number of major and minor                                            ⟨proM ⟩
+                                                                                                                     P maj , P min , S, Tother ,
+                                                                                                                                              
+premises, respectively. The fixed premise extract prompt is               TM (j) = {V, E} = OM(j) -Agent
+listed in the Appendix.                                                                                                                         (4)
+where OM(j) -Agent (·) is j-th M-Agent, and ⟨proM ⟩ is the                    Phase C: Logical Decision. Once the discussion phase
+prompt template (in the Appendix). The prompt will guide                   is complete, the system synthesizes the final logical tree by
+the model to further split the subproblems and thus form a                 merging all local trees. The final tree is then used to gener-
+more complex logical tree TM (j) . TM (j) contains a set of syl-           ate the final answer. The answer is generated by traversing
+logism nodes V = {v1 , v2 , . . . , vi , . . . , v|NV | } and a set of     the logical tree and aggregating the conclusions from each
+directed edges E. Tother is an optional input, which is used               syllogism node. The system can also provide a detailed ex-
+to provide the tree structure of other M-Agents in the previ-              planation of the reasoning process, including the major and
+ous round for agent-agent discussion. It is worth noting that              minor premises, the syllogisms used, and the final conclu-
+in this paper, since LLMs cannot directly produce structured               sion.
+tree outputs, the vi we obtain by guiding LLM is a text block
+containing a syllogism(check Appendix).                                                          Experiments
+Credibility Agent (C-Agent) for node calibration. To                       Datasets & Benchmarks. We evaluate on three com-
+ensure the credibility of the generated logical tree, we intro-            plementary benchmarks. (i) MedDDx benchmarks. To
+duce a C-Agent to evaluate the confidence of each syllogism                stress differential-diagnosis reasoning, we use MedDDx
+node. The C-Agent is designed to assess the logical consis-                benchmark(Su et al. 2025a) : Tests differential diagnosis
+tency and relevance of each node in the tree, providing a                  across Basic, Intermediate, and Expert tiers, with diffi-
+credibility score for each syllogism.                                      culty defined by the semantic similarity of distractors from
+                                                       ⟨proC ⟩            STaRK-Prime (Wu et al. 2024b). (ii) Multi-choice medical
+  CM (j) = {c1 , c2 , . . . , ci , . . . , c|NV | } = OC-Agent TM (j) ,    QA benchmarks (Xiong et al. 2024). A suite combining
+                                                                     (5)   MMLU-Med, MedQA-US, and BioASQ-Y/N to test gen-
+where OC-Agent (·) is the function of C-Agent,                             eral medical knowledge. It covers factual recall, guideline
+and ⟨proC ⟩ is the prompt template (in the                                 interpretation, and clinical decision-making. (iii) Expert-
+Appendix). In this paper, we define ci                                 ∈   Level Medical Reasoning and Understanding bench-
+{High credibility, Medium credibility, Low credibility},                   mark(Zuo et al. 2025).To assess expert-level reasoning,
+where i is the index of the syllogism node vi in the logical               we use MedXpertQA, a challenging and comprehensive
+tree TM (j) .                                                              benchmark for advanced medical knowledge (details in Ap-
+                                                                           pendix). The benchmark serves as our general-purpose test
+Logical Reasoning Workflow of MedLA                                        bed. The details of the benchmarks are shown in Appendix.
+Based on the above agent designs, we propose a three-stage                    Baselines. We benchmark MedLA against four rep-
+pipeline for logical reasoning in complex medical QA tasks.                resentative paradigms. (i) Graph-based reasoning
+    Phase A: Premise Extraction & Question Decomposi-                      methods ground answers on biomedical knowledge
+tion. The system begins with the P-Agent: given the raw                    graphs—QAGNN (Yasunaga et al. 2021), JointLK (Sun
+question Q, it uses fixed prompt templates to extract a                    et al. 2022), and DRAGON (Yasunaga et al. 2022). (ii)
+set of knowledge-major premises P major and patient-minor                  Multi-agent voting systems aggregate LLM outputs with-
+premises P minor . Next, the D-Agent recursively splits Q                  out explicit logic trees—Majority Voting, DyLAN (Liu
+into atomic sub-questions {q1 , q2 , . . . }, creating placeholder         et al. 2024d), MedAgents (Tang et al. 2024), and MDAgents
+nodes for each. If a sub-question coincides with a candidate               (Liu et al. 2024c). (iii) Stand-alone LLMs rely purely
+answer, it is marked as a terminal goal; otherwise, it remains             on parametric knowledge, including LLaMA-2-7B/13B,
+pending for further inference.                                             Mistral-7B, MedAlpaca-7B, PMC-LLaMA-7B, LLaMA
+    Phase B: Logical Tree Generation, Calibration, & Dis-                  3-8B, LLaMA 3-OB-8B, and the stronger LLaMA 3.1-8B;
+cussion. A cohort of M-Agents runs in parallel. Each M-                    we also report their chain-of-thought (CoT) variants. (iv)
+Agent independently takes P major , P minor , and the set of               Retrieval-augmented generation (RAG) couples an LLM
+placeholders, then emits a batch of syllogistic nodes and                  with external retrievers—Self-RAG (7B/13B) (Asai et al.
+directed edges in one LLM call, forming a provisional lo-                  2023), KG-Rank (Yang et al. 2024), KG-RAG (Soman et al.
+cal logical tree. Subsequently, the C-Agent reevaluates each               2023), and MedRAG (70B) (Xiong et al. 2024). Together,
+node’s confidence. Nodes labeled as low confidence are                     these baselines span parametric, retrieval-augmented,
+flagged and retained as discussion material for the next                   graph-grounded, and naı̈ve multi-agent strategies, furnish-
+phase; all medium-high confidence nodes are locked into                    ing a comprehensive backdrop against which to gauge
+the local tree to preserve core reasoning structure. Then the              MedLA’s contributions. We did not include methods that
+system enters a discussion phase, where each M-Agent ex-                   require additional data and require fine-tuning of the larger
+changes its local tree with others, allowing them to compare               model (e.g., KGAREVION (Su et al. 2025b)).
+and contrast reasoning paths. These discussions repeat un-                    Evaluation Metric & Testing Protocol & Implementa-
+til all agents have shared their trees. The system then iden-              tion Details. Following (Su et al. 2025a), the performance is
+tifies any discrepancies between the trees, focusing on the                measured by accuracy (Acc), averaged over three indepen-
+flagged low-confidence nodes. Each agent is prompted to                    dent runs ( ± std). For every run, we shuffle the benchmark
+review and revise its tree based on the feedback from its                  order and reset the LLM’s sampling state. All experiments
+peers, using a revision prompt (⟨proRev ⟩) to validate, add                used the officially provided base model weights and con-
+or remove premises, and re-score affected nodes.                           figurations, and vLLM (v0.7.2). 8-card A100-80GB GPU
+                                                                          MedDDx Benchmarks (Su et al. 2025a)
+                        Method                       Reference      Basic     Intermediate   Expert
+                                                                                                              AVE
+                                                                  Acc.(±std)   Acc.(±std)  Acc.(±std)
+             Graph      QAGNN                       NAACL2021     29.5(±0.3)    26.5(±0.2)     25.3(±0.3)        27.1
+             Based      JointLK                     NAACL2022     24.7(±0.4)    25.3(±0.4)     24.4(±0.4)        24.8
+            Methods     Dragon                      NeurIPS2022   28.6(±0.3)    24.7(±0.2)     24.0(±0.4)        25.8
+                        MV-LLaMA3.1(8B)                  -        39.6(±1.0)    32.8(±0.6)     30.2(±0.8)        34.2
+             Multi
+                        DyLAN                       COLM2024      39.3(±1.5)    33.5(±0.9)     31.1(±0.7)        34.6
+            Agents
+                        MedAgents                    ACL2024      41.0(±0.7)    35.7(±1.1)     32.9(±1.5)        36.5
+            Methods
+                        MDAgents                    NeurIPS2024   42.1(±1.3)    37.5(±0.9)     33.4(±0.6)        37.7
+                        Mistral(7B)                 Mistral2023   41.2(±0.3)    35.6(±0.3)     37.5(±0.7)        38.1
+            General
+                        MedAlpaca(7B)               BHT2023       39.9(±1.2)    32.5(±0.4)     31.1(±0.9)        34.5
+              &
+                        PMC-LLaMA(7B)               SJTU2024      8.7(±1.5)     8.6(±0.2)       7.9(±0.6)         8.4
+            Medical
+                        LLaMA3(8B)                  Meta2024      42.8(±0.5)    31.9(±0.2)     30.6(±0.9)        35.1
+            LLMs
+                        LLaMA3.1(8B)[baseline]      Meta2024      43.4(±1.8)    36.8(±0.2)     30.6(±2.1)        36.9
+            General     CoT-Mistral(7B)             Mistral2023   40.4(±1.0)    36.8(±2.3)     37.9(±2.7)        38.4
+               &        CoT-MedAlpaca(7B)           BHT2023       39.5(±0.7)    32.1(±1.1)     31.2(±1.0)        34.3
+           Medical      CoT-PMC-LLaMA(7B)           SJTU2024      8.8(±0.2)     7.7(±0.4)       6.3(±0.5)         7.6
+            LLMs        CoT-LLaMA3(8B)              Meta2024      43.4(±0.9)    36.8(±0.4)     31.3(±0.3)        37.2
+           with COT     CoT-LLaMA3.1(8B)            Meta2024      43.9(±1.7)    39.3(±0.5)     32.2(±1.4)        38.5
+             RAG        Self-RAG(7B)                 ICLR2024     23.8(±0.7)    19.9(±3.7)     22.4(±4.5)        22.0
+              &         Self-RAG(13B)                ICLR2024     24.9(±1.0)    29.0(±1.8)     26.6(±3.1)        26.8
+             Based      KG-Rank(13B)                ACL-w2024     25.3(±2.1)    25.6(±1.3)     23.4(±1.0)        24.8
+            Methods     MedRAG(70B)                  Oxon2024     36.5(±0.8)    34.8(±1.1)     32.7(±0.3)        34.7
+          Logic Based   MedLA+LLaMA3.1(8B)              Ours      48.2(±1.2)    43.0(±2.1)     41.7(±0.8)    44.3 (↑ 7.4)
+
+Table 1: The performance of our MedLA on MedDDx Benchmarks. The table includes the accuracy along with the standard
+deviation(±std) for each metric. The results demonstrate the effectiveness of MedLA in addressing complex medical reasoning
+tasks across different datasets. OB means OpenBioLLM, MV means Majority Voting, and AVE means averaged accuracy. The
+best results are highlighted in bold, while the best results of each method’s block are marked with an underline. Reference
+indicates the paper where the method was first introduced. The results of the baselines are taken from (Su et al. 2025a).
+
+
+servers are used for testing. The raw data of the dataset in-      MedLA Stronger than Multi-Agent Systems: MedLA out-
+volved in the experiments is adopted from MIRAGE1 . More           performs multi-agent baselines, indicating that its logic tree
+details can be found in the Appendix.                              enables deeper interaction and better coordination among
+   [Overall Performance Analysis] MedLA significantly              agents even without explicit role-based decomposition. (d)
+outperforms baselines under open-source LLM settings.              MedLA Outperforms RAG without External Knowledge:
+To evaluate the effectiveness of MedLA, we conducted com-          MedLA exceeds RAG-based models despite not using ex-
+prehensive experiments on a series of medical reasoning            ternal retrieval, proving its strong internal reasoning abil-
+benchmarks, all based on open-source large language mod-           ity through structured logic alone. (e) MedLA Remains Ef-
+els (e.g., LLaMA). To ensure the objectivity of the compar-        fective Under New Challenges:On a newly introduced test
+ison, we directly refer to the baseline results reported in (Su    set,MedXpertQA, MedLA’s performance remains outstand-
+et al. 2025a). We also provide a detailed summary in the Ap-       ing, proving that its logic-enhanced reasoning ability is gen-
+pendix.                                                            eralizable, rather than merely an optimization for known
+   Analysis: (a) MedLA outperforms all baselines on both           tasks, and is capable of effectively tackling new medical
+standard and challenging benchmarks, achieving state-of-           challenges.
+the-art (SOTA) results across QA datasets and excelling in            [Overall Performance Analysis] MedLA demonstrates
+expert-level diagnosis on MedDDx. These results demon-             strong performance advantages on commercial LLMs,
+strate that MedLA not only enhances factual reasoning              validating its generality and robustness. Our previous ex-
+but also improves differential diagnostic performance in           periments were primarily conducted on open-source large
+real-world medical settings. (b) MedLA Beyond CoT and              language models, where MedLA had already shown promis-
+Baselines: MedLA surpasses both base and CoT-enhanced              ing results across various medical reasoning tasks. To fur-
+models under the same open-source foundation, showing              ther assess the adaptability and competitiveness of MedLA
+that our logic extraction strategy effectively distills more       under more powerful backbones, we conducted additional
+reliable knowledge and supports dynamic reasoning. (c)             evaluations using state-of-the-art commercial LLMs such as
+                                                                   DeepSeek. All baseline methods were also implemented on
+   1
+       https://github.com/Teddy-XiongGZ/MIRAGE                     the same commercial model to ensure fair comparison. For
+                                                                 Multi-choice medical QA benchmarks (Xiong et al. 2024)
+                      Method                       Reference     MMLU-Med MedQA-US BioASQ-Y/N
+                                                                                                               AVE
+                                                                 Acc.(±std)     Acc.(±std)    Acc.(±std)
+          Graph       QAGNN                       NAACL2021      31.7(±0.6)     47.0(±0.3)     70.7(±0.6)         49.8
+          Based       JointLK                     NAACL2022      28.8(±0.6)     42.5(±0.2)     70.6(±0.5)         47.3
+         Methods      Dragon                      NeurIPS2022    31.9(±0.3)     47.5(±0.2)     70.6(±0.3)         50.0
+                      MV-LLaMA3.1(8B)                  -         60.2(±0.5)     46.8(±0.4)     65.2(±0.4)         57.4
+          Multi
+                      DyLAN                       COLM2024       62.5(±0.3)     51.6(±0.6)     63.8(±0.5)         59.3
+         Agents
+                      MedAgents                    ACL2024       64.3(±0.4)     53.2(±0.3)     64.1(±0.6)         60.5
+         Methods
+                      MDAgents                    NeurIPS2024    65.0(±0.2)     53.4(±0.2)     64.0(±0.3)         60.8
+                      Mistral(7B)                  Mistral2023   63.4(±0.4)     47.7(±0.7)     64.4(±0.1)         58.5
+         General
+                      MedAlpaca(7B)                BHT2023       60.0(±0.4)     40.1(±0.1)     49.3(±3.4)         49.8
+           &
+                      PMC-LLaMA(7B)                SJTU2024      20.7(±1.1)     24.7(±0.4)     34.6(±1.7)         26.7
+         Medical
+                      LLaMA3(8B)                   Meta2024      63.4(±0.5)     56.6(±0.4)     65.4(±0.6)         61.8
+         LLMs
+                      LLaMA3.1(8B)[baseline]       Meta2024      67.7(±0.7)     56.3(±0.6)     68.7(±0.6)         64.2
+         General      COT-Mistral(7B)              Mistral2023   63.4(±0.3)     47.4(±0.2)     65.1(±0.2)         58.6
+            &         COT-MedAlpaca(7B)            BHT2023       60.3(±0.4)     39.9(±0.3)     48.5(±2.5)         49.6
+        Medical       COT-PMC-LLaMA(7B)            SJTU2024      20.4(±0.8)     20.8(±0.2)     20.8(±0.6)         20.7
+         LLMs         COT-LLaMA3(8B)               Meta2024      65.1(±0.5)     55.2(±0.3)     64.2(±0.5)         61.5
+        with COT      COT-LLaMA3.1(8B)             Meta2024      68.1(±0.5)     54.9(±0.3)     70.6(±0.5)         64.5
+                      Self-RAG (7B)                ICLR2024      32.2 (±1.9)   38.0 (±2.8)    59.4 (±1.2)         43.2
+          RAG
+                      Self-RAG (13B)               ICLR2024      50.2 (±0.4)   40.8 (±2.0)    64.6 (±5.0)         51.9
+          Based
+                      KG-Rank (13B)               ACL-w2024      45.2 (±0.5)   36.2 (±1.1)    50.3 (±1.5)         43.9
+         Methods
+                      MedRAG (70B)                 Oxon2024      57.9 (±1.5)   48.7 (±1.4)    71.9 (±1.8)         59.5
+       Logic Based    MedLA + LLaMA3.1(8B)            Ours       70.7(±0.1)     62.6(±0.1)     76.5(±0.1)       69.9(↑5.7)
+
+Table 2: The performance of our proposed MedLA model on Multi-choice medical QA benchmarks (Xiong et al. 2024).
+The table includes the accuracy (Acc) along with the standard deviation (±std) for each metric. The results demonstrate the
+effectiveness of MedLA in addressing complex medical reasoning tasks across different datasets.
+
+
+     Model           Method     Number            Score             Variant
+                                                                                       M ED QA-              M ED DD X
+                                                                                       US
+     deepseek-r1     MedLA      60           36.0(±4.3)
+                     baseline   60           21.3(±4.9)                               Acc±std        Basic           Expert
+     deepseek-v3     MedLA      60           25.6(±3.1)             M ED LA (full)    62.6±0.1       48.2±2.1        41.7±0.8
+                     baseline   60           15.0(±0.0)             -Revision loop    58.4±0.3       44.2±1.9        38.6±1.0
+                                                                    -Credibility      57.3±0.4       41.8±1.7        37.2±1.3
+Table 3: Performance comparison of MedLA and base-                  -LogicTree (Co-   56.1±0.4       38.7±1.5        34.9±1.2
+line on DeepSeek-based reasoning evaluated on the MedX-             TOnly)
+pertQA benchmark(Zuo et al. 2025).                                  MV                54.8±0.4       37.5±0.9        30.2±0.8
+
+                                                                  Table 4: Step-wise ablation of M ED LA. The last row Ma-
+objectivity, we referenced the baseline results reported in       jority Voting (MV) is a naı̈ve majority-vote ensemble that
+(Su et al. 2025a). The outcomes are presented in Table 3.         keeps only the common backbone (LL A MA 3.1-8B) and
+   [Detailed Difficulty vs. Performance Analysis] MedLA           the same agent prompts. All numbers are three-seed means
+gives greater lift to more difficult tasks. We examine how        ± std.
+the proposed logic-tree framework scales with task difficulty
+by comparing MedLA to its LLaMA-3.1-8B backbone on
+the three graded subsets of MedDDx (basic, intermediate,          intervals also narrow, indicating increased prediction stabil-
+expert). Three random seeds are evaluated per tier; mean ac-      ity. These results suggest that explicit logic-tree exchange
+curacy and standard deviation are reported in Fig. 3-left. All    and cross-agent revision become progressively more benefi-
+experimental factors—retriever, decoding temperature, and         cial as diagnostic options converge semantically, reinforcing
+candidate pool—are controlled, so any performance delta re-       the value of structure-level reasoning for the most challeng-
+flects the contribution of MedLA’s multi-agent reasoning.         ing clinical cases.
+   Analysis: The relative improvement grows monotonically            [Detailed Base Model vs. Performance Analysis]
+with difficulty: +4.6 pp (percentage point) on basic, +6.4 pp     MedLA Continuous Enhancement on a Stronger Base
+on intermediate, and +11.1 pp on the expert tier. Confidence      Model. To assess MedLA’s benefits beyond a single back-
+                        Component time (sec.)                    tify the latency of the different methods in a real inference
+  Method                                              Total
+                     FT     RT    GBT     IFT(sec.)              process, we recorded the wall-clock time on the B IOASQ-
+                                                                 Y/N dataset. All models are deployed on the same A100-
+  Majority Voting      –      –       –       1 853   1 853      80GB, and the decoding temperature is kept consistent with
+  MedAgents            –      –       –       2 793   2 793      the number of concurrent threads to avoid interference from
+  KG-RAG               –    603       –       1 845   2 448
+                                                                 hardware differences. Table 5 splits the total elapsed time
+  KGAREVION         10k+      –       –       1 821   10k+
+  MedLA (ours)         –      –       –       3 657   3 657      into four components: additional fine-tuning (FT), external
+                                                                 retrieval (RT), logic graph construction and revision (GBT),
+                                                                 and pure language model inference (IFT). For KGARE-
+Table 5: Time Consumption Analysis. Wall-clock (sec.) la-
+                                                                 VION, which is only parameter fine-tuning, we add the offi-
+tency on B IOASQ-Y/N. FT = extra fine-tuning, RT = re-
+                                                                 cially reported 10 k-second training time to the total cost.
+trieval, GBT = logic-graph build (incl. revision loop), IFT =
+pure LLM inference. ‘–’ indicates no time cost.                     Analysis: Most baselines perform forward inference only
+                                                                 once, with latency linearly proportional to model size;
+                                                                 KGAREVION performs rapid inference but requires sev-
+                                                                 eral additional hours of fine-tuning and has the highest over-
+                                                                 all cost. medLA performs stepwise inference through 17
+                                                                 subagents, which is about 2 times higher than the sim-
+                                                                 ple majority-voting scheme but much lower than KGARE-
+                                                                 VION, which requires offline training and is within the ac-
+                                                                 ceptable range. within the acceptable interval. More impor-
+                                                                 tantly, MedLA does not introduce additional retrieval or of-
+                                                                 fline fine-tuning sessions.
+
+                                                                                        Conclusion
+                                                                 We present MedLA, a logic-driven multi-agent system that
+Figure 3: Performance comparison of MedLA with                   decomposes clinical questions into structured syllogistic
+LLaMA3.1-8B at different levels of difficulty on the Med-        trees and enables iterative, cross-agent discussions to resolve
+DDx benchmark. Error bars represent SD.                          logical and knowledge conflicts. Notably, these improve-
+                                                                 ments require no fine-tuning or external retrieval, highlight-
+                                                                 ing the value of structured logic and collaborative reasoning.
+bone, we compare its gains over both the 8-bit and 70-
+bit variants of LLaMA-3.1 on the MedDDx-Expert tier (in
+Fig. 3-right).                                                                      Acknowledgments
+   Analysis: MedLA yields consistent, substantial improve-       This work was supported by the National Natural Science
+ments on both backbones: from 30.6% to 41.7% (+11.1 pp)          Foundation of China (No. 62306313), the Chinese Academy
+for 8B, and from 41.8% to 51.9% (+10.1 pp) for 70 B. These       of Medical Sciences Innovation Fund for Medical Sciences
+results demonstrate that our structured, multi-agent reason-     (2024-I2M-TS-035), and the Zhejiang Province Selected
+ing adds value even as the underlying LLM scales up, un-         Funding for Postdoctoral Research Projects (ZJ2025113).
+derscoring the generality and robustness of the logic-tree ap-   Additional support was provided by the InnoHK program,
+proach across model sizes.                                       and Ant Group through the CAAI-Ant Research Fund. We
+   [Ablation Study] Each MedLA module contributes ad-            also thank the Funding from the ROOTCLOUD TECH-
+ditively to final accuracy. To evaluate the independent con-     NOLOGY CO.,LTD.
+tributions of the three modules of logic tree, confidence cal-      We thank the China-Japan Friendship Hospital for pro-
+ibration, and multi-round correction, we eliminated each         viding medical expertise and resources, and Zhipu AI for
+component one by one under the same LLaMA-3.1-8B                 their API support. We are grateful to Prof. Zhen Lei from
+backbone, the same cueing and decoding hyperparameters           the CAIR, Hong Kong Institute of Science and Innovation
+(see Table 4), and averaged them with 3 random seeds.            (HKISI) and Prof. Stan Z. Li from Westlake University for
+   Analysis: Dropping the Revision loop lowers accuracy by       their valuable suggestions and comments.
+2.2 pp on MedQA-US and roughly 1.8 pp on both MedDDx
+tiers, confirming that structured peer feedback yields tangi-                            References
+ble gains. Suppressing the Credibility Agent causes an addi-
+tional 1.1-1.4 pp decline, showing that calibrated confidence    Asai, A.; Wu, Z.; Wang, Y.; Sil, A.; and Hajishirzi, H. 2023.
+scores steer agents towards more reliable updates. Remov-        Self-RAG: Learning to Retrieve, Generate, and Critique
+ing the entire Logic-tree scaffold—thereby falling back to       through Self-Reflection. arXiv preprint arXiv:2310.11511.
+plain chain-of-thought outputs—produces the steepest drop        Borgeaud, S.; Mensch, A.; Hoffmann, J.; et al. 2022. Im-
+(-4.5 pp on MedQA-US, -4.3 pp on MedDDx-Expert).                 proving Language Models by Retrieving from a Fixed Set
+   [Time Consumption Analysis] The complexity and                of Documents. Advances in Neural Information Processing
+time consumption of MedLA is manageable. To quan-                Systems, 34: 2308–2324.
+Brown, T.; Mann, B.; Ryder, N.; et al. 2020. Language Mod-       Liu, X.; Peng, Z.; Yi, X.; Xie, X.; Xiang, L.; Liu, Y.; and
+els are Few-Shot Learners. Advances in Neural Information        Xu, D. 2024b. ToolNet: Connecting Large Language Mod-
+Processing Systems, 33: 1877–1901.                               els with Massive Tools via Tool Graph. ArXiv:2403.00839
+Chang, Y.; Wang, X.; Wang, J.; Wu, Y.; Yang, L.; Zhu, K.;        TLDR: This paper proposes ToolNet, a plug-and-play
+Chen, H.; Yi, X.; Wang, C.; Wang, Y.; et al. 2024. A survey      framework that scales up the number of tools to thousands
+on evaluation of large language models. ACM transactions         with a moderate increase in token consumption and is re-
+on intelligent systems and technology, 15(3): 1–45.              silient to tool failures.
+Goh, E.; Gallo, R.; Hom, J.; Strong, E.; Weng, Y.; Kerman,       Liu, Z.; Zhang, Y.; Li, P.; Liu, Y.; and Yang, D. 2024c. Dy-
+H.; Cool, J. A.; Kanjee, Z.; Parsons, A. S.; Ahuja, N.; et al.   namic LLM-Agent Network: An LLM-agent Collaboration
+2024. Large language model influence on diagnostic reason-       Framework with Agent Team Optimization.
+ing: a randomized clinical trial. JAMA Network Open, 7(10):      Liu, Z.; Zhang, Y.; Li, P.; Liu, Y.; and Yang, D. 2024d. A
+e2440969–e2440969.                                               Dynamic LLM-Powered Agent Network for Task-Oriented
+Guo, T.; Chen, X.; Wang, Y.; Chang, R.; Pei, S.; Chawla,         Agent Collaboration. arXiv:2310.02170.
+N. V.; Wiest, O.; and Zhang, X. 2024. Large language model       Moor, M.; Huang, Q.; et al. 2023. Med-Flamingo: A
+based multi-agents: A survey of progress and challenges.         Multimodal Medical Few-shot Learner. arXiv preprint
+arXiv preprint arXiv:2402.01680.                                 arXiv:2307.15189.
+Howson, C. 2005. Logic with trees: an introduction to sym-       Pal, A.; Umapathi, L. K.; and Sankarasubbu, M. 2022.
+bolic logic. Routledge.                                          Medmcqa: A large-scale multi-subject multi-choice dataset
+Jiang, C.; and Yang, X. 2023. Legal syllogism prompting:         for medical domain question answering. In Conference on
+Teaching large language models for legal judgment predic-        health, inference, and learning, 248–260. PMLR.
+tion. In Proceedings of the nineteenth international confer-     Rae, J. W.; Borgeaud, S.; Cai, T.; et al. 2021. Scaling
+ence on artificial intelligence and law, 417–421.                Language Models to 6 Billion Parameters. arXiv preprint
+Kasneci, E.; Seßler, K.; Küchemann, S.; Bannert, M.; De-        arXiv:2112.11446.
+mentieva, D.; Fischer, F.; Gasser, U.; Groh, G.; Günnemann,     Revlis, R. 2015. Syllogistic reasoning: Logical decisions
+S.; Hüllermeier, E.; et al. 2023. ChatGPT for good? On op-      from a complex data base. In Reasoning: Representation
+portunities and challenges of large language models for ed-      and process, 93–133. Psychology Press.
+ucation. Learning and individual differences, 103: 102274.
+                                                                 Sepehri, M. S.; Fabian, Z.; Soltanolkotabi, M.; and
+Khemlani, S.; and Johnson-Laird, P. N. 2012. Theories            Soltanolkotabi, M. 2024. MediConfusion: Can you trust
+of the syllogism: A meta-analysis. Psychological bulletin,       your AI radiologist? Probing the reliability of multimodal
+138(3): 427.                                                     medical foundation models.
+Kim, D.; Wang, X.; et al. 2024. MDAgents: An Adaptive
+                                                                 Singhal, K.; Azizi, S.; Tu, T.; Mahdavi, S. S.; Wei, J.; Chung,
+Collaboration of LLMs for Medical Decision-Making. arXiv
+                                                                 H. W.; Scales, N.; Tanwani, A.; Cole-Lewis, H.; Pfohl, S.;
+preprint arXiv:2406.06782.
+                                                                 et al. 2023. Large language models encode clinical knowl-
+Kim, Y.; Park, C.; Jeong, H.; Chan, Y. S.; Xu, X.; McDuff,       edge. Nature, 620(7972): 172–180.
+D.; Lee, H.; Ghassemi, M.; Breazeal, C.; and Park, H. W.
+                                                                 Smiley, T. J. 1973. What is a syllogism? Journal of philo-
+2024. MDAgents: An Adaptive Collaboration of LLMs for
+                                                                 sophical logic, 136–154.
+Medical Decision-Making. ArXiv:2404.15155 TLDR: The
+novel framework, Medical Decision-making Agents, aims to         Soman, K.; Rose, P. W.; Morris, J. H.; and et al.
+address the gap in strategic deployment of LLMs by auto-         2023. Biomedical Knowledge-Graph-Optimized Prompt
+matically assigning the effective collaboration structure for    Generation for Large Language Models. arXiv preprint
+LLMs, and explores the dynamics of group consensus, of-          arXiv:2311.17330.
+fering insights into how collaborative agents could behave       Su, X.; Wang, Y.; Gao, S.; Liu, X.; Giunchiglia, V.; Clevert,
+in complex clinical team dynamics.                               D.-A.; and Zitnik, M. 2024. Knowledge Graph Based Agent
+Li, B.; Yan, T.; Pan, Y.; et al. 2024. MMedAgent: Learn-         for Complex, Knowledge-Intensive QA in Medicine. arXiv
+ing to Use Medical Tools with Multi-modal Agent. arXiv           preprint arXiv:2410.04660.
+preprint arXiv:2407.02483.                                       Su, X.; Wang, Y.; Gao, S.; Liu, X.; Giunchiglia, V.; Clevert,
+Liévin, V.; Hother, C. E.; Motzfeldt, A. G.; and Winther,       D.-A.; and Zitnik, M. 2025a. KGARevion: An AI Agent
+O. 2024. Can large language models reason about medical          for Knowledge-Intensive Biomedical QA. In The Thirteenth
+questions? Patterns, 5(3).                                       International Conference on Learning Representations.
+Liu, C.; Li, C.; et al. 2023. LLaVA-Med: Training a              Su, X.; Wang, Y.; Gao, S.; Liu, X.; Giunchiglia, V.; Clevert,
+Large Language-and-Vision Assistant for Biomedicine in           D.-A.; and Zitnik, M. 2025b. KGARevion: An AI Agent for
+One Day. arXiv preprint arXiv:2306.00890.                        Knowledge-Intensive Biomedical QA. ArXiv:2410.04660
+Liu, J.; Zhang, C.; Guo, J.; Zhang, Y.; Que, H.; Deng, K.;       [cs].
+Liu, J.; Zhang, G.; Wu, Y.; Liu, C.; et al. 2024a. Ddk: Dis-     Sun, Y.; Shi, Q.; Qi, L.; and Zhang, Y. 2022. JointLK: Joint
+tilling domain knowledge for efficient large language mod-       Reasoning with Language Models and Knowledge Graphs
+els. Advances in Neural Information Processing Systems,          for Commonsense Question Answering. In Proceedings
+37: 98297–98319.                                                 of the 2022 Conference of the North American Chapter
+of the Association for Computational Linguistics: Human          uation of LLMs in medical domain and offers valuable in-
+Language Technologies (NAACL-HLT), 5049–5060. Seattle,           sights for developing medical-specific LLMs.
+USA: Association for Computational Linguistics.                  Zuo, Y.; Qu, S.; Li, Y.; Chen, Z.; Zhu, X.; Hua, E.; Zhang,
+Tang, X.; Zou, A.; Zhang, Z.; et al. 2024. MedAgents: Large      K.; Ding, N.; and Zhou, B. 2025. Medxpertqa: Bench-
+Language Models as Collaborators for Zero-shot Medical           marking expert-level medical reasoning and understanding.
+Reasoning. arXiv preprint arXiv:2311.10537.                      ICML.
+Wang, H.; Zhao, S.; Qiang, Z.; Li, Z.; Liu, C.; Xi, N.; Du,
+Y.; Qin, B.; and Liu, T. 2025. Knowledge-tuning large lan-
+guage models with structured medical knowledge bases for
+trustworthy response generation in Chinese. ACM Transac-
+tions on Knowledge Discovery from Data, 19(2): 1–17.
+Wei, J.; Wang, X.; Schuurmans, D.; et al. 2022. Chain of
+Thought Prompting Elicits Reasoning in Large Language
+Models. arXiv preprint arXiv:2201.11903.
+Wu, J.; Zhu, J.; Qi, Y.; Chen, J.; Xu, M.; Menolascina, F.;
+and Grau, V. 2024a. Medical graph rag: Towards safe medi-
+cal large language model via graph retrieval-augmented gen-
+eration. arXiv preprint arXiv:2408.04187.
+Wu, S.; Zhao, S.; Yasunaga, M.; Huang, K.; Cao, K.; Huang,
+Q.; Ioannidis, V.; Subbian, K.; Zou, J. Y.; and Leskovec, J.
+2024b. Stark: Benchmarking llm retrieval on textual and
+relational knowledge bases. Advances in Neural Information
+Processing Systems, 37: 127129–127153.
+Xiong, G.; Jin, Q.; Lu, Z.; and Zhang, A. 2024. Benchmark-
+ing Retrieval-Augmented Generation for Medicine. arXiv
+preprint arXiv:2402.13178.
+Yang, R.; Liu, H.; Marrese-Taylor, E.; and et al. 2024. KG-
+Rank: Enhancing Large Language Models for Medical QA
+with Knowledge Graphs and Ranking Techniques. In Pro-
+ceedings of the 23rd Workshop on Biomedical Natural Lan-
+guage Processing, 155–166. Association for Computational
+Linguistics.
+Yang, X.; Chen, A.; PourNejatian, N.; Shin, H. C.; Smith,
+K. E.; Parisien, C.; Compas, C.; Martin, C.; Costa, A. B.;
+Flores, M. G.; et al. 2022. A large language model for elec-
+tronic health records. NPJ digital medicine, 5(1): 194.
+Yasunaga, M.; Bosselut, A.; Ren, H.; Zhang, X.; Man-
+ning, C. D.; Liang, P.; and Leskovec, J. 2022. DRAGON:
+Deep Bidirectional Language–Knowledge Graph Pretrain-
+ing. In Advances in Neural Information Processing Systems
+35 (NeurIPS 2022). ArXiv:2210.09338.
+Yasunaga, M.; Ren, H.; Bosselut, A.; Liang, P.; and
+Leskovec, J. 2021. QA-GNN: Reasoning with Language
+Models and Knowledge Graphs for Question Answering.
+In Proceedings of the 2021 Conference of the North Ameri-
+can Chapter of the Association for Computational Linguis-
+tics: Human Language Technologies (NAACL-HLT), 535–
+546. Online: Association for Computational Linguistics.
+Ye, K.; Li, J.; et al. 2022. Logic-Guided GPT: Incorporat-
+ing Logic Rules into GPT for Explainable Natural Language
+Understanding. arXiv preprint arXiv:2212.12345.
+Zhou, Y.; Liu, X.; Ning, C.; Zhang, X.; and Wu, J. 2024.
+Reliable and diverse evaluation of LLM medical knowl-
+edge mastery. ArXiv:2409.14302 [cs] TLDR: The proposed
+novel evaluation method, Predicate-text Dual Transforma-
+tion (PretextTrans), serves as an effective solution for eval-
+                                            Appendix: Details of Related Work
+Large Language Models in Medical Reasoning. Large language models (LLMs) have demonstrated strong capabilities in
+general-purpose natural language understanding and reasoning tasks (Brown et al. 2020). In the medical domain, LLMs have
+been widely applied to diagnosis assistance, clinical report generation, and medical question answering. Models such as GPT-3
+and its successors have set new benchmarks in language modeling, yet they often lack the domain-specific knowledge and
+structured reasoning abilities required to handle semantically complex clinical scenarios (Liu et al. 2024b). To address this,
+researchers have introduced Chain-of-Thought (CoT) prompting (Wei et al. 2022), which decomposes complex problems into
+interpretable reasoning steps. While effective for generic tasks, CoT struggles with the multi-modal, context-dependent nature
+of medical problems (Liu, Li et al. 2023). Med-Flamingo extended CoT to a multi-modal setting, combining textual and visual
+inputs to explore richer clinical reasoning pathways (Moor, Huang et al. 2023). However, despite such advances, most LLMs
+remain constrained by static reasoning structures and closed pretraining knowledge, underscoring the need for adaptive, context-
+aware mechanisms (Sepehri et al. 2024; Zhou et al. 2024).
+   Multi-Agent Systems for Collaborative Problem Solving. Multi-agent systems (MAS) have gained traction as an effective
+paradigm for solving complex tasks, especially those requiring multidisciplinary expertise and collaborative reasoning (Kim,
+Wang et al. 2024). In the medical domain, these systems typically assign fixed roles to agents, such as radiologist, pathologist, or
+general practitioner, to simulate real-world clinical collaboration. For example, MedAgents adopts static role-based assignments
+to facilitate zero-shot medical question answering by leveraging pretrained LLMs to emulate specialist reasoning (Tang et al.
+2024). Similarly, MDAgents introduces a hierarchical coordination framework to adaptively structure collaboration based on
+task complexity, significantly improving both flexibility and diagnostic accuracy (Kim, Wang et al. 2024). Other approaches,
+such as GopherCite (Rae et al. 2021), integrate retrieval-augmented mechanisms to inject domain-specific knowledge into the
+generation process. Nevertheless, most existing systems rely heavily on predefined role structures, limiting their capacity to
+generalize across novel tasks or dynamically evolving medical scenarios (Guo et al. 2024).
+   Dynamic Multi-Agent Collaboration. To overcome the limitations of static role assignment, researchers have explored dy-
+namic agent collaboration mechanisms. MMedAgent introduces a multi-modal tool interface that enables agents to dynamically
+select the most appropriate tools based on task requirements, significantly improving flexibility and precision in multi-modal
+medical tasks (Li et al. 2024). The system integrates modules such as segmentation, classification, and report generation, sup-
+porting a wide range of end-to-end workflows. RETRO similarly enhances factuality by combining LLMs with large-scale
+retrieval systems (Borgeaud et al. 2022). While these systems offer improved task-level adaptability, their focus remains on tool
+orchestration rather than deeper inter-agent collaboration or logical reasoning. For example, Med-Flamingo and LLaVA-Med
+demonstrate effective multi-modal integration but lack structured support for multi-agent reasoning across logical layers.
+   Logic-Driven Frameworks in Medical AI. Recent studies emphasize the critical role of logical reasoning in enhancing
+the problem-solving capabilities of medical AI systems (Tang et al. 2024). Logic-driven frameworks decompose tasks into in-
+terpretable modules, such as causal inference, diagnosis validation, and treatment planning, enabling greater transparency and
+robustness. MedAgents leverages hierarchical reasoning pipelines to emulate expert workflows, while MDAgents dynamically
+structures collaboration based on task complexity to improve performance on complex cases (Kim, Wang et al. 2024). Other
+approaches, such as Logic-Guided GPT (Ye, Li et al. 2022), explicitly embed symbolic logic into LLMs, improving controlla-
+bility and reasoning depth in structured domains. Despite these efforts, most existing frameworks remain bounded by static task
+definitions and lack mechanisms for deep agent-to-agent reasoning. The integration of logic-driven reasoning with dynamic
+multi-agent collaboration remains an open challenge, especially in addressing the multi-layered logic and multi-perspective
+inference required for real-world clinical reasoning (Wu et al. 2024a; Su et al. 2024).
+
+                                              Appendix: Details of PROMPTS
+In this section, we provide the detailed prompt templates used for each agent in the MedLA framework. The prompts are divided
+into two parts: system instruction, which defines the task and formatting conventions, and user instruction, which provides a
+case study and describes the specifics of the task. For all experiments, prompts are written in English, and the user prompts
+are formatted to follow a consistent pattern: [Example] + [Context] + [Expected Output Format]. All prompt
+templates are manually curated and kept fixed during testing. Below, we list the prompt classes and examples. And depending
+on the task, Agent’s chat logs are selectively saved.
+
+D-Agent: Decompose Agent Prompt
+System Prompt:
+   You are an agent. Help me eliminate the least likely option. Make sure to follow the format below:
+   <Eliminate>Answer: option</Eliminate>
+   Reason: ***
+   (don’t forget the <Eliminate> </Eliminate> tags.)
+  Purpose: Remove the most unlikely answer from multiple choices based on logic down to the last option. Rebuttal with
+other agents if desired.
+  User prompt template:
+  Based on the following examples, return the answer to the medical question. Examples are as follows:
+  [Examples]
+  Question: [question]
+  Option: [option]
+  Help me eliminate the least likely option. Then explain in one sentence the key reason for such a judgment. Please follow the structured
+  reasoning steps below and provide the final answer clearly:
+  Step 1: Information Extraction
+  List clearly each important piece of information provided in the question:
+  - Information 1: ...
+  - Information 2: ...
+  - Information 3: ...
+  (Continue as needed)
+  Step 2: Background Knowledge
+  Clearly state relevant background knowledge or general principles necessary for solving this problem:
+  - Knowledge 1: ...
+  - Knowledge 2: ...
+  - Knowledge 3: ...
+  (Continue as needed)
+  Step 3: Reasoning Process (Subject-Predicate-Object format)
+  Perform logical reasoning step-by-step, explicitly indicating each reasoning step as a Subject-Predicate-Object triple, along with a
+  brief explanation of the logical relationship:
+  Reasoning Step 1:
+  - Subject: ...
+  - Predicate (relation): ...
+  - Object: ...
+  - Explanation: ...
+  Reasoning Step 2:
+  - Subject: ...
+  - Predicate (relation): ...
+  - Object: ...
+  - Explanation: ...
+  Reasoning Step 3:
+  - Subject: ...
+  - Predicate (relation): ...
+  - Object: ...
+  - Explanation: ...
+  (Continue additional reasoning steps as necessary)
+  - Object: The entity or concept that receives the action or judgment.
+  —-
+  Follow the format below:
+  <Eliminate>Answer: [option str]</Eliminate>
+  Reason: ***
+  (don’t forget the <Eliminate> </Eliminate> tags.)
+  Purpose: Rebuttal with other agents if desired.
+  User prompt template:
+  Question:[question]
+  Your opinion is: [answer]. Your reasoning is: [reason]
+  Please communicate with multiple other logical perspectives.
+  [opinions]
+  First answer, which should be the correct option.
+  Then, please summarize each person’s logic, and if you find them to be factually incorrect, and logically incorrect, please list them
+  below and give reasons.
+  —–
+  Follow the format below:
+  <Answer>Answer: [options]</Answer>.
+  (don’t forget the <Answer> </Answer> tags.)
+
+
+M-Agent: Medical Agents
+System Prompt:
+  You are a professional medical logic checker. Your task is to analyze a given medical reasoning passage and identify each reasoning
+  step, its logical structure, and potential issues. In addition to a written evaluation, you must output a TSV-style table summarizing
+  each reasoning step. Make sure your TSV-style output is accurate, logically sound, and grounded in standard medical knowledge.
+   Just return this TSV form.
+
+   Example of the table format:
+   Step Subject Object Logical Relationship Reasoning Text Credibility Error (Yes/No) Error Type Suggested Correction
+   Fever Bacterial Infection Symptom-to-cause The presence of fever indicates a bacterial infection Weak Yes Factual Clarify that fever
+   is non-specific and may be caused by viral or bacterial infection
+
+  Purpose: Go through and summarize each of the L-Agent’s gave and organize them in TSV format.
+  User prompt template:
+   reasoning passage:[reason]
+
+   Please perform the following tasks:
+   1. [Step-by-step Reasoning Reconstruction]
+   Break down the entire reasoning process step-by-step. Identify:
+   - The subject (who or what the step is about)
+   - The object (the outcome, result, or related concept)
+   - The logical relationship (e.g., cause-effect, association, inference)
+   - The logical strength (Strong / Moderate / Weak)
+   - Whether the step is flawed (Yes / No)
+   - If flawed, specify the error type (Factual / Logical / Conceptual)
+
+   2. [TSV Table Output]
+   Provide your analysis in TSV table format with the following columns:
+   Step, Subject, Object, Logical Relationship, Reasoning Text, Credibility, Error (Yes/No), Error Type, Suggested Correction
+
+   3. [Optional Full Report]
+   After the TSV table, you may include a full written report including:
+   - Summary of reasoning
+   - Overall assessment of reasoning strength
+   - Suggestions for correction
+
+   Example of the table format:
+   Step Subject Object Logical Relationship Reasoning Text Credibility Error (Yes/No) Error Type Suggested Correction
+   Fever Bacterial Infection Symptom-to-cause The presence of fever indicates a bacterial infection Weak Yes Factual Clarify that fever
+   is non-specific and may be caused by viral or bacterial infection
+   ...
+
+   Make sure your TSV-style output is accurate, logically sound, and grounded in standard medical knowledge.
+   Just return this TSV form.
+
+C-Agent: Credibility Agent Prompt
+System Prompt:
+   You are the Credibility Agent responsible for assessing the trustworthiness of each inference step in a medical logical tree.
+   Your task is to review each syllogism node—its major premise, minor premise, and conclusion—and assign one of three credibility
+   levels: High, Medium, or Low.
+   Follow the output format exactly as a TSV table with columns:
+   Index       MajorPremise          MinorPremise           Conclusion          Credibility
+   Do not include any extra commentary.
+   Purpose: Evaluate the logical consistency, factual correctness, and relevance of each node in the agent-generated tree, so
+that downstream discussion can focus on low-credibility steps.
+   User Prompt Template:
+   Here is the logical tree from Medical Agent M(j) . Each row is a syllogism node:
+    Index     Syllogism
+    1         (All X cause Y) (Patient has X) → (Patient may have Y)
+    2         (Rule A) (Fact B) → (Conclusion C)
+    ...       ...
+   For each node, decide:
+   • Is the major premise correct and relevant?
+   • Is the minor premise factual and applicable?
+   • Does the conclusion follow logically?
+   Assign High, Medium, or Low credibility to each node and return a TSV table:
+
+   Index       MajorPremise           MinorPremise          Conclusion         Credibility
+
+   Example row: 1       "All X cause Y"             "Patient has X"           "Patient may have Y"              High
+
+P-Agent: Premise Agent Prompt
+System Prompt:
+   You are the Premise Agent responsible for extracting the foundational facts and rules from a clinical question.
+   Your output must include two labeled lists: <MajorPremises> and <MinorPremises>.
+   Each list should contain bullet-style items, one premise per line.
+   Do not include any additional text or commentary.
+   Purpose: Seed the logical reasoning pipeline by isolating (1) general medical rules (major premises) and (2) patient-specific
+facts (minor premises) from the question text.
+   User Prompt Template:
+   Below is a medical question. Extract:
+   • All relevant general medical rules that could apply (major premises).
+   • All patient-specific facts stated in the question (minor premises).
+
+   [Examples]
+   Question: “A 65-year-old man with hypertension presents with chest pain radiating to his left arm. What is the most likely diagnosis?”
+   [Context]
+
+   Question: [question text]
+
+
+   [Expected Output Format]
+   <MajorPremises>
+   • “Hypertension increases risk of coronary artery disease.”
+   • “Chest pain radiating to left arm is a sign of myocardial ischemia.”
+   • ...
+   </MajorPremises>
+   <MinorPremises>
+   • “Patient is 65 years old.”
+   • “Patient has a history of hypertension.”
+   • “Patient’s chest pain radiates to the left arm.”
+   • ...
+   </MinorPremises>
+
+                                             Appendix: Examples of Logical Tree
+Example Question
+The following example illustrates the end-to-end process by which a single agent constructs a logical tree.
+ • Question: Which medications are designed to influence genes or proteins associated with the enzymatic activity of dITP
+   diphosphatase?
+ • Options: A. Sodium citrate B. Citric acid C. Calcium citrate D. Ascorbic acid
+
+Generated Logical Tree by One Agent
+Figures 4 (Part 1) and 5 (Part 2) show the logical tree produced by a single M-Agent for the example question, alongside its
+text-based reasoning panel. Below is the complete English text that appears in the left-hand panel.
+Step 1 - Background Knowledge Retrieval
+1. Knowledge 1: Drugs intended to affect dITP diphosphatase typically bind directly to the enzyme or regulate its gene/protein
+   expression to alter its catalytic activity.
+2. Knowledge 2: Buffering or chelating salts (e.g., sodium citrate) are formulated for pH control or anticoagulation and are
+   not engineered for selective enzyme modulation.
+3. Knowledge 3: Vitamins acting as cofactors (e.g., ascorbic acid) can participate in redox or epigenetic pathways, thereby
+   modulating gene expression.
+4. Knowledge 4: Compounds that raise intracellular Ca2+ (e.g., calcium citrate) activate Ca2+ -dependent transcription factors,
+   indirectly influencing enzyme expression.
+5. Knowledge 5: TCA-cycle metabolites (e.g., citric acid) may feedback-regulate metabolic-gene networks, providing a theo-
+   retical link to nucleotide-related enzymes.
+Step 2 - Information Extraction
+1. Information 1: The task is to eliminate the medication least likely to modulate dITP diphosphatase activity.
+2. Information 2: The options are A = Sodium citrate, B = Citric acid, C = Calcium citrate, D = Ascorbic acid.
+3. Information 3: dITP diphosphatase belongs to the nucleotide-sanitation pathway; modulators usually derive from nucleotide
+   or gene-regulatory pharmacology (relates to Knowledge 1).
+
+Step 3 - Reasoning Process (Subject-Predicate-Object and Explanation)
+ Step    Subject            Predicate (relation)         Object (conclusion)       Explanation
+                                                                                   (Knowledge          ×
+                                                                                   Information)
+   1     Sodium citrate     Lacks any engineered         ⇒ Eliminate A             K2 + I1
+                            gene-     or     enzyme-
+                            modulatory         design
+                            (Knowledge 2)
+   2     Ascorbic acid      Acts as a redox cofactor     ⇒ Keep B                  K3 + I3
+                            and can alter gene ex-
+                            pression epigenetically
+                            (Knowledge 3)
+   3     Calcium citrate    Raises       intracellular   ⇒ Keep C                  K4 + I3
+                            Ca2+ , activating Ca2+ -
+                            dependent transcription
+                            factors (Knowledge 4)
+   4     Citric acid        Feeds       back       on    ⇒ Keep D                  K5 + I3
+                            metabolic-gene        net-
+                            works        (Knowledge
+                            5)
+
+Final Conclusion <Eliminate>Answer: A</Eliminate> Reason: Sodium citrate is merely a buffering/antico-
+agulant salt and is not designed to modulate nucleotide-metabolizing enzymes such as dITP diphosphatase.
+  The text above corresponds exactly to the nodes and edges in Figures 4 and 5. It shows how the agent leverages background
+knowledge and question-specific information to build and verify syllogistic reasoning steps, culminating in the elimination of
+option A.
+Legend
+ • K: Knowledge node
+ • I: Information node
+ • R: Reasoning step node
+ • E(option): Elimination/Selection node
+   Figures 4 and 5 together illustrate the agent’s three-stage output: the left panel for textual reasoning and the right panel for
+the corresponding visualized logical tree.
+   Step 1 – Background Knowledge
+   Knowledge 1 : Medications intended to influence the enzymatic activity of dITP
+   diphosphatase (ITPA) must either (a) alter nucleotide-metabolism pathways or (b)
+   regulate the gene/protein expression of ITPA.
+   Knowledge 2 : Buffering or chelating salts such as sodium citrate are formulated for
+   pH control or anticoagulation and are not engineered to modify gene or protein
+   activity.                                                                                                                                                          K : Knowledge
+                                                                                                                                                                      I : Information
+   Knowledge 3 : Vitamins with co-factor roles (e.g., ascorbic acid) can participate in      K2
+                                                                                                                                                                      R:ReasonStep
+   redox-dependent or epigenetic reactions, thereby modulating gene expression.                   R1                                                                E(A): Exclusion "A"
+
+   Knowledge 4 : Compounds that elevate intracellular Ca²⁺ (e.g., calcium citrate) can       I2
+   trigger Ca²⁺-dependent transcription factors, indirectly affecting enzyme expression.     K3
+   Knowledge 5 : Central-metabolite supplements (e.g., citric acid) may secondarily
+                                                                                                  R2
+   influence metabolic-gene networks, providing at least a theoretical link to nucleotide-
+                                                                                             I2
+   related enzymes.                                                                                             E(A)
+                                                                                             K4
+
+   Step 2 – Information Extraction                                                                R3
+                                                                                                            Node 1:
+                                                                                                            Exclusion option A
+
+   Information 1 : The task is to decide which listed medication is least likely designed    I2
+   to modulate genes/proteins that govern dITP diphosphatase activity.
+                                                                                             K5
+   Information 2 : The options are (A) Sodium citrate, (B) Citric acid, (C) Calcium
+                                                                                                  R4
+   citrate, (D) Ascorbic acid.
+                                                                                             I2
+   Information 3 : dITP diphosphatase (ITPA) belongs to the nucleotide-sanitization
+   pathway, so purposeful modulators usually arise from nucleotide- or gene-regulatory
+   pharmacology (relates to Knowledge 1).
+                                                                                             K1
+   Step 3 – Reasoning Process（Subject – Predicate – Object ）                                      R1
+
+                                                                         Explanation         K2
+   Reasoning                                          Object             (links                                                             E(B)
+             Subject       Predicate (relation)                                              K3
+   Step                                               (conclusion)       Knowledge ×                                             Node 2:
+                                                                                                  R2
+                                                                         Information)                                            Exclusion option B
+                                                                                             I2
+                         is a buffering/chelation
+                                                      ⇒ It is unlikely   Big premise
+                         agent with no
+                Sodium                                designed to        (K2) + Small
+                                                                         premise (I2) →
+   1                     engineered gene- or
+                citrate                               influence ITPA
+                         enzyme-modulatory
+                                                      (Information 1)    Conclusion
+                         role (Knowledge 2)
+                         serves as a redox co-
+                                                      ⇒ It could                             K1
+
+                                                                         K3 + I2 →
+                         factor that can alter
+                Ascorbic                              conceivably                                 R1
+   2                     gene expression
+                acid                                  modulate ITPA      plausible link      I1
+                         epigenetically
+                                                      pathways                               K2
+                         (Knowledge 3)
+                                                                                                  R2
+                         raises intracellular Ca²⁺,
+                                                                                             I2
+                                                      ⇒ It might
+                                                                         K4 + I2 →
+                         activating Ca²⁺-
+                Calcium
+   3                     dependent                    influence ITPA                         K3
+                citrate                                                  plausible link
+                         transcription factors        gene regulation                             R3
+
+                         (Knowledge 4)                                                       I2
+
+                                                    ⇒ It might                                         R4                                                 E(C)
+                          is a TCA-cycle metabolite
+                                                                       K5 + I2 →
+                                                    indirectly affect                                                                          Node 3:
+               Citric     that can feed back on                                                                                                Exclusion option C
+   4                                                enzymes in
+               acid       metabolic-gene                               plausible link
+                                                    nucleotide                                                                                                           Answer:D
+                          networks (Knowledge 5)
+                                                    metabolism
+                                                                                                                             Agent1
+   Only Step 1 reaches a negative conclusion; the other three retain at least theoretical
+   gene-regulatory potential.
+
+   <Eliminate>Answer: A</Eliminate>
+   Reason: Sodium citrate is merely a buffering/anticoagulant salt and is not designed
+   to modulate nucleotide-metabolism genes or proteins such as dITP diphosphatase.
+
+
+
+
+Figure 4: The first part of the logical tree generated by Agent1 for the example question. The tree is derived from the
+question and retrieved documents, where nodes represent reasoning steps.
+   Step 1 – Background Knowledge                                                                                                                                    K : Knowledge
+                                                                                                                                                                    I : Information
+   Knowledge 1: Drugs designed to affect an enzyme (e.g., dITP                             K2
+                                                                                                                                                                    R:ReasonStep
+                                                                                                                                                                  E(A): Exclusion "A"
+   diphosphatase/NUDT16) usually bind directly to that protein or regulate its gene             R1
+
+   expression to alter catalytic activity.                                                 I2
+
+   Knowledge 2: Mineral-replacement products such as calcium salts supply ions for         K3
+   physiological homeostasis and are not engineered for selective enzyme modulation.            R2
+   Knowledge 3: Ascorbic acid (vitamin C) acts as a redox co-factor for several            I2
+   dioxygenases; by altering cellular redox state and epigenetic hydroxylation pathways                       E(A)
+   it can secondarily influence expression or activity of multiple nucleotide-related      K4
+                                                                                                          Node 1:
+   enzymes.                                                                                     R3        Exclusion option A
+
+                                                                                           I2
+
+   Step 2 – Information Extraction                                                         K5
+   Information 1: The target enzyme is dITP diphosphatase.                                      R4
+   Information 2: Two candidate medications are Calcium citrate (C) and Ascorbic acid
+                                                                                           I2
+   (D).
+   Information 3: We must eliminate the medication least likely to have been designed
+   to influence genes or proteins linked to this enzyme.
+                                                                                           K1
+
+   Step 3 – Reasoning Process (Subject - Predicate - Object)                                    R1
+
+   Reasoning                                                                               K2
+               Subject           Predicate Object                   Explanation                                                           E(B)
+   Step                                                                                    K3
+
+               Medications                                                                      R2
+                                                                                                                               Node 2:
+                                            selective enzymatic From Knowledge                                                 Exclusion option B
+               intended to                                                                 I2
+   1                             require    regulation (binding or 1 and Information
+               influence dITP
+                                            gene-level control)     1
+               diphosphatase
+                                            any selective binding
+                                                                    From Knowledge
+                                            or gene-regulatory
+   2           Calcium citrate lacks                                2 and Information
+                                            design for nucleotide-
+                                                                    2
+                                            sanitizing enzymes                             K1
+
+                                            broad co-factor-                                    R1
+
+                                            mediated effects on                            I1
+                                                                    From Knowledge
+                                            enzyme activity and                            K2
+   3           Ascorbic acid     can exert                          3 and Information
+                                            gene expression,
+                                                                    2                           R2
+                                            potentially including                          I2
+                                            nucleotide pathways
+                                                                                           K3
+                                            the least likely option Follows
+               Therefore,                                                                       R3
+   4                             is         designed to affect      syllogistically from
+               Calcium citrate
+                                            dITP diphosphatase Steps 1–3                   I2
+                                                                                                     R4                                                 E(C)
+   <Eliminate>Answer: C</Eliminate>
+                                                                                                                                             Node 3:
+   Reason: Calcium citrate is merely a mineral supplement with no selective                                                                  Exclusion option C
+
+   mechanism for regulating dITP diphosphatase, whereas ascorbic acid has
+   documented co-factor roles that can indirectly modulate enzymatic and gene                                                                                          Answer:D
+
+   activities.                                                                                                             Agent1
+
+
+
+
+Figure 5: The second part of the logical tree generated by Agent1 for the example question. This figure continues the
+visualization of the reasoning process shown previously.
+                                        Datasets                      Size     QA
+                                        MMLU-Med                      1,089    A/B/C/D
+                                        MedQA-US                      1,273    A/B/C/D
+                                        BioASQ-Y/N                    618      Yes/No
+                                        MedDDx-Basic                  245      A/B/C/D
+                                        MedDDx-Intermediate           1,041    A/B/C/D
+                                        MedDDx-Expert                 483      A/B/C/D
+                                        Medxpert(random samples)      60       A/B/C/D/...
+
+Table 6: Summary of datasets used in our experiments. The table includes the dataset names, sizes, question-answering (QA)
+formats, and whether they are open-ended reasoning (OR) tasks.
+
+                                Dataset Name         Sample
+                                Basic                Can you recommend medications effective
+                                                     against peptic ulcer disease that also
+                                                     suppress Helicobacter pylori in the
+                                                     stomach?
+                                                     A: Rebamipide B: Ecabet C:
+                                                     Bendazac D: Nepafenac
+                                Intermediate         Can you recommend medications that
+                                                     treat both eosinophilic pneumonia and a
+                                                     parasitic worm infection?
+                                                     A: Thiabendazole B: Albendazole C:
+                                                     Diethylcarbamazine D: Triclabendazole
+                                Expert               Which genes or proteins are expressed
+                                                     exclusively in the pericardium and not in
+                                                     either the dorsal or ventral regions of the
+                                                     thalamus?
+                                                     A: ADH1A B: ADH1C C: ADH4
+                                                     D: ADH1B
+
+                     Table 7: Examples of medical multiple-choice questions at different difficulty levels.
+
+
+                                   Appendix: Details of Dataset & Benchmarks
+Details of the MedDDx
+MedDDx is a newly constructed dataset designed to test model performance on semantically complex answers. The motivation
+behind creating this dataset is twofold:
+   While LLMs can perform QA tasks, they often rely heavily on semantic dependencies, making it difficult for them to identify
+the correct answer among semantically similar answer candidates.
+   In real-world medical scenarios, researchers often focus on identifying subtle differences between similar molecules, par-
+ticularly in treatment or diagnostic settings. For instance, proteins may share similar names but have significantly different
+structures and functions, making it crucial to distinguish these differences to be able to provide accurate answers (see Table 7
+for an example).
+   Because of these reasons, (Su et al. 2025a) constructs MedDDx, a multi-choice medical QA dataset that focuses on answering
+semantically complex multi-choice QA. These questions are sourced from STaRK-Prime (Wu et al., 2024c), which provides
+both the questions and their corresponding answers. (Su et al. 2025a) extract questions with a single correct answer from
+the STaRK-Prime testing set and transform them into the multiple-choice format. To generate three strong alternative answer
+candidates, (Su et al. 2025a) uses semantic similarity to increase the difficulty, selecting the top three entities that have the
+highest semantic similarity as the correct answer. The semantic embeddings used for this process are derived from the text-
+embedding-ada-002 model from OpenAI. The semantic similarity is calculated using cosine similarity. (Su et al. 2025a) also
+computes the standard deviation of semantic similarity between the correct answer and the other three candidates. The density
+distribution of these values is shown in Fig. 8. Based on this distribution, (Su et al. 2025a) divides the queries into three
+complexity groups using quantile analysis: MedDDx-Expert (0-0.02), MedDDx-Intermediate (0.02-0.04), and MedDDx-Basic
+(> 0.04).
+                                       Dataset Sample
+                                       Name
+                                       MMLU- Which of the following best describes the
+                                       Med   structure that collects urine in the body?
+                                             A: Bladder B: Kidney C: Ureter D:
+                                             Urethra
+                                       MedQA- A microbiologist is studying the
+                                       US     emergence of a virulent strain of the virus.
+                                              After a detailed study of the virus and its
+                                              life cycle, he proposes a theory: Initially, a
+                                              host cell is co-infected with 2 viruses from
+                                              the same virus family... (truncated for
+                                              brevity).
+                                              A: Epstein-Barr virus B: Human
+                                              immunodeficiency virus C: Rotavirus
+                                              D: Vaccinia virus
+                                       BioASQ- Can losartan reduce brain atrophy in
+                                       Y/N     Alzheimer’s disease?
+                                               A: yes B: no
+
+                          Table 8: Examples of questions from multi-choice medical QA benchmarks.
+
+
+Details of the multi-choice medical QA benchmarks
+In this work, we use four well-known multi-choice medical QA datasets to evaluate the model performance, including two med-
+ical examination QA datasets (MMLU-Med, MedQA-US) and two biomedical research QA datasets (PubMedQA*, BioASQ-
+Y/N). These datasets are derived from (Xiong et al., 2024a). The samples in these datasets are shown in Table 8.
+
+Details of the MedXpertQA
+MedXpertQA is a newly introduced, highly challenging, and comprehensive benchmark designed to evaluate expert-level med-
+ical knowledge and advanced reasoning. Recognizing that medicine provides a rich setting for assessing real-world decision-
+making beyond mathematics and code, this benchmark was developed to push the boundaries of clinical evaluation. It comprises
+4,460 questions spanning 17 medical specialties and 11 body systems.
+    To address the insufficient difficulty of existing benchmarks like MedQA, MedXpertQA was constructed through rigorous
+filtering and augmentation, incorporating questions from specialty board exams to enhance clinical relevance and comprehen-
+siveness. The development process included data synthesis to mitigate data leakage risks and multiple rounds of expert reviews
+to ensure accuracy and reliability.
+    Datasets& Benchmarks. We evaluate on three complementary benchmarks. (i) MedRAG-QA (Xiong et al. 2024). This
+suite aggregates three established multiple-choice datasets—MMLU-Med, MedQA-US, and BioASQ-Y/N. It covers factual
+recall, guideline interpretation, and clinical decision-making ( details in Table 6). The benchmark serves as our general-purpose
+test bed. (ii) MedDDx. To stress differential-diagnosis reasoning, we construct MedDDx following the protocol of (Su et al.
+2025a). From the STaRK-Prime knowledge base (Wu et al. 2024b) we extract case-answer pairs and attach three semantically
+closest but incorrect disorders as distractors. Difficulty is stratified by the standard deviation of the answer-distractor similarity
+into Basic, Intermediate, and Expert tiers, forcing increasingly fine-grained causal discrimination. (iii) MedXpertQA(Zuo
+et al. 2025) To assess performance in the most demanding clinical scenarios that require expert-level knowledge, we utilize
+MedXpertQA. This benchmark is comprised of challenging questions derived from medical board certification exams and
+specialist case studies. It is specifically designed to test advanced clinical reasoning, requiring the synthesis of complex patient
+information and multi-step diagnostic logic, serving as our primary benchmark for evaluating advanced clinical intelligence.
+
+                                Appendix: Specifications of Theoretical Properties
+This section provides the rigorous theoretical specifications for the convergence and stability of the MedLA framework. The
+framework is designed to satisfy two key properties: (1) monotonic reduction of internal disagreement among agents and (2)
+guaranteed convergence to a stable state in a finite number of rounds.
+
+Core Model Definitions and Assumptions
+The theoretical model is based on the following components and operational assumptions:
+             (j)
+ • Logic (Tt ): A representation of the reasoning process for the j-th agent at round t. We assume each logic belongs to a
+   finite set of all possible unique logics, T .
+                              (j)
+ • Conclusion Variable (Ct ): A scalar value representing the conclusion of the j-th agent. The conclusion is a deterministic
+                                         (j)     (j)
+   function of the agent’s logic, i.e., Ct = f (Tt ), where f : T → R.
+ • System State (Lt ): The complete state of the system at round t, defined by the set of all agents’ logics: Lt =
+      (1)   (2)        (N )
+   {Tt , Tt , . . . , Tt M }. The system state space, L = T NM , is finite.
+ • Agent Consensus (C̄t ): The arithmetic mean of all agent conclusions:
+                                                                       NM
+                                                                     1 X    (j)
+                                                           C̄t =          C
+                                                                    NM j=1 t
+
+ • Internal Variance (St2 ): A measure of inter-agent disagreement, calculated as the sample variance of their conclusions:
+                                                                  NM
+                                                             1    X    (j)
+                                                   St2 =             (C − C̄t )2
+                                                           NM − 1 j=1 t
+
+ • Correction Mechanism: An agent updates its conclusion by adjusting its logic. The resulting numerical change is governed
+   by the equation:
+                                                    (j)               (j)
+                                                   Ct+1 = (1 − αt,j )Ct + αt,j C̄t
+   where the correction coefficient αt,j ∈ [0, 1].
+                                                              (j)        (j)                        (j)
+ • Correction Condition: A correction is performed (Tt → Tt+1 ) only if an agent’s logic Tt is identified as suboptimal.
+   Any non-trivial correction implies αt,j > 0. If no logic is updated, αt,j = 0 for all j.
+ • Balanced Correction Assumption: The aggregate effect of corrections is balanced such that the consensus center remains
+   unchanged in a correction round. That is, if a correction occurs:
+                                                       NM
+                                                                     (j)
+                                                       X
+                                                              αt,j (Ct     − C̄t ) = 0
+                                                       j=1
+
+    This implies C̄t+1 = C̄t .
+Remark. The Balanced Correction Assumption formalizes the intuition that corrections from agents with conclusions above
+the mean are offset by corrections from agents with conclusions below the mean. This prevents the group consensus from
+drifting due to asymmetric updates.
+Property 1 (Iterative Variance Reduction). As long as at least one agent performs a correction (i.e., ∃j such that αt,j > 0),
+                                                            2
+the internal variance of the agent set strictly decreases: St+1 < St2 .
+                                                                PNM (j)
+Proof. The internal variance at round t + 1 is St+12
+                                                      = NM1−1 j=1      (Ct+1 − C̄t+1 )2 .
+   Under the Balanced Correction Assumption, the consensus center is invariant, C̄t+1 = C̄t . We can analyze the deviation of
+                          (j)
+an updated conclusion Ct+1 from this stable consensus center. Substituting the update rule from Eq. ():
+                                                        h                         i
+                                            (j)                       (j)
+                                          Ct+1 − C̄t = (1 − αt,j )Ct + αt,j C̄t − C̄t
+                                                                           (j)
+                                                      = (1 − αt,j )Ct            − (1 − αt,j )C̄t
+                                                                     (j)
+                                                      = (1 − αt,j )(Ct − C̄t )                                                (6)
+                                                      2
+Now, substituting this result into the definition of St+1 :
+                                                          NM
+                                                     1    X     (j)
+                                          2
+                                         St+1 =              (C     − C̄t )2
+                                                   NM − 1 j=1 t+1
+                                                          NM h                       i2
+                                                     1    X                 (j)
+                                               =               (1 − αt,j )(Ct − C̄t )
+                                                   NM − 1 j=1
+                                                          NM
+                                                     1    X                  (j)
+                                               =              (1 − αt,j )2 (Ct − C̄t )2
+                                                   NM − 1 j=1
+                                                                                                           (k)
+By the Correction Condition, there exists at least one agent k for which αt,k > 0 and Ct ̸= C̄t (otherwise no correction
+would be needed). For this agent, 0 < αt,k ≤ 1, which implies 0 ≤ (1 − αt,k )2 < 1. For all other agents j, αt,j ∈ [0, 1], so
+(1 − αt,j )2 ≤ 1.
+   Consequently, the weighted sum of squares must be strictly less than the original sum of squares:
+                                          NM                                      NM
+                                                               (j)                        (j)
+                                          X                                       X
+                                                (1 − αt,j )2 (Ct     − C̄t )2 <         (Ct     − C̄t )2
+                                          j=1                                     j=1
+
+Dividing both sides by the positive constant (NM − 1) establishes the strict inequality:
+                                                                    2
+                                                                   St+1 < St2
+
+This proves that any non-trivial correction round, under the assumption of balanced correction, monotonically and strictly
+reduces the internal variance.
+
+Property 2 (Finite-Round Convergence). The discussion process is guaranteed to converge to a stable fixed-point state within
+a finite number of rounds.
+
+Proof. The proof proceeds by contradiction, based on a monotonic descent over a finite state space.
+
+1. Finite State Space: As defined previously, the system’s complete state Lt is an element of the state space L = T NM . Since
+   the set of all possible logics T is finite and the number of agents NM is finite, the state space L is also finite.
+                                                                                                                               (j)
+2. Monotonic State-Value Function: The internal variance St2 is a function of the system state Lt , since each Ct is de-
+                    (j)
+   termined by Tt ∈ Lt . Let this function be V (Lt ) = St2 . As established in Property 1, any state transition Lt → Lt+1
+   triggered by a correction implies a strict decrease in this value: V (Lt+1 ) < V (Lt ).
+3. Termination and Preclusion of Cycles: Assume, for the sake of contradiction, that the system does not terminate. This
+   implies an infinite sequence of states L0 , L1 , L2 , . . . . Since the state space L is finite, this sequence must eventually revisit
+   a state. That is, there must exist rounds t1 < t2 such that Lt1 = Lt2 .
+   If the states are identical, their corresponding variance values must be equal: V (Lt1 ) = V (Lt2 ).
+   However, the transition from t1 to t2 must involve at least one correction round (otherwise the state would have been
+   stable and the sequence terminated). According to the monotonic descent property, any sequence of one or more corrections
+   between t1 and t2 requires the variance to strictly decrease: V (Lt1 ) > V (Lt1 +1 ) > · · · > V (Lt2 ).
+   This leads to the contradiction V (Lt1 ) = V (Lt2 ) and V (Lt1 ) > V (Lt2 ). Therefore, the initial assumption must be false.
+   The system can never revisit a state.
+
+A trajectory through a finite state space that never revisits a state must be finite in length. The process must terminate. Termi-
+nation occurs when the system reaches a fixed-point state L∗ where no further corrections are made (i.e., ∀j, αt,j = 0), and the
+system has converged.
+
+                            Appendix: Details of Testing Protocol and Inplementation
+Experimental Setup
+All experiments were conducted under controlled evaluation settings to ensure the comparability and reproducibility of results.
+For each benchmark: Sampling Consistency. We fix the random seed and decoding parameters (e.g., temperature, top-p) across
+repeated runs. Each model’s inference is repeated three times independently to estimate performance variance, with the average
+accuracy and standard deviation reported. Input Standardization. Every model receives the same input format—limited to
+fields question, options, answer, and answer idx. No additional external knowledge or retrieval augmentation is
+provided unless explicitly tested (e.g., RAG baselines). Single-choice QA Format. All evaluation items follow a single-best-
+choice multiple-choice format. A prediction is considered correct only if it exactly matches the gold answer index, with no
+need for free-text post-processing or alignment heuristics. Model Isolation. No fine-tuning is performed on any of the large
+language models (LLMs). All LLMs use their original checkpoint and are served using vLLM (v0.7.2) for consistent inference
+latency and batching behavior. Hardware Environment. All experiments are run on a dedicated 8×A100-80GB GPU cluster.
+Each experiment is restricted to a single GPU node to ensure fair runtime comparison. Benchmark Integrity. The benchmark
+order is shuffled between runs, and the LLM’s internal sampling state is reset for each trial to avoid caching effects. We strictly
+follow the benchmark guidelines and do not alter test labels or answer keys.
+                                                                         MedDDx Benchmarks (Su et al. 2025a)
+                      Method                      Reference        Basic     Intermediate   Expert
+                                                                                                             AVE
+                                                                 Acc.(±std)   Acc.(±std)  Acc.(±std)
+          Graph       QAGNN                      NAACL2021       29.5(±0.3)    26.5(±0.2)     25.3(±0.3)      27.1
+          Based       JointLK                    NAACL2022       24.7(±0.4)    25.3(±0.4)     24.4(±0.4)      24.8
+         Methods      Dragon                     NeurIPS2022     28.6(±0.3)    24.7(±0.2)     24.0(±0.4)      25.8
+                      MV-LLaMA3.1(8B)                 -          39.6(±1.0)    32.8(±0.6)     30.2(±0.8)      34.2
+          Multi
+                      DyLAN                      COLM2024        39.3(±1.5)    33.5(±0.9)     31.1(±0.7)      34.6
+         Agents
+                      MedAgents                   ACL2024        41.0(±0.7)    35.7(±1.1)     32.9(±1.5)      36.5
+         Methods
+                      MDAgents                   NeurIPS2024     42.1(±1.3)    37.5(±0.9)     33.4(±0.6)      37.7
+                      LLaMA2(7B)                   Meta2023      21.5(±3.0)    19.8(±0.4)     19.2(±1.2)      20.2
+                      Mistral(7B)                 Mistral2023    41.2(±0.3)    35.6(±0.3)     37.5(±0.7)      38.1
+         General      MedAlpaca(7B)                BHT2023       39.9(±1.2)    32.5(±0.4)     31.1(±0.9)      34.5
+           &          LLaMA2(13B)                  Meta2023      28.6(±0.3)    33.8(±0.6)     31.7(±0.6)      31.4
+         Medical      PMC-LLaMA(7B)               SJTU2024       8.7(±1.5)     8.6(±0.2)       7.9(±0.6)       8.4
+         LLMs         LLaMA3(8B)                   Meta2024      42.8(±0.5)    31.9(±0.2)     30.6(±0.9)      35.1
+                      Llama3-OB(8B)               Saama2024      23.8(±0.4)    23.5(±0.1)     22.9(±2.0)      23.4
+                      LLaMA3.1(8B)[baseline]       Meta2024      43.4(±1.8)    36.8(±0.2)     30.6(±2.1)      36.9
+                      CoT-LLaMA2(7B)               Meta2023      28.9(±1.0)    26.5(±0.6)     22.9(±2.3)      26.1
+         General      CoT-Mistral(7B)             Mistral2023    40.4(±1.0)    36.8(±2.3)     37.9(±2.7)      38.4
+           &          CoT-MedAlpaca(7B)            BHT2023       39.5(±0.7)    32.1(±1.1)     31.2(±1.0)      34.3
+         Medical      CoT-LLaMA2(13B)              Meta2023      25.6(±1.3)    26.3(±1.0)     24.3(±1.6)      25.4
+         LLMs         CoT-PMC-LLaMA(7B)           SJTU2024       8.8(±0.2)     7.7(±0.4)       6.3(±0.5)       7.6
+          with        CoT-LLaMA3(8B)               Meta2024      43.4(±0.9)    36.8(±0.4)     31.3(±0.3)      37.2
+          COT         CoT-Llama3-OB(8B)           Saama2024      37.0(±1.3)    33.0(±0.1)     32.7(±1.1)      34.2
+                      CoT-LLaMA3.1(8B)             Meta2024      43.9(±1.7)    39.3(±0.5)     32.2(±1.4)      38.5
+          RAG         Self-RAG(7B)                ICLR2024       23.8(±0.7)    19.9(±3.7)     22.4(±4.5)      22.0
+           &          Self-RAG(13B)               ICLR2024       24.9(±1.0)    29.0(±1.8)     26.6(±3.1)      26.8
+          Based       KG-Rank(13B)               ACL-w2024       25.3(±2.1)    25.6(±1.3)     23.4(±1.0)      24.8
+         Methods      MedRAG(70B)                 Oxon2024       36.5(±0.8)    34.8(±1.1)     32.7(±0.3)      34.7
+        Logic Based   MedLA+LLaMA3.1(8B)             Ours        48.2(±1.2)    43.0(±2.1)     41.7(±0.8)   44.3 (↑ 7.4)
+
+Table 9: The performance of our MedLA on MedDDx Benchmarks. The table includes the accuracy along with the standard
+deviation(±std) for each metric. The results demonstrate the effectiveness of MedLA in addressing complex medical reasoning
+tasks across different datasets. OB means OpenBioLLM, MV means Majority Voting, and AVE means averaged accuracy. The
+best results are highlighted in bold, while the best results of each method’s block are marked with an underline. Reference
+indicates the paper where the method was first introduced. The results of the baselines are taken from (Su et al. 2025a).
+
+
+                                Appendix: Details of Experimental Environment
+The experiments were conducted on a high-performance computing system with robust hardware and software configurations
+to ensure efficient handling of large datasets and complex computations. The hardware setup included NVIDIA A100 GPUs
+with 80GB memory for accelerated computation, Intel Xeon Platinum 8358 CPUs with 64 cores operating at 1.20GHz for
+efficient multi-threaded processing, 1024GB of RAM, and 10TB of NVMe SSD storage for fast input/output operations.
+   The software environment was carefully configured for compatibility and reproducibility. The operating system used was
+Ubuntu 20.04 LTS (64-bit), and the primary deep learning framework was PyTorch (version 2.5.1), supplemented by TorchVi-
+sion and Torchaudio extensions. The experiments were conducted using Python 3.10.16, with Conda (version 22.11.1) em-
+ployed as the package manager to handle dependencies and virtual environments.
+   Key Python packages essential for the experiments included NumPy (2.0.1), and pandas (2.2.3) for data preprocessing and
+analysis. Visualization tasks were performed using Matplotlib (3.10.0). For deep learning tasks, PyTorch (2.5.1) served as the
+primary framework, and vLLM(v0.7.2) served as the LLM inference framework.
+   A comprehensive list of installed Python packages is available upon request, capturing all dependencies required for re-
+producing the experiments. This configuration ensures the reported results are reproducible and highlights the environment’s
+compatibility with the experimental setup.
+                                                              Multi-choice medical QA benchmarks (Xiong et al. 2024)
+                    Method                      Reference     MMLU-Med MedQA-US BioASQ-Y/N
+                                                                                                            AVE
+                                                              Acc.(±std)     Acc.(±std)    Acc.(±std)
+         Graph      QAGNN                      NAACL2021       31.7(±0.6)    47.0(±0.3)     70.7(±0.6)       49.8
+         Based      JointLK                    NAACL2022       28.8(±0.6)    42.5(±0.2)     70.6(±0.5)       47.3
+        Methods     Dragon                     NeurIPS2022     31.9(±0.3)    47.5(±0.2)     70.6(±0.3)       50.0
+                    MV-LLaMA3.1(8B)                 -          60.2(±0.5)    46.8(±0.4)     65.2(±0.4)       57.4
+         Multi
+                    DyLAN                      COLM2024        62.5(±0.3)    51.6(±0.6)     63.8(±0.5)       59.3
+        Agents
+                    MedAgents                   ACL2024        64.3(±0.4)    53.2(±0.3)     64.1(±0.6)       60.5
+        Methods
+                    MDAgents                   NeurIPS2024     65.0(±0.2)    53.4(±0.2)     64.0(±0.3)       60.8
+                    LLaMA2(7B)                   Meta2023      37.6(±0.6)    28.1(±0.4)     56.8(±0.6)       40.8
+                    Mistral(7B)                 Mistral2023    63.4(±0.4)    47.7(±0.7)     64.4(±0.1)       58.5
+        General     MedAlpaca(7B)                BHT2023       60.0(±0.4)    40.1(±0.1)     49.3(±3.4)       49.8
+          &         LLaMA2(13B)                  Meta2023      44.2(±0.6)    25.3(±0.4)     34.6(±0.5)       34.7
+        Medical     PMC-LLaMA(7B)               SJTU2024       20.7(±1.1)    24.7(±0.4)     34.6(±1.7)       26.7
+        LLMs        LLaMA3(8B)                   Meta2024      63.4(±0.5)    56.6(±0.4)     65.4(±0.6)       61.8
+                    LLaMA3-OB(8B)               Saama2024      63.6(±0.6)    38.3(±0.3)     62.2(±0.3)       54.7
+                    LLaMA3.1(8B)[baseline]       Meta2024      67.7(±0.7)    56.3(±0.6)     68.7(±0.6)       64.2
+                    COT-LLaMA2(7B)               Meta2023      31.8(±0.5)    25.1(±0.2)     54.7(±1.1)      37.2
+                    COT-Mistral(7B)             Mistral2023    63.4(±0.3)    47.4(±0.2)     65.1(±0.2)      58.6
+         General
+                    COT-MedAlpaca(7B)            BHT2023       60.3(±0.4)    39.9(±0.3)     48.5(±2.5)      49.6
+            &
+                    COT-LLaMA2(13B)              Meta2023      41.5(±0.5)    35.4(±0.6)     36.3(±1.3)      37.7
+        Medical
+                    COT-PMC-LLaMA(7B)           SJTU2024       20.4(±0.8)    20.8(±0.2)     20.8(±0.6)      20.7
+         LLMs
+                    COT-LLaMA3(8B)               Meta2024      65.1(±0.5)    55.2(±0.3)     64.2(±0.5)      61.5
+        with COT
+                    COT-Llama3-OB(8B)           Saama2024      57.1(±0.3)    39.5(±0.2)     64.6(±0.6)      53.7
+                    COT-LLaMA3.1(8B)             Meta2024      68.1(±0.5)    54.9(±0.3)     70.6(±0.5)      64.5
+                    Self-RAG (7B)               ICLR2024       32.2 (±1.9)   38.0 (±2.8)   59.4 (±1.2)       43.2
+         RAG
+                    Self-RAG (13B)              ICLR2024       50.2 (±0.4)   40.8 (±2.0)   64.6 (±5.0)       51.9
+         Based
+                    KG-Rank (13B)              ACL-w2024       45.2 (±0.5)   36.2 (±1.1)   50.3 (±1.5)       43.9
+        Methods
+                    MedRAG (70B)                Oxon2024       57.9 (±1.5)   48.7 (±1.4)   71.9 (±1.8)       59.5
+      Logic Based   MedLA + LLaMA3.1(8B)           Ours        70.7(±0.1)    62.6(±0.1)     76.5(±0.1)    69.9(↑5.7)
+
+Table 10: The performance of our proposed MedLA model on Multi-choice medical QA benchmarks (Xiong et al. 2024).
+The table includes the accuracy (Acc) along with the standard deviation (±std) for each metric. The results demonstrate the
+effectiveness of MedLA in addressing complex medical reasoning tasks across different datasets.
+

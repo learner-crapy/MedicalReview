@@ -1,0 +1,1751 @@
+                                                            LatentDx: Latent Multi-Agent Communication
+                                                              for Cross-Hospital Rare-Disease Diagnosis
+
+
+                                                                        Ziqing Wang Lili Zhao Kaize Ding
+                                                                               Northwestern University
+
+
+
+
+                                                              Abstract                                    Isolated         Text Sharing         LatentDx
+
+                                            Rare diseases affect over 300 million patients
+
+
+
+
+arXiv:2606.13945v2 [cs.CL] 9 Sep 2026
+                                            across more than 7,000 conditions, yet no sin-
+                                            gle hospital encounters enough cases of any
+                                            one condition for reliable diagnosis. Cross-
+                                            hospital collaboration could help by allowing a           Low Performance      Privacy Leakage      Low Leakage
+                                            diagnosing institution to use distributed, case-
+                                            specific diagnostic evidence, but privacy reg-          Figure 1: Motivation for latent cross-hospital communica-
+                                                                                                    tion. Isolated diagnosis keeps private clinical records local
+                                            ulations restrict the transmission of identifi-
+                                                                                                    but cannot use distributed diagnostic experience. Direct text
+                                            able clinical text across institutional bound-          sharing enables cross-hospital evidence aggregation but ex-
+                                            aries. This setting raises two challenges: ex-          poses patient-identifiable clinical text. LatentDx replaces
+                                            isting medical agent systems often rely on              textual evidence exchange with compact latent KV blocks,
+                                            textual evidence exchange, while raw latent             allowing hospital agents to transmit diagnosis-oriented state
+                                                                                                    while keeping clinical records and retrieved evidence local.
+                                            states such as hidden states and KV caches
+                                            may still reveal prompt-derived clinical con-
+                                            tent. We introduce LatentDx, a latent multi-            as HIPAA, GDPR, and analogous institutional poli-
+                                            agent communication framework in which hos-             cies restrict the transmission of identifiable clinical
+                                            pital agents keep private clinical records and          text across institutional boundaries (Zhong et al.,
+                                            retrieved cases local, and send compact latent          2025). This creates the central communication con-
+                                            KV blocks to a host agent for rare-disease di-          straint of cross-hospital rare-disease diagnosis: hos-
+                                            agnosis. LatentDx supports two deployment
+                                                                                                    pitals need to use distributed, case-specific diagnos-
+                                            settings: same-backbone hospital agents use
+                                            latent KV distillation, while hospitals with dif-       tic evidence, but the clinical records and retrieved
+                                            ferent LLM backbones use cross-family latent            text that contain this evidence cannot be shared.
+                                            alignment. On C ROSS R ARE -B ENCH, a self-                Challenge 1: Existing collaboration relies on
+                                            built large-scale rare-disease benchmark with           textual evidence exchange. Medical agent sys-
+                                            hospital-level partitions, LatentDx improves            tems provide a natural framework for hospital diag-
+                                            cross-hospital diagnostic performance while re-         nostic reasoning by retrieving medical knowledge,
+                                            ducing reconstructable clinical content relative
+                                                                                                    integrating heterogeneous evidence, and perform-
+                                            to raw-latent communication baselines.
+                                                                                                    ing multi-step reasoning over clinical records (Tang
+                                        1   Introduction                                            et al., 2024; Kim et al., 2024; Wang et al., 2025a).
+                                                                                                    However, these systems typically communicate
+                                        Rare diseases collectively encompass over 7,000             through natural-language evidence, such as re-
+                                        conditions and affect more than 300 million people          trieved cases, summaries, or agent messages. This
+                                        worldwide (Chen et al., 2024), yet each individual          assumption breaks down in cross-hospital rare-
+                                        condition is so uncommon that any single hospital           disease diagnosis. Because each rare condition
+                                        may encounter only a handful of cases. Diagnos-             may appear only a few times at any single institu-
+                                        tic experience is therefore scattered across institu-       tion, the evidence most relevant to a new query is
+                                        tions, and no single site can accumulate sufficient         often distributed across hospital-local case reposi-
+                                        evidence for reliable recognition. Cross-hospital           tories. Yet the retrieved clinical text that carries this
+                                        collaboration could help by allowing the diagnos-           evidence cannot leave the institution that stores it.
+                                        ing institution to use relevant experience stored at        Hospitals therefore need to share case-specific diag-
+                                        other hospitals. However, privacy regulations such          nostic signal for the current query without sending
+
+                                                                                                1
+the clinical text that encodes it. Figure 1 sum-               large-scale cross-hospital rare-disease diagnosis
+marizes the resulting tradeoff: isolated diagnosis             benchmark with hospital-level partitions for eval-
+keeps records local but cannot use distributed diag-           uating inference-time collaboration under text-
+nostic experience, while direct text sharing pools             sharing constraints.
+evidence but exposes patient-identifiable clinical           • Evaluation. We evaluate both diagnostic utility
+records. This leaves a key question unanswered:                and empirical clinical-content leakage, showing
+what should hospital agents exchange during infer-             that LatentDx improves cross-hospital diagnos-
+ence when retrieved clinical text cannot be shared?            tic performance while reducing reconstructable
+    Challenge 2: Raw latent states can still leak              clinical content relative to other latent communi-
+clinical content. Latent model representations of-             cation baselines.
+fer a natural candidate for this missing communi-
+cation object. Instead of sending natural-language           2   Related Work
+evidence, hospital agents could send internal model          Medical diagnostic agents. Recent medical
+states such as hidden states or KV-cache representa-         LLM agents improve clinical reasoning through re-
+tions, which recent work has shown can support rea-          trieval, multi-agent collaboration, and knowledge-
+soning and model collaboration (Hao et al., 2025;            grounded decision making (Tang et al., 2024; Kim
+Zou et al., 2026; Du et al., 2026; Fu et al., 2026).         et al., 2024; Wang et al., 2025a). This direction has
+However, replacing text with latent states does not          been extended to evidence-based diagnostic work-
+automatically resolve the leakage concern. Embed-            flows, EHR-grounded decision support, hospital-
+dings, hidden states, and KV caches can retain sub-          scale agent simulation, and multi-disciplinary rare-
+stantial information about the original prompt, in-          disease reasoning (Wang et al., 2026, 2025b; Li
+cluding retrieved private cases (Morris et al., 2023;        et al., 2024; Chen et al., 2026a). For rare dis-
+Dong et al., 2025). Thus, cross-hospital latent com-         eases, DeepRare advances agentic differential di-
+munication should be evaluated not only for diag-            agnosis, while PhenoBrain and RareBench pro-
+nostic utility, but also for empirical leakage from          vide phenotype-based diagnostic modeling and
+transmitted latent states.                                   benchmark evaluation (Zhao et al., 2026; Mao
+    To address these two challenges, we introduce            et al., 2025; Chen et al., 2024). These sys-
+LatentDx, a latent multi-agent communication                 tems also build on phenotype-driven pipelines that
+framework for cross-hospital rare-disease diagno-            match patient phenotypes to candidate diseases or
+sis. The key idea is that each hospital agent keeps          genes (Birgmeier et al., 2020; Robinson et al., 2020;
+its private clinical records and retrieved cases lo-         Zhai et al., 2023). Despite these advances, exist-
+cal, reasons over local evidence, and sends only             ing diagnostic agents and phenotype-based systems
+a compact latent KV block, rather than retrieved             mainly operate within a single clinical trust bound-
+text or raw model states, to a host agent for diagno-        ary or rely on textual clinical evidence. They there-
+sis. Compared with raw model states, this compact            fore do not define what hospital agents should ex-
+block reduces how much clinical content is recon-            change during inference when private clinical text
+structable from the transmitted representation. The          cannot be shared across institutions.
+same framework extends to settings where hospi-
+tals use different LLM backbones by aligning local           Privacy-aware hospital collaboration. Privacy-
+latent states to the host agent’s latent space. Our          aware collaboration has a long history in medical
+contributions are summarized as follows.                     AI, especially through federated learning and hospi-
+• Formulation. We formulate cross-hospital rare-             tal deployment frameworks. Federated LLM meth-
+   disease diagnosis as a clinical-text-restricted la-       ods share gradients, adapters, LoRA updates, or
+   tent communication problem, where hospital                model parameters rather than patient records (Ye
+   agents exchange compact latent blocks rather              et al., 2024; Zhang et al., 2024; Liu et al., 2025),
+   than retrieved clinical text during inference.            and medical FL infrastructure has been devel-
+• Method. We instantiate LatentDx in two set-                oped for real cross-institution settings (Pati et al.,
+   tings: LatentDx-H for same-backbone hospi-                2022; Roth et al., 2023; Cremonesi et al., 2025).
+   tal agents through latent KV distillation, and            These methods aggregate distributed experience
+   LatentDx-X for cross-family hospital agents               into training-time updates, but they do not let a
+   through latent alignment.                                 diagnosing hospital condition the current query on
+• Benchmark. We build C ROSS R ARE -B ENCH, a                case-specific evidence retrieved from other hospi-
+
+                                                         2
+                                              Cross-Hospital Latent Communication
+ Query Case                                                                                                     Host
+             Diagnosis
+                                              Hospital Hi                ×N                                     Agent
+                   broadcast
+
+                     query
+                                                                                                     +
+                                                                                                    Concat
+   Phenotype                    Private EHR   Local Retrieval    Local Agent                                                     Top-1 Prediction
+
+
+                                                       Two Deployment Settings
+                 LatentDx-H (same backbone)                                                  LatentDx-X (cross-family)
+                                                                                                         Projector
+                        Local
+                                                                         (Llama→Qwen)           host space (Qwen)
+                                                                          encoder space (Llama)
+                        Agent                  <BOP>            <EOP>
+                                                                                                       Latent Alignment
+                                       ×m          m latent KV                                                                Host Agent
+ local prompt
+                                                                                           Projector
+        +
+            Distiller                                                                       (MediPhi→Qwen)
+   retrieved 
+                                  m hidden states           encoder space (MediPhi)                            <BOP>        <EOP>
+     cases
+
+          Frozen                Trainable      <BOP>    Begin Token            <EOP>   End Token                  Hospital i’s Latent KV Block
+
+
+Figure 2: Overview of LatentDx. Top: Hospital agents keep private EHR records local, retrieve relevant local cases, and send
+compact latent blocks to a host agent for diagnosis. Bottom: LatentDx supports two deployment settings: LatentDx-H uses
+latent KV distillation for same-backbone hospital agents, while LatentDx-X uses lightweight projectors for cross-family latent
+alignment when hospitals use different LLM backbones.
+
+tals’ local databases. A complementary line studies                             ciency, or same-input cross-model communication
+privacy-aware LLM inference by splitting models,                                rather than cross-hospital diagnosis, where agents
+adding local privacy noise, or compressing trans-                               retrieve private cases and require joint evaluation
+mitted representations (Du et al., 2023; Mai et al.,                            of diagnostic utility and empirical leakage.
+2024; Yang et al., 2024). These approaches protect
+single-client inference or delegated computation,                               3      Method
+whereas LatentDx operates in a different regime:
+patient-specific cross-hospital collaboration during                            A central question in cross-hospital rare-disease
+inference, where hospitals exchange diagnostic sig-                             diagnosis is what hospital agents should exchange
+nal without transmitting clinical text.                                         during inference. This communication object
+                                                                                should avoid both textual evidence exchange and
+Latent communication. Recent work has ex-                                       raw prompt-length KV exchange: retrieved clinical
+plored whether LLMs can reason or communicate                                   text cannot be shared across hospitals, while full
+through continuous internal representations rather                              KV states can still expose prompt-derived clinical
+than text. Coconut performs continuous reason-                                  content. LatentDx meets these requirements by
+ing by feeding hidden states back as input embed-                               having each hospital agent keep retrieved cases,
+dings (Hao et al., 2025), while related work studies                            local prompts, and prompt-length KV caches lo-
+soft prompts, pause tokens, and compressed KV-                                  cal, while sending only a fixed-length diagnosis-
+style representations (Li and Liang, 2021; Mu et al.,                           oriented latent block instead of retrieved text or
+2023; Goyal et al., 2024; Zhang et al., 2025; Kuz-                              raw KV states. We first formalize the inference and
+ina et al., 2026). In multi-agent and cross-model                               reconstruction-leakage settings in Sec. 3.1, then
+settings, LatentMAS and Interlat exchange latent                                present LatentDx-H for same-backbone latent dis-
+states, while Cache-to-Cache and KV-alignment                                   tillation in Sec. 3.2 and LatentDx-X for cross-
+methods learn KV-cache projection or fusion across                              family latent alignment in Sec. 3.3.
+LLMs (Zou et al., 2026; Du et al., 2026; Fu et al.,
+                                                                                3.1     Problem Setup
+2026; Dery et al., 2026). Further work on systems
+shows that KV caches can be compressed, reused,                                 Task formulation. We consider a cross-hospital
+and transmitted efficiently (Zhang et al., 2023; Xiao                           network of hospital agents S = {H1 , . . . , HN }.
+et al., 2024; Liu et al., 2024; Chen et al., 2026b).                            Each hospital agent Hi has a local LLM backbone
+Together, these studies establish latent communi-                               and a private case database Di of historical patient
+cation as a promising model-collaboration mech-                                 records. Given a query case, we represent the query
+anism, but mainly target general reasoning, effi-                               only as a standardized HPO phenotype set qHPO ,
+
+                                                                           3
+whose codes are deterministically rendered into                    Encode Prompt             Distill m latent steps
+canonical HPO term names for prompting. The                       e1 e2      eT           eT+1 eT+2      eT+m     ×m
+query is therefore not a free-text clinical note. This
+structured phenotype representation is broadcast                                Local Agent                         Distiller
+                                                                                 past kv: T→T+m                      Linear W
+to all hospital agents. Each hospital agent then
+retrieves relevant cases only from its own private                       T (prompt)          m (latent)              LayerNorm
+database Di and constructs a local prompt xi from
+the query phenotypes and retrieved local cases. The               h1    h2           hT   hT+1 hT+2          hT+m      Update
+
+                                                                                                                       Distiller
+
+local prompt xi , raw clinical text, and retrieved                      stay local                cross hospital        Only
+
+patient records never leave the hospital that stores                Concat                                   Training
+them. During inference, each hospital agent sends                      <BOP> m latent KV <EOP>                   CE Loss
+only a transmitted representation THi to the host                      <BOP> m latent KV <EOP>                 Host Agent
+agent, typically the query hospital agent, and the
+goal is to produce a single OMIM-coded diagnosis:               Figure 3: LatentDx-H: same-backbone latent distillation.
+                                                                A hospital agent encodes its local prompt with a frozen LLM
+                       N
+                               !
+                      M                                         backbone, keeping the prompt-length states local. A trainable
+  ŷ = Host qHPO ,         THi , ŷ ∈ YOMIM . (1)               distiller generates m latent steps, and only the corresponding
+                       i=1                                      m latent KV positions are sent as the hospital’s compact block.
+                                                                The host agent aggregates these blocks for diagnosis. Training
+Here, THi denotes the transmitted object. In                    uses diagnosis cross-entropy and updates only the distiller and
+                                                                boundary embeddings.
+LatentDx, THi = ZHi is the compact latent block,
+while in the raw-KV baseline, THi = MHi is the                  Their KV spaces are naturally aligned, so the main
+prompt-length KV cache.                                         challenge is compression: each hospital agent must
+Leakage setting. We evaluate leakage under a                    summarize its local prompt state into a compact
+passive observer of the inter-hospital communica-               latent block rather than transmitting the full prompt-
+tion channel. The observer can read the transmit-               length KV cache. Figure 3 illustrates this same-
+ted object THi from each hospital agent, such as                backbone distillation pipeline.
+a prompt-length KV cache in the raw-KV base-                    Local retrieval and prompt encoding. Each
+line or a compact latent block in LatentDx. The                 hospital agent receives the broadcast phenotype
+observer knows the participating LLM architec-                  query qHPO and retrieves phenotypically similar
+tures and weights, but cannot access private hospi-             cases only from its private database Di using an
+tal databases. Given THi , an attacker A targets a              HPO-based retrieval procedure. The retrieved cases
+secret si held by hospital Hi :                                 are combined with the query phenotypes to form a
+                                                                local prompt xi , which remains inside hospital Hi .
+      ŝi = A(THi ),         ρi = score(ŝi , si ).   (2)
+                                                                A frozen local LLM backbone then encodes xi and
+Attacks differ in what they take si to be: the local            produces a prompt-length KV cache
+prompt content xi including retrieved clinical evi-                          (l) (l) L           (l)    (l)
+                                                                 MHi = (KHi , VHi ) l=1 , KHi , VHi ∈ RTi ×d ,
+dence, the retrieved disease label alone, or the bit                                                               (3)
+recording whether a given case lies in Di . Our first           where L is the number of layers, Ti is the local
+instantiation of A is a frozen-LLM continuation                 prompt length, d is the per-layer KV dimension,
+attack, which injects the intercepted state as past                     (l)   (l)
+                                                                and KHi , VHi are the layer-l key and value states.
+key–value states into the frozen LLM that produced
+                                                                Directly transmitting MHi gives the raw-KV base-
+them, prompts it to repeat the previous hospital case
+                                                                line: it shares no explicit clinical text, but exposes
+content, and greedily decodes; here si = xi and
+                                                                internal representations of the entire local prompt,
+score is token F1 or BERTScore. Sec. 4.5 adds
+                                                                including retrieved private cases. LatentDx-H
+four stronger attackers, including ones that train a
+                                                                instead keeps MHi local and transmits only a
+dedicated model on the transmitted representation.
+                                                                compact latent block ZHi distilled from it. De-
+3.2   LatentDx-H: Same-Backbone Latent                          tails of the retrieval procedure are provided in Ap-
+      Distillation                                              pendix A.2.
+We first consider the same-backbone setting, where              Distilling compact latent blocks. Within each
+all hospital agents use the same LLM backbone.                  hospital agent, starting from the final prompt hid-
+
+                                                            4
+den state hTi , we generate compact latent positions           3.3   LatentDx-X: Cross-Family Latent
+autoregressively. We use a minimal distiller so that                 Alignment
+performance gains can be attributed to the compact
+                                                               In practice, hospitals may deploy different LLM
+latent communication mechanism rather than to ad-
+                                                               backbones due to local infrastructure or domain
+ditional model capacity. The distiller ϕ maps the
+                                                               adaptation. Different backbones may have differ-
+hidden state back to the input-embedding space,
+                                                               ent hidden dimensions and representation statistics,
+           ϕ(h) = W · LayerNorm(h),                 (4)        so a compact latent block produced by one hospi-
+                                                               tal agent may not be directly consumable by the
+where W ∈ Rd×d is a bias-free linear projec-
+                                                               host agent. LatentDx-X addresses this mismatch
+tion. The resulting vector is fed into the frozen
+                                                               through cross-family latent alignment.
+local LLM backbone as the next input embedding
+without decoding text. Repeating this procedure
+                                                               Cross-family projector. To handle cross-family
+for m latent steps produces m latent positions.
+                                                               settings, LatentDx-X uses a lightweight projector
+LatentDx-H then keeps only the KV states cor-
+                                                               to map compact latent states into the host agent’s
+responding to these latent positions, denoted by
+                                                               input-embedding space. Let E denote an encoder
+M̃Hi . This compact cache has the same layer-wise
+                                                               backbone family and H denote the host backbone
+key–value structure as MHi , but contains only the                            (E)
+                                                               family. Let h1:mE ∈ RmE ×dE denote the concate-
+m latent positions rather than all Ti prompt posi-
+                                                               nated compact latent states from hospital agents
+tions. For host-side consumption, we wrap it with
+                                                               using encoder family E, where mE is the total num-
+learned boundary embeddings to form the hospital
+                                                               ber of latent positions in that group. The projector
+block
+                                                             maps it to host input embeddings
+          ZHi = ⟨BOP⟩, M̃Hi , ⟨EOP⟩ .          (5)
+                                                                       (H)          (E) 
+Here, ⟨BOP⟩ and ⟨EOP⟩ are learned begin- and                          e1:mE = ψE→H h1:mE ∈ RmE ×dH .            (7)
+end-of-block embeddings that delimit each hos-
+pital agent’s contribution in the latent chain. They           In our implementation, ψE→H is a token-wise Lay-
+are shared interface parameters already stored by              erNorm followed by a bias-free linear projection.
+the host and therefore add no per-query transmis-              The projected sequence is wrapped with boundary
+sion. Each hospital transmits only M̃Hi , a fixed              tokens and passed to the frozen host LLM through
+cache of m latent positions independent of the lo-             input embeddings. The host backbone then materi-
+cal prompt length Ti . The host agent aggregates               alizes host-space latent KV states for final aggrega-
+ZH1 ⊕ · · · ⊕ ZHN and produces the final diagnosis.            tion and diagnosis.
+Training objective. We train the distiller ϕ and               Joint projector training. For each host back-
+the boundary embeddings using diagnosis cross-                 bone family H, we train one projector ψE→H for
+entropy on the host agent’s output. Let y =                    each non-host encoder family E. During training,
+(y1 , . . . , y|y| ) denote the target answer sequence.        each batch samples a hospital-family composition
+The loss is                                                    from the available backbone families, while en-
+                   |y|                                         suring that at least one non-host family is present.
+                   X                           
+    LDistill = −         log p yt | ZH1:N , y<t ,   (6)        Native-family hospital agents use the host family’s
+                   t=1                                         frozen latent distiller, while non-host-family agents
+where ZH1:N denotes the concatenated latent                    use their frozen encoder-side latent distillers fol-
+blocks from all hospitals. The loss supervises the             lowed by the corresponding cross-family projector.
+final diagnosis tokens generated by the host agent.            The host agent aggregates all native and projected
+Since the intermediate latent positions have no tar-           latent blocks and is supervised with the same di-
+get text labels, they are learned indirectly through           agnosis cross-entropy objective as Eq. 6. Only the
+gradients from this diagnosis loss. During training,           projectors and boundary embeddings are updated.
+we update only the distiller and boundary embed-               The encoder LLM backbones, encoder-side dis-
+dings, while all local and host LLM backbones                  tillers, and host LLM backbone remain frozen. The
+remain frozen. We train the latent interface cen-              resulting projectors can be reused across different
+trally on the public training split under simulated            hospital compositions at inference time, without
+hospital partitions, with train and test cases disjoint.       retraining for each mixture.
+
+                                                           5
+Table 1: Diagnostic utility on C ROSS R ARE -B ENCH. Accuracy (Acc), macro F1 (F1) and LLM-as-judge score (Judge) on
+the three source cohorts and on the full test set (Overall). Best and second best method per column, ranked separately for each
+backbone; tied methods are both marked. MediPhi results are in Table 14.
+
+                                       RareBench                  Zenodo            Phenopacket                 Overall
+      Model       Method            Acc F1 Judge           Acc F1 Judge Acc F1 Judge                     Acc     F1 Judge
+                                                             Non-collaborative
+                  Zero-shot        0.11    0.08   0.30     0.03 0.05 0.37 0.01 0.01 0.18                 0.03   0.02    0.24
+                  Single RAG       0.53    0.37   0.58     0.55 0.44 0.59 0.58 0.51 0.70                 0.57   0.47    0.66
+                                                          Text / structured sharing
+                  Dist. RAG        0.56    0.44   0.72     0.65 0.62 0.71 0.61 0.54 0.72                 0.61 0.53      0.72
+      Qwen3       Global RAG       0.58    0.41   0.68     0.63 0.61 0.67 0.62 0.55 0.72                 0.62 0.53      0.70
+       4B         Struct. RAG      0.61    0.45   0.70     0.64 0.56 0.66 0.64 0.56 0.73                 0.64 0.52      0.71
+                  TextMAS          0.53    0.37   0.61     0.49 0.49 0.65 0.56 0.48 0.72                 0.54 0.44      0.69
+                                                           Latent communication
+                  Raw KV           0.63    0.45   0.75     0.67 0.64 0.73 0.56 0.49 0.70                 0.59 0.48      0.72
+                  LatentMAS        0.61    0.46   0.72     0.66 0.63 0.71 0.57 0.51 0.71                 0.60 0.49      0.71
+                  LatentDx         0.72    0.61   0.75     0.59 0.61 0.67 0.64 0.63 0.73                 0.64 0.61      0.72
+                                                             Non-collaborative
+                  Zero-shot        0.02    0.01   0.21     0.02 0.02 0.09 0.00 0.00 0.10                 0.01   0.00    0.11
+                  Single RAG       0.37    0.36   0.53     0.28 0.29 0.43 0.43 0.37 0.62                 0.39   0.34    0.57
+                                                          Text / structured sharing
+                  Dist. RAG        0.44    0.40   0.60     0.37 0.44 0.62 0.47 0.40 0.64                 0.45 0.40      0.63
+ Llama-3.2        Global RAG       0.46    0.41   0.53     0.36 0.45 0.56 0.50 0.44 0.66                 0.47 0.42      0.62
+       3B         Struct. RAG      0.53    0.35   0.63     0.31 0.35 0.65 0.43 0.37 0.69                 0.42 0.34      0.67
+                  TextMAS          0.33    0.24   0.49     0.33 0.39 0.48 0.31 0.25 0.47                 0.32 0.25      0.47
+                                                           Latent communication
+                  Raw KV           0.28    0.24   0.46     0.27 0.39 0.50 0.40 0.35 0.64                 0.35 0.32      0.58
+                  LatentMAS        0.23    0.20   0.44     0.26 0.34 0.60 0.38 0.35 0.62                 0.33 0.31      0.59
+                  LatentDx         0.75    0.64   0.77     0.70 0.62 0.74 0.73 0.72 0.78                 0.73 0.68      0.77
+
+4     Experiments                                                    C ROSS R ARE -B ENCH is a simplified setting:
+                                                                  each case arrives as a list of canonical HPO term
+The experiments below are organized around one                    names. Real hospital evidence is prose, but the pub-
+question: whether LatentDx retains the diagnostic                 lic rare-disease repositories are phenotype-coded
+benefit while limiting what an adversary recovers                 rather than narrative, so we build C ROSS R ARE -
+from the transmitted state.                                       B ENCH -T EXT to study that setting. For every di-
+                                                                  agnosis instance, both the query and the hospital-
+4.1     Benchmark Construction                                    retrieved records are rendered as clinical narratives.
+We build C ROSS R ARE -B ENCH from three public                   Cohorts, hospital partitions, and retrieval budget
+rare-disease case repositories: RareBench (Chen                   remain fixed, so only the surface form of the phe-
+et al., 2024), the Zenodo phenotype–disease col-                  notype evidence changes. Construction details for
+lection (Chimirri et al., 2025), and the GA4GH                    both corpora are in Appendices A.1 and D.2.
+Phenopacket Store (Danis et al., 2025). Each case
+carries HPO codes and a ground-truth OMIM iden-                   4.2   Experimental Setup
+tifier; after label resolution, deduplication and fre-            Baselines. We compare LatentDx against eight
+quency filtering, 8,022 cases across 235 OMIM                     baselines in three groups, all defined in Ap-
+diseases remain, split 90/5/5 into training, valida-              pendix B.1.1. ❶ Non-collaborative methods
+tion and test. We partition the training cases into               see only the query hospital: Zero-shot and
+five hospital-local databases, and at inference each              Single RAG. ❷ Text / structured sharing meth-
+agent retrieves only from its own Di , so diagnos-                ods send retrieved case text, structured retrieval
+tic evidence is distributed across hospitals while                outputs or natural-language assessments across
+retrieved clinical text stays local. The main results             hospital boundaries: Dist. RAG, Struct. RAG,
+use a balanced partition. Appendix D.3 repeats                    TextMAS, and Global RAG, which pools every
+them under a non-IID Dirichlet(α=0.3) partition in                hospital database into a single store and there-
+which each disease concentrates in a few hospitals,               fore acts as a centralized upper bound. ❸ La-
+raising the mean per-disease single-hospital share                tent communication methods send latent state:
+from 0.20 to 0.65; LatentDx keeps the strongest                   Raw KV and LatentMAS. Every method runs on
+overall utility on both hosts there as well.                      Llama-3.2-3B, Qwen3-4B and MediPhi.
+
+                                                              6
+                         Single RAG    Global RAG   LatentMAS       Table 2: Effect of cross-family heterogeneity. We vary the
+                         Dist. RAG     Raw KV       LatentDx        model-family composition of three hospital agents. Deg0,
+                0.8                                                 Deg1, and Deg2 use one, two, and three model families, re-
+                                                                    spectively. ∆Acc reports the absolute accuracy change from
+                                                                    Deg0 on the percentage-point scale. Q = Qwen3-4B, L =
+                0.6                                                 Llama-3.2-3B, and M = MediPhi.
+
+
+Overall score
+                                                                     Host      Degree (comp.)     Acc     F1 Judge    ∆Acc
+                0.4
+                                                                               Deg0 (Q:Q:Q)       0.64   0.61 0.72     –
+                                                                     Qwen3     Deg1 (Q:L:Q)       0.63   0.60 0.70    −0.5
+                0.2                                                            Deg2 (Q:L:M)       0.62   0.60 0.69    −2.2
+                                                                               Deg0 (L:L:L)       0.73   0.68 0.77     –
+                0.0                                                                                                   −0.7
+                        Acc           macro F1      Judge            Llama-3.2 Deg1 (L:Q:L)       0.72   0.66 0.76
+                                                                               Deg2 (L:Q:M)       0.71   0.65 0.76    −1.6
+Figure 4: C ROSS R ARE -B ENCH -T EXT. Overall scores on
+Llama-3.2 with both the query and the hospital-retrieved
+records rendered as clinical narratives. All three hosts in         4.4     Cross-Family Deployment
+Appendix D.2.
+                                                                    Table 2 evaluates LatentDx-X when hospital
+                                                                    agents use different LLM backbone families. Per-
+Implementation details. We set m=32 latent                          formance drops only mildly on both hosts as
+positions in all main experiments and use N =3                      the composition grows more heterogeneous, so
+hospital agents unless otherwise specified, with                    the cross-family projectors retain most diagnosis-
+the total retrieval budget fixed across all retrieval-              relevant signal when mapping non-host latent states
+based methods so that the comparison isolates the                   into the host space, and they can be reused across
+communication mechanism. We report diagnostic                       hospital compositions without retraining for each
+utility as accuracy, macro F1 and an LLM-as-judge                   mixture.
+score, and leakage in three kinds, one per secret the
+attacker targets. Appendix B.2 defines every metric                 4.5     Leakage under Attack
+and Appendix B.3 gives the full configuration.
+                                                                    Table 3 reports leakage under a ladder of attacks
+                                                                    of increasing attacker capability: two training-free
+                                                                    attacks that reuse the frozen host LLM and train
+4.3               Diagnostic Utility                                nothing, and three that train a dedicated model on
+                                                                    the transmitted representation. Text-sharing base-
+Table 1 reports diagnostic performance in the same-                 lines are not listed, since they transmit retrieved
+backbone setting, where all hospital agents and                     clinical text and a passive observer reads the source
+the host use the same LLM backbone. Across all                      content directly. Both raw-latent baselines leak
+three host LLMs, including MediPhi results in Ap-                   under every attack, so operating in latent space is
+pendix D.1, LatentDx achieves the strongest over-                   not by itself protective. Reading each cell as the
+all utility, with the best overall accuracy and macro               fraction of Raw KV’s leakage that survives above
+F1 and competitive or best judge scores.                            the no-transmission floor, LatentMAS recovers 83
+   The size of the gain varies across backbones                     to 123%, exceeding the raw cache itself on several
+and cohorts, but the aggregate pattern does not.                    backbone and attack pairs. This follows from what
+Per-cohort scores divide the 401-case test set three                it transmits: LatentMAS runs its own latent steps
+ways, so individual cells carry wide intervals:                     on top of the prompt KV cache rather than in place
+on Qwen3, LatentDx trails Raw KV on the Zen-                        of it, so the transmitted object carries the raw cache
+odo cohort while still leading on overall accuracy                  together with the further state those steps derive
+and macro F1, and the paired bootstrap in Ap-                       from it. Together with Table 1, these results show
+pendix D.4 confirms the macro F1 gain with ac-                      that LatentDx preserves diagnostic utility while re-
+curacy and judge score statistically comparable to                  ducing the clinical content recoverable from trans-
+the strongest baseline. The narrower Qwen3 mar-                     mitted latent states.
+gin tracks a less stable distillation: under the same
+                                                                    4.6     Hyperparameter Analysis
+training configuration, its distillation loss oscillates
+more than that of Llama-3.2. We therefore read                      Figure 5 ablates four settings of the experimen-
+Table 1 as one half of a joint utility–leakage profile              tal configuration, each varied in isolation on
+rather than a demand for uniform dominance.                         the Llama-3.2 host. ❶ Hospital agents N .
+
+                                                                7
+Table 3: Leakage under attacks of increasing attacker capability. Lower is better. No tx. denotes an attack-specific no-
+transmission control: the attacker receives no transmitted representation. It serves as the control baseline for measuring additional
+leakage attributable to transmission. Learned-attack entries are means over three random seeds. Reduction is the relative drop
+from Raw KV to LatentDx. Metrics are not comparable across rows. MediPhi and full details appear in Appendix F.3.
+                                                                                                  Qwen3-4B                                                               Llama-3.2-3B
+  Attack                                    Metric                            No tx.   Raw KV LatentMAS LatentDx Reduction                                No tx. Raw KV LatentMAS LatentDx                         Reduction
+                                                                                                  Training-free attacks
+  Prompt reconstruction                     Token F1 ↓                        0.05      0.60     0.60         0.07      ↓88%                                 0.07     0.68              0.82         0.07            ↓90%
+  Template-aware extraction                 Disease recall ↓                  0.00      0.89     0.90         0.20      ↓78%                                 0.00     0.88              0.75         0.16            ↓82%
+                                                                                                    Learned attacks
+  Attribute probe                           OMIM exact ↓                      0.17      0.62     0.62         0.23      ↓63%                                 0.17     0.61              0.60         0.20            ↓67%
+  Inversion decoder                         OMIM exact ↓                      0.27      0.97     0.96         0.40      ↓59%                                 0.27     0.99              0.99         0.38            ↓62%
+  Membership inference                      TPR@1%FPR ↓                       0.00      0.99     0.93         0.17      ↓83%                                 0.00     1.00              0.83         0.03            ↓97%
+
+
+                    Dist. RAG   LatentMAS      LatentDx                                Llama-3.2-3B   Qwen3-4B                             Dist. RAG   LatentMAS    LatentDx                   Acc      macro F1      Judge
+
+                                                                                                                                                                                       0.8
+              0.8                                                       0.8                                                    0.8
+                                                                                                                                                                                       0.7
+
+Judge score                                               Judge score                                            Judge score
+              0.6                                                       0.6
+                                                                                                                                                                               Score
+                                                                                                                               0.7
+              0.4                                                       0.4                                                                                                            0.6
+              0.2                                                       0.2                                                    0.6                                                     0.5
+              0.0 N=1 N=2 N=3 N=4 N=5                                   0.0 m=8 m=16 m=32 m=64                                       k=1               k=2              k=3              25%     50%                     100%
+               (a) Hospital agents N                              (b) Latent block length m                                      (c) Retrieval depth k                                  (d) Training data size
+Figure 5: Hyperparameter analysis. Each panel varies one setting and holds the rest at their main-experiment values. (a) and
+(c) vary the number of hospital agents N and the retrieval depth k on the Llama-3.2 host, comparing Dist. RAG, LatentMAS
+and LatentDx. (b) varies the latent block length m for LatentDx on both Llama-3.2 and Qwen3. (d) varies the fraction of the
+training split used to fit LatentDx’s latent interface on Llama-3.2, reporting all three utility metrics. Panels (a) to (c) report
+judge score. Full numbers in Appendix E.2.
+
+LatentDx receives evidence from more hospital-                                                                          MLP gains little over LayerNorm followed by one
+local databases as N grows and improves through-                                                                        linear projection, while on the host side concatenat-
+out, staying ahead of every baseline, so compact la-                                                                    ing the hospital blocks clearly beats mean-pooling
+tent blocks aggregate additional hospital evidence                                                                      them into a single vector. Appendix E.1 then shows
+rather than being overwhelmed by more inputs.                                                                           what the distiller cannot give up: replacing autore-
+❷ Latent block length m. Larger blocks carry                                                                            gressive distillation with a one-shot mean-pooled
+more diagnosis-relevant information and generally                                                                       bottleneck, at the same latent budget, collapses ac-
+help, but the gains become moderate after m=32;                                                                         curacy.
+since longer blocks also lengthen the transmit-
+ted state and raise inference cost, we use m=32                                                                         5             Conclusion
+in the main experiments, which Appendix C.2
+                                                                                                                        We introduced LatentDx, a latent multi-agent
+shows gives a 5–6× communication reduction over
+                                                                                                                        communication framework for cross-hospital rare-
+Raw KV. Appendix C.1 profiles the rest of the cost:
+                                                                                                                        disease diagnosis. At its core, hospital agents keep
+at three hospitals LatentDx adds 0.01s per query
+                                                                                                                        retrieved cases and prompt-length KV caches lo-
+and 0.7GB of peak memory over Raw KV, and fit-
+                                                                                                                        cal and exchange only a fixed-length, diagnosis-
+ting the interface is a one-time 5.5 GPU-hours.
+                                                                                                                        oriented latent block. Latent space is not by itself
+❸ Retrieval depth k. The text-sharing baselines
+                                                                                                                        protective: both raw-latent baselines leak under all
+improve as k grows, since they consume retrieved
+                                                                                                                        five attacks we run, and one leaks more than the
+cases as prompt context, whereas LatentDx is flat:
+                                                                                                                        raw KV cache it was meant to improve on. What
+it compresses whatever the hospital retrieves into
+                                                                                                                        limits leakage is compression under a diagnosis
+a block of fixed length, so depth changes what is
+                                                                                                                        objective. Under it, LatentDx attains the strongest
+summarised rather than how much is transmitted.
+                                                                                                                        overall utility on every backbone while admitting
+❹ Training data. Performance rises across the
+                                                                                                                        only a small share of the raw cache’s leakage above
+whole sweep and has not saturated at the full split,
+                                                                                                                        a no-transmission control, and holds that profile
+and a quarter of the data already suffices to pass
+                                                                                                                        on prose evidence and under skewed disease preva-
+every comparison method. ❺ Extended ablations.
+                                                                                                                        lence. Compact latent blocks therefore look like a
+Appendix E.3 varies the interface itself and finds
+                                                                                                                        promising communication object for collaboration
+that the distiller can stay simple, since a two-layer
+                                                                                                                        that cannot move clinical text.
+
+                                                                                                                 8
+6   Limitations                                              Xuanzhong Chen, Ye Jin, Xiaohao Mao, Lun Wang,
+                                                               Shuyang Zhang, and Ting Chen. 2026a. RareAgents:
+Our experiments run entirely on public rare-disease            Autonomous multi-disciplinary team for rare disease
+resources. We assembled as many as we could find,              diagnosis and treatment. Proceedings of the AAAI
+                                                               Conference on Artificial Intelligence, 40(1):101–109.
+but three repositories of curated cases do not repro-          AAAI 2026 Oral.
+duce the diversity of real clinical records, and the
+hospitals in our setting are partitions of that pooled       Xuanzhong Chen, Xiaohao Mao, Qihan Guo, Lun Wang,
+corpus rather than institutions with their own refer-          Shuyang Zhang, and Ting Chen. 2024. RareBench:
+                                                               Can LLMs serve as rare diseases specialists? In
+ral patterns, coding conventions and documentation             Proceedings of the 30th ACM SIGKDD Conference
+styles. The evaluation is therefore a simulation of            on Knowledge Discovery and Data Mining (KDD
+cross-hospital collaboration over public data. The            ’24), pages 4850–4861, Barcelona, Spain. ACM.
+method itself does not depend on that: a hospital
+                                                             Zihan Chen, Zeshen Li, Howard H. Yang, Tony Q. S.
+agent encodes whatever its own database returns,               Quek, and Jihong Park. 2026b. Federated inference
+so swapping a simulated partition for a real insti-            for heterogeneous LLM communication and collabo-
+tutional database changes the retrieval index and              ration. arXiv preprint arXiv:2603.28772.
+leaves the latent interface untouched. Validating            Leonardo Chimirri, J Harry Caufield, Yasemin Bridges,
+the setting on real deployments is the natural next            Nicolas Matentzoglu, Michael Gargano, Mario Caza-
+step once such access becomes possible.                        lla, Shihan Chen, Daniel Danis, Alexander JM
+   C ROSS R ARE -B ENCH -T EXT sits under the same             Dingemans, Klara Gehle, et al. 2025. Consistent
+                                                               performance of large language models in rare dis-
+constraint. Real hospital evidence is prose, but no            ease diagnosis across ten languages and 4917 cases.
+public rare-disease corpus supplies narrative cases            EBioMedicine, 121:105957.
+at this scale, so we rendered the phenotype-coded
+cases as clinical narratives ourselves. Holding ev-          Francesco Cremonesi, Marc Vesin, Sergen Cansiz, Yan-
+                                                               nick Bouillard, Irene Balelli, Lucia Innocenti, Ric-
+erything but the surface form fixed is what lets us            cardo Taiello, Santiago Silva, Samy-Safwan Ayed,
+isolate its effect, though generated narratives are            Melek Önen, Fanny Orlhac, Christophe Nioche,
+cleaner than real notes, carrying no abbreviations,            Bastien Houis, Romain Modzelewski, Nathan Lapel,
+no negation spread across sections, no transcription           Renaud Schiappa, Olivier Humbert, and Marco
+                                                               Lorenzi. 2025. Fed-BioMed: Open, transparent and
+noise and no clinician-specific phrasing. The cor-             trusted federated learning for real-world healthcare
+pus therefore measures what prose input costs un-              applications. In Studies in Computational Intelli-
+der controlled conditions, and extending the study             gence, pages 19–41. Springer Nature Switzerland.
+to real notes needs only a narrative source, since
+                                                             Daniel Danis, Michael J Bamshad, Yasemin Bridges,
+the pipeline consumes text either way.                         Andrés Caballero-Oteyza, Pilar Cacheiro, Leigh C
+                                                               Carmody, Leonardo Chimirri, Jessica X Chong, Ben
+7   Societal Impact                                            Coleman, Raymond Dalgleish, et al. 2025. A corpus
+                                                               of GA4GH phenopackets: case-level phenotyping for
+LatentDx is a research framework intended to as-               genomic diagnostics and discovery. Human Genetics
+sist, rather than replace, clinical judgment. Because          and Genomics Advances, 6(1):100371.
+rare-disease predictions can be wrong or perform             Lucio M. Dery, Zohar Yahav, Henry Prior, Qixuan Feng,
+unevenly across diseases, institutions and patient             Jiajun Shen, and Arthur Szlam. 2026. Latent space
+groups, real use would require clinical validation             communication via K-V cache alignment. Preprint,
+and expert review.                                             arXiv:2601.06123. Google DeepMind technical re-
+                                                               port.
+
+                                                             Tian Dong, Yan Meng, Shaofeng Li, Guoxing Chen,
+References                                                      Zhen Liu, and Haojin Zhu. 2025. Depth gives a false
+                                                                sense of privacy: LLM internal states inversion. In
+Johannes Birgmeier, Maximilian Haeussler, Cole A.               34th USENIX Security Symposium (USENIX Security
+  Deisseroth, Ethan H. Steinberg, Karthik A. Ja-               ’25), pages 1629–1648, Seattle, WA, USA. USENIX
+  gadeesh, Alexander J. Ratner, Harendra Guturu,                Association.
+  Aaron M. Wenger, Mark E. Diekhans, Peter D. Sten-
+  son, David N. Cooper, Christopher Ré, Alan H.              Minxin Du, Xiang Yue, Sherman S. M. Chow, Tian-
+  Beggs, Jonathan A. Bernstein, and Gill Bejerano.             hao Wang, Chenyu Huang, and Huan Sun. 2023.
+  2020. AMELIE speeds Mendelian diagnosis by                   DP-Forward: Fine-tuning and inference on language
+  matching patient phenotype and genotype to pri-              models with differential privacy in forward pass. In
+  mary literature. Science Translational Medicine,             Proceedings of the 2023 ACM SIGSAC Conference
+  12(544):eaau9113.                                            on Computer and Communications Security (CCS
+
+
+                                                         9
+  ’23), pages 2665–2679, New York, NY, USA. Associ-           Yuhan Liu, Hanchen Li, Yihua Cheng, Siddhant Ray,
+   ation for Computing Machinery.                               Yuyang Huang, Qizheng Zhang, Kuntai Du, Jiayi
+                                                                Yao, Shan Lu, Ganesh Ananthanarayanan, Michael
+Zhuoyun Du, Runze Wang, Huiyu Bai, Zouying Cao,                 Maire, Henry Hoffmann, Ari Holtzman, and Junchen
+  Xiaoyong Zhu, Yu Cheng, Bo Zheng, Wei Chen, and               Jiang. 2024. CacheGen: KV cache compression and
+  Haochao Ying. 2026. Enabling agents to communi-               streaming for fast large language model serving. In
+  cate entirely in latent space. In Proceedings of the          Proceedings of the ACM SIGCOMM 2024 Confer-
+  64th Annual Meeting of the Association for Compu-             ence, pages 38–56, Sydney, Australia. ACM.
+  tational Linguistics (Volume 1: Long Papers), pages
+  27106–27129. Association for Computational Lin-             Peihua Mai, Ran Yan, Zhe Huang, Youjia Yang, and
+  guistics.                                                     Yan Pang. 2024. Split-and-denoise: Protect large
+                                                                language model inference with local differential pri-
+Tianyu Fu, Zihan Min, Hanling Zhang, Jichao Yan,
+                                                                vacy. In Proceedings of the 41st International Con-
+  Guohao Dai, Wanli Ouyang, and Yu Wang. 2026.
+                                                                ference on Machine Learning (ICML), volume 235 of
+  Cache-to-Cache: Direct semantic communication be-
+                                                                Proceedings of Machine Learning Research, pages
+  tween large language models. In The Fourteenth In-
+                                                                34281–34302. PMLR.
+  ternational Conference on Learning Representations
+  (ICLR). ICLR 2026.                                          Xiaohao Mao, Yu Huang, Ye Jin, Lun Wang, Xu-
+Sachin Goyal, Ziwei Ji, Ankit Singh Rawat, Aditya Kr-           anzhong Chen, Honghong Liu, Xinglin Yang,
+  ishna Menon, Sanjiv Kumar, and Vaishnavh Nagara-              Haopeng Xu, Xiaodong Luan, Ying Xiao, Siqin Feng,
+  jan. 2024. Think before you speak: Training lan-              Jiahao Zhu, Xuegong Zhang, Rui Jiang, Shuyang
+  guage models with pause tokens. In The Twelfth In-            Zhang, and Ting Chen. 2025. A phenotype-based AI
+  ternational Conference on Learning Representations            pipeline outperforms human experts in differentially
+  (ICLR).                                                       diagnosing rare diseases using EHRs. npj Digital
+                                                                Medicine, 8(1):68.
+Shibo Hao, Sainbayar Sukhbaatar, DiJia Su, Xian Li,
+  Zhiting Hu, Jason Weston, and Yuandong Tian. 2025.          John X. Morris, Volodymyr Kuleshov, Vitaly Shmatikov,
+  Training large language models to reason in a con-            and Alexander M. Rush. 2023. Text embeddings
+  tinuous latent space. In Conference on Language               reveal (almost) as much as text. In Proceedings of the
+  Modeling (COLM).                                              2023 Conference on Empirical Methods in Natural
+                                                                Language Processing (EMNLP), pages 12448–12460.
+Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik Siu                  Association for Computational Linguistics.
+  Chan, Xuhai Xu, Daniel McDuff, Hyeonhoon Lee,
+  Marzyeh Ghassemi, Cynthia Breazeal, and Hae Won             Jesse Mu, Xiang Lisa Li, and Noah D. Goodman. 2023.
+  Park. 2024. MDAgents: An adaptive collaboration of             Learning to compress prompts with gist tokens. In
+  LLMs for medical decision-making. In Advances in               Advances in Neural Information Processing Systems
+  Neural Information Processing Systems, volume 37,              (NeurIPS).
+  pages 79410–79452. Curran Associates, Inc. Oral.
+                                                              Sarthak Pati, Ujjwal Baid, Brandon Edwards, Micah
+Anna Kuzina, Maciej Pióro, and Babak Ehteshami                  Sheller, Shih-Han Wang, G. Anthony Reina, Patrick
+  Bejnordi. 2026. KaVa: Latent reasoning via com-               Foley, Alexey Gruzdev, Deepthi Karkada, Christos
+  pressed KV-cache distillation. In The Fourteenth              Davatzikos, et al. 2022. Federated learning enables
+  International Conference on Learning Representa-              big data for rare cancer boundary detection. Nature
+  tions (ICLR).                                                 Communications, 13(1):7346.
+Junkai Li, Yunghwei Lai, Weitao Li, Jingyi Ren, Meng
+                                                              Peter N. Robinson, Vida Ravanmehr, Julius O. B. Jacob-
+  Zhang, Xinhui Kang, Siyu Wang, Peng Li, Ya-Qin
+                                                                sen, Daniel Danis, Xingmin Aaron Zhang, Leigh C.
+  Zhang, Weizhi Ma, and Yang Liu. 2024. Agent Hos-
+                                                                Carmody, Michael A. Gargano, Courtney L. Thaxton,
+  pital: A simulacrum of hospital with evolvable medi-
+                                                                Guy Karlebach, Justin Reese, Manuel Holtgrewe, Se-
+  cal agents. Preprint, arXiv:2405.02957.
+                                                                bastian Köhler, Julie A. McMurry, Melissa A. Haen-
+Xiang Lisa Li and Percy Liang. 2021. Prefix-tuning:             del, Damian Smedley, and UNC Biocuration Core.
+  Optimizing continuous prompts for generation. In              2020. Interpretable clinical genomics with a like-
+  Proceedings of the 59th Annual Meeting of the Asso-           lihood ratio paradigm. The American Journal of
+  ciation for Computational Linguistics and the 11th            Human Genetics, 107(3):403–417.
+  International Joint Conference on Natural Language
+  Processing (Volume 1: Long Papers), pages 4582–             Holger R. Roth, Yan Cheng, Yuhong Wen, Isaac Yang,
+  4597, Online. Association for Computational Lin-              Ziyue Xu, Yuan-Ting Hsieh, Kristopher Kersten,
+  guistics.                                                     Ahmed Harouni, Can Zhao, Kevin Lu, Zhihong
+                                                                Zhang, Wenqi Li, Andriy Myronenko, Dong Yang,
+Xiao-Yang Liu, Rongyi Zhu, Daochen Zha, Jiechao                 Sean Yang, Nicola Rieke, Abood Quraini, Chester
+  Gao, Shan Zhong, Matt White, and Meikang Qiu.                 Chen, Daguang Xu, Nic Ma, Prerna Dogra, Mona
+  2025. Differentially private low-rank adaptation of           Flores, and Andrew Feng. 2023. NVIDIA FLARE:
+  large language model using federated learning. ACM            Federated learning from simulation to real-world.
+  Transactions on Management Information Systems,               Preprint, arXiv:2210.13291. Also in IEEE Data En-
+  16(2):1–24.                                                   gineering Bulletin Vol. 46(1), 2023.
+
+
+                                                         10
+Xiangru Tang, Anni Zou, Zhuosheng Zhang, Ziming                Zhen Zhang, Xuehai He, Weixiang Yan, Ao Shen,
+  Li, Yilun Zhao, Xingyao Zhang, Arman Cohan, and                Chenyang Zhao, and Xin Eric Wang. 2025. Soft
+  Mark Gerstein. 2024. MedAgents: Large language                 thinking: Unlocking the reasoning potential of LLMs
+  models as collaborators for zero-shot medical rea-             in continuous concept space. In Advances in Neural
+  soning. In Findings of the Association for Com-                Information Processing Systems 38 (NeurIPS 2025).
+  putational Linguistics: ACL 2024, pages 599–621,
+  Bangkok, Thailand. Association for Computational             Zhenyu Zhang, Ying Sheng, Tianyi Zhou, Tianlong
+  Linguistics.                                                   Chen, Lianmin Zheng, Ruisi Cai, Zhao Song, Yuan-
+                                                                 dong Tian, Christopher Ré, Clark Barrett, Zhangyang
+Ziqing Wang, Chengsheng Mao, Xiaole Wen, Yuan Luo,               Wang, and Beidi Chen. 2023. H2 O: Heavy-hitter ora-
+  and Kaize Ding. 2025a. AMANDA: Agentic medical                 cle for efficient generative inference of large language
+  knowledge augmentation for data-efficient medical              models. In Advances in Neural Information Process-
+  visual question answering. In Findings of the Associ-          ing Systems (NeurIPS), volume 36, pages 34661–
+  ation for Computational Linguistics: EMNLP 2025,               34710.
+  pages 24810–24832, Suzhou, China. Association for
+  Computational Linguistics.                                   Weike Zhao, Chaoyi Wu, Yanjie Fan, Pengcheng Qiu,
+                                                                Xiaoman Zhang, Yuze Sun, Xiao Zhou, Shuju Zhang,
+Zixiang Wang, Yinghao Zhu, Huiya Zhao, Xiaochen                 Yu Peng, Yanfeng Wang, Xin Sun, Ya Zhang, Yong-
+  Zheng, Dehao Sui, Tianlong Wang, Wen Tang, Yasha              guo Yu, Kun Sun, and Weidi Xie. 2026. An agentic
+  Wang, Ewen M. Harrison, Chengwei Pan, Junyi Gao,              system for rare disease diagnosis with traceable rea-
+  and Liantao Ma. 2025b. ColaCare: Enhancing elec-              soning. Nature, 651(8106):775–784.
+  tronic health record modeling through large language
+  model-driven multi-agent collaboration. In Proceed-          Xiaoying Zhong, Siyi Li, Zhao Chen, Long Ge, Dong-
+  ings of the ACM on Web Conference 2025, pages                  dong Yu, Shijia Wang, Liangzhen You, and Hongcai
+  2250–2261. ACM.                                                Shang. 2025. Considerations for patient privacy of
+                                                                 large language models in health care: scoping review.
+Ziyue Wang, Junde Wu, Linghan Cai, Chang Han                     Journal of Medical Internet Research, 27:e76571.
+  Low, Xihong Yang, Qiaxuan Li, and Yueming Jin.
+  2026. MedAgent-Pro: Towards evidence-based                   Jiaru Zou, Ruizhong Qiu, Gaotang Li, Xiyuan Yang,
+  multi-modal medical diagnosis via reasoning agentic             Katherine Tieu, Pan Lu, Ke Shen, Hanghang Tong,
+  workflow. In The Fourteenth International Confer-               Yejin Choi, Jingrui He, James Zou, Mengdi Wang,
+  ence on Learning Representations. Poster.                       and Ling Yang. 2026. Latent collaboration in multi-
+                                                                  agent systems. In Proceedings of the 43rd Inter-
+Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song                   national Conference on Machine Learning (ICML).
+  Han, and Mike Lewis. 2024. Efficient streaming lan-             Spotlight.
+  guage models with attention sinks. In The Twelfth
+  International Conference on Learning Representa-
+  tions (ICLR).
+Haoyan Yang, Zhitao Li, Yong Zhang, Jianzong Wang,
+  Ning Cheng, Ming Li, and Jing Xiao. 2024. PFID:
+  Privacy first inference delegation framework for
+  LLMs. arXiv preprint arXiv:2406.12238.
+Rui Ye, Wenhao Wang, Jingyi Chai, Dihan Li, Zexi
+  Li, Yinda Xu, Yaxin Du, Yanfeng Wang, and Siheng
+  Chen. 2024. OpenFedLLM: Training large language
+  models on decentralized private data via federated
+  learning. In Proceedings of the 30th ACM SIGKDD
+  Conference on Knowledge Discovery and Data Min-
+  ing (KDD ’24), pages 6137–6147, Barcelona, Spain.
+  ACM.
+Weiqi Zhai, Xiaodi Huang, Nan Shen, and Shanfeng
+ Zhu. 2023. Phen2Disease: a phenotype-driven model
+ for disease and gene prioritization by bidirectional
+ maximum matching semantic similarities. Briefings
+ in Bioinformatics, 24(4):bbad172.
+Jianyi Zhang, Saeed Vahidian, Martin Kuo, Chunyuan
+   Li, Ruiyi Zhang, Tong Yu, Guoyin Wang, and Yiran
+   Chen. 2024. Towards building the FederatedGPT:
+   Federated instruction tuning. In Proceedings of the
+   IEEE International Conference on Acoustics, Speech
+   and Signal Processing (ICASSP), pages 6915–6919,
+   Seoul, Korea. IEEE.
+
+
+                                                          11
+Appendix Roadmap                                                          Table 4: Dataset filtering pipeline. We remove cases without
+                                                                          a unique OMIM label, deduplicate repeated cases, and keep
+• Appendix A: Data and task construction describes the                    diseases with at least 10 cases to support stable splitting, re-
+  benchmark sources, filtering and splits, hospital partitions,           trieval, and per-disease evaluation.
+  and local retrieval procedure.
+• Appendix B: Experimental setup defines the baselines and                 Stage                                      #Cases   #Unique OMIM
+  access patterns, gives the prompts and evaluation metrics,               All collected rows                         10,458               –
+                                                                           After single-OMIM resolution               10,376             815
+  and reports the model and training configurations.                       After case-id deduplication                10,154               –
+• Appendix C: System efficiency and deployment reports                     After exact deduplication                  10,149             815
+  latency, memory, hospital scaling, interface-training cost,              After filtering diseases with < 10 cases    8,022             235
+  communication volume, and cross-family deployment de-
+  tails.                                                                  Table 5: Hospital-level partition statistics. The training split
+• Appendix D: Utility and robustness provides full-                       is partitioned into five hospital-local databases with compara-
+  backbone utility results, free-text evaluation, non-IID hospi-          ble disease coverage and HPO-term density.
+  tal experiments, and bootstrap confidence intervals.
+• Appendix E: Representation analysis and ablations stud-                  Hospital       #Cases       #Unique OMIM            Avg HPO/case
+  ies the trained bottleneck, retrieval and data sensitivity, com-         H1              1,444                 225                    9.5
+  ponent design, and latent-space structure.                               H2              1,444                 222                    9.5
+• Appendix F: Privacy and leakage defines the attack set-                  H3              1,444                 225                    9.4
+  tings and reports reconstruction, attribute, probing, inver-             H4              1,444                 221                    9.7
+  sion, and membership-inference results.                                  H5              1,444                 226                    9.7
+• Appendix G: LLM usage describes language-model assis-                    Total           7,220                 235                    9.6
+  tance.
+
+A     Data and Task Construction                                          Validation and test cases are held out from training
+                                                                          and are used for model selection and final evalua-
+A.1     Dataset Construction and Statistics
+                                                                          tion. The average number of HPO terms per case
+Source datasets. We construct C ROSS R ARE -                              is approximately 9.6 in training and 9.4 in testing.
+B ENCH from three publicly available rare-disease
+case repositories: RareBench (Chen et al., 2024),                         Hospital-level partition. We partition the 7,220
+the Zenodo rare-disease phenotype–disease col-                            training cases into five hospital-local databases.
+lection (Chimirri et al., 2025), and the GA4GH                            During inference, each hospital agent retrieves only
+Phenopacket Store (Danis et al., 2025). RareBench                         from its own database, and no hospital can access
+includes curated cases from RAMEDIS, LIRICAL,                             another hospital’s case records. This creates the
+HMS, and MME. Each case contains HPO phe-                                 controlled cross-hospital setting used in the main
+notype codes and a disease label. Disease labels                          experiments. Table 5 summarizes the partition
+are normalized to OMIM identifiers. Non-OMIM                              statistics.
+labels are mapped to OMIM identifiers when exact                          A.2     HPO-Based Local Retrieval
+MONDO or Orphanet cross-references are avail-
+able. In the base C ROSS R ARE -B ENCH setting, the                       In the base C ROSS R ARE -B ENCH setting,
+query shown to models is the structured HPO phe-                          both query and database cases are repre-
+notype set, rendered as canonical HPO term names,                         sented as HPO phenotype-code sets, such as
+rather than a free-text clinical narrative.                               {HP:0000480, HP:0000612, . . .}. For prompting,
+                                                                          each HPO code is deterministically rendered to its
+Filtering pipeline. We apply a deterministic fil-                         canonical term name using the ontology mapping,
+tering pipeline to obtain a clean OMIM-labeled                            for example HP:0000480 7→ “Retinal coloboma.”
+benchmark. We remove cases without a unique                               The query contains no free-text clinical narrative
+OMIM identifier, deduplicate cases by case iden-                          in this base setting.
+tifier, and remove exact duplicates with the same
+phenotype set and OMIM label. We then keep                                Phenotype embedding. We encode each pheno-
+only diseases with at least 10 cases to support sta-                      type set as an information-content-weighted aver-
+ble splitting and per-disease evaluation. The final                       age of HPO-term embeddings. Each HPO term t
+corpus contains 8,022 cases spanning 235 unique                           has a precomputed sentence embedding v(t) and
+OMIM diseases. Table 4 summarizes the filtering                           an information-content weight IC(t), where rarer
+pipeline.                                                                 terms receive larger weights. For a phenotype set
+                                                                          Q, the embedding is
+Splits. We split the final corpus into 7,220 train-                                           P
+ing cases, 401 validation cases, and 401 test cases.                                            t∈Q IC(t)v(t)
+                                                                                        eQ = P                .         (8)
+The training split contains all 235 OMIM diseases.                                                t∈Q IC(t)
+
+
+                                                                     12
+Algorithm 1 HPO-based local retrieval at hospital            Table 6: Access patterns of all methods. Cross-hospital indi-
+                                                             cates whether the method uses evidence from hospitals other
+Hi                                                           than the host. Text shared indicates whether retrieved clini-
+Require: query HPO set Q, local database Di ,                cal text crosses hospital boundaries. Latent shared indicates
+                                                             whether the method transmits internal model states or compact
+    term embeddings
+           P           v(·), IC weights IC(·), top-k         latent blocks.
+              t∈Q IC(t)v(t)
+ 1: eQ ← P                                                    Method            Cross-hospital   Text shared   Latent shared
+                t∈Q IC(t)                                     Zero-shot               ✗               ✗              ✗
+                                                              Single RAG
+               P c ∈ Di do
+ 2: for each case
+                                                              Distributed RAG
+                                                                                      ✗
+                                                                                      ✓
+                                                                                                      ✗
+                                                                                                      ✓
+                                                                                                                     ✗
+                                                                                                                     ✗
+                 t∈c IC(t)v(t)                                Global RAG              ✓               ✓              ✗
+ 3:     ec ← P                                                Struct. RAG             ✓               ✓              ✗
+                    t∈c IC(t)                                 TextMAS                 ✓               ✓              ✗
+                ⟨eQ , ec ⟩                                    Raw KV                  ✓               ✗             ✓
+ 4:     sc ←                                                  LatentMAS               ✓               ✗             ✓
+               ∥eQ ∥ ∥ec ∥                                    LatentDx                ✓               ✗             ✓
+ 5: end for
+ 6: return top-kc∈Di sc
+                                                             Latent communication. Raw KV transmits the
+                                                             full prompt-length KV cache defined in §3.2.
+Database-case embeddings are computed in the                 LatentMAS is a latent multi-agent baseline that ex-
+same way.                                                    changes latent states without LatentDx’s compact
+                                                             KV distillation.
+Similarity and local retrieval. Retrieval ranks
+cases by cosine similarity between the query em-             B.1.2 Baseline access patterns
+bedding and each candidate case embedding. For               Table 6 summarizes the information access pattern
+hospital Hi , retrieval is performed only within its         of each method. The baselines differ in whether
+private database Di . The default setting retrieves          they use evidence from other hospitals, whether
+one case per hospital, so an N -hospital diagnosis           retrieved clinical text crosses hospital boundaries,
+instance uses N retrieved cases in total. Retrieved          and whether they transmit internal model states or
+cases enter only the local prompt of the hospital            compact latent blocks. LatentDx and the latent
+that stores them. In LatentDx, retrieved cases are           baselines aggregate cross-hospital evidence with-
+consumed locally and only the compact latent block           out transmitting retrieved clinical text.
+is transmitted. Retrieved case text crosses hospital
+                                                             B.1.3 Diagnosis output format
+boundaries only in text-sharing baselines such as
+Distributed RAG, Global RAG, and TextMAS.                    All diagnosis methods use the same output contract.
+                                                             The model is instructed to return a single disease
+B     Experimental Setup                                     name inside <answer> and </answer> tags, with
+                                                             no explanation:
+B.1    Baselines and Prompt Templates
+                                                                   What is the single most likely diagnosis? Put
+B.1.1 Baseline definitions                                         your final answer inside <answer></answer>
+                                                                   tags. Only the disease name, no explanations.
+Non-collaborative. Zero-shot uses only the
+query phenotypes. Single RAG retrieves cases                 The evaluator extracts the span inside the answer
+only from the query hospital’s own local database.           tags and maps it to an OMIM identifier. This shared
+                                                             format is used for RAG baselines, TextMAS, latent
+Text / structured sharing. Distributed RAG
+                                                             baselines, and LatentDx.
+(Dist. RAG in tables) lets each hospital retrieve
+from its own database and shares the retrieved text          B.1.4 Non-Collaborative Baselines
+with the host agent. Global RAG pools all hospital           Zero-shot uses only the query phenotypes and
+databases into a single global store, representing a         does not retrieve case examples. Single RAG re-
+centralized text-sharing setting with full retrieval         trieves cases only from the query hospital’s local
+access. Struct. RAG shares only structured re-               database and therefore uses no cross-hospital ev-
+trieval outputs, namely each hospital’s retrieved            idence. Both baselines use the shared diagnosis
+disease label and HPO similarity score, without              output format in Appendix B.1.3.
+transmitting retrieved case text. TextMAS is a paral-
+lel text-based multi-agent baseline in which hospi-          B.1.5 Text-Sharing Collaboration Baselines
+tal agents communicate through natural-language              Text-sharing baselines use cross-hospital evidence
+assessments.                                                 by transmitting retrieved cases or natural-language
+
+                                                        13
+Table 7: Method-to-prompt mapping. Letters refer to the                            object. TextMAS and RAG baselines use separate
+prompt boxes that follow. Latent methods share A/B/C and
+differ only in the transmitted object.                                             prompts because their collaboration formats differ.
+                                                                                   The judge (G) and attacker (H) prompts are used
+ Method                      System   Hospital / agent       Final question
+ LatentDx (ours)               A      B (distilled latent)         C
+                                                                                   only for evaluation.
+ Raw KV                        A         B (raw KV)                C
+ LatentMAS                     A       B (latent steps)            C                A. Shared system prompt (latent methods)
+ TextMAS                       E1             E2                   E3
+ RAG (Global/Single/Dist.)     F1       F2 (few-shot)              F2
+                                                                                    You are a specialist in the field of rare diseases. You
+ Judge (eval)                  G1              –                   G2               will be provided with similar cases from multiple
+ Attacker (eval)                –              –                   H                hospitals to help diagnose a patient.
+
+
+
+messages to the host agent. Distributed RAG                                         B. Hospital agent prompt (encoded by each hospital)
+retrieves one case from each hospital database
+                                                                                    A similar case from Hospital {hospital_id}: The patient
+and shares the retrieved text with the host agent.                                  has a rare disease [{case_disease}], and his/her
+                                                                                    phenotype is as follows: [{case_phenotype}].
+Global RAG retrieves from the union of all hospi-                                   Now consider the following patient case:
+tal databases, serving as a centralized text-sharing                                Patient's phenotype: {test_phenotype}
+                                                                                    Think about what diagnoses are most likely for this
+upper bound with full retrieval access. TextMAS                                     patient.
+is a parallel text-space multi-agent baseline: each
+hospital agent independently reads only its own                                     C. Final diagnosis question (host)
+retrieved local case and the query phenotypes, then
+emits a one-line diagnosis with a one-sentence ra-                                  Based on the information above, what is the single most
+                                                                                    likely diagnosis for this patient?
+tionale. Agents do not see one another’s messages.                                  Patient's phenotype: {test_phenotype}
+A coordinating host reads all hospital assessments                                  Put your final answer inside <answer></answer> tags. Only
+                                                                                    the disease name, no explanations.
+together with their retrieved cases and produces the                                Example format:
+                                                                                    <answer>
+final diagnosis using the shared <answer> output                                    Disease A
+format. Unlike LatentDx, these baselines trans-                                     </answer>
+
+mit retrieved disease information across hospital
+boundaries as plaintext. All RAG retrieval uses                                     D. Target / answer format (training and parsing)
+the HPO-based similarity procedure described in
+Appendix A.2.                                                                       <answer>
+                                                                                    {disease_name}
+                                                                                    </answer>
+B.1.6      Latent Communication Baselines
+We include two training-free latent communication                                   E1. TextMAS system prompt
+baselines. Raw KV encodes each hospital’s local
+prompt and transmits the full prompt-length KV                                      You are a specialist in the field of rare diseases.
+                                                                                    Multiple hospitals each independently assess a patient; a
+cache. It does not transmit explicit clinical text,                                 coordinating specialist then combines their conclusions
+                                                                                    to diagnose.
+but exposes internal representations for all prompt
+positions. LatentMAS follows a sequential latent
+multi-agent protocol and adds two autoregressive                                    E2. TextMAS per-hospital assessment (user)
+latent steps before forwarding its KV cache. Both
+latent baselines use frozen LLM backbones and do                                    Hospital {hospital_id}'s records contain a similar case:
+                                                                                    a patient with [{case_disease}], phenotype
+not train a compact distillation interface.                                         [{case_phenotype}].
+                                                                                    Patient to diagnose -- phenotype: {test_phenotype}
+   Table 7 summarizes which prompt components                                       Give Hospital {hospital_id}'s single most likely
+                                                                                    diagnosis for this patient in one line, followed by one
+are used by each method before we list the com-                                     sentence of reasoning.
+plete templates.
+
+B.1.7      Full prompt templates                                                    E3. TextMAS host aggregation (user)
+
+We list the prompt templates used in our exper-                                     Hospital evidence and independent assessments:
+iments. All prompts are model-agnostic, and                                         {context}
+                                                                                    Patient's phenotype: {test_phenotype}
+{· · · } denote runtime fills. The latent methods                                   Considering all hospitals' retrieved cases and
+                                                                                    independent assessments above, what is the single most
+(LatentDx, Raw KV, LatentMAS) share the same                                        likely diagnosis for this patient?
+system prompt (A), hospital-agent prompt (B), and                                   Put your final answer inside <answer></answer> tags. Only
+                                                                                    the disease name, no explanations.
+final question (C), differing only in the transmitted
+
+                                                                              14
+                                                                  Table 8: LLM backbones used in our experiments.
+ Example format:
+ <answer>                                                         MediPhi is a medically adapted model built on
+ Disease A                                                        Phi-3.5-mini-instruct and carries no size in its
+ </answer>                                                        name. All backbones remain frozen.
+
+                                                                   Backbone              Parameters Hidden size
+ F1. RAG system prompt (Global / Single / Distributed)             Llama-3.2-3B-Instruct      3.21B       3072
+                                                                   Qwen3-4B-Instruct          4.02B       2560
+ You are a specialist in the field of rare diseases. You           MediPhi                    3.82B       3072
+ will be provided with a patient case and similar cases.
+ Read them carefully and identify the most likely
+ diagnosis.
+
+                                                                  differently. Values are comparable within a kind
+ F2. RAG user prompt (few-shot retrieved cases inline)            but not across kinds, and lower is better throughout.
+                                                                     Reconstruction leakage takes the secret to be
+ Let me give you {N} examples first:                              the source local prompt xi , which contains the
+ The first patient has a rare disease [{dis_1}], and
+ his/her phenotype is as follows: [{phe_1}].                      retrieved clinical evidence. We score the at-
+ ... (one line per retrieved few-shot case) ...
+ Next is the patient case you need to diagnose:                   tacker’s output against xi with token F1 and with
+ Patient's phenotype: {test_phenotype}                            BERTScore. Because shared terminology in tem-
+ What is the single most likely diagnosis?
+ Put your final answer inside <answer></answer> tags. Only        plated medical prompts keeps raw BERTScore high
+ the disease name, no explanations.
+ Example format:                                                  even for unrelated text, Appendix F.1 also reports
+ <answer>
+ Disease A
+                                                                  BERTScore rescaled against a random-sentence
+ </answer>                                                        baseline, so that 1 means full reconstruction, 0
+                                                                  means indistinguishable from random text, and neg-
+ G1. Judge system prompt (LLM-as-judge)                           ative values mean less similar than random.
+                                                                     Attribute leakage takes the secret to be the re-
+ You are a specialist in the field of rare diseases.
+                                                                  trieved disease itself. Two attacks recover it in dif-
+                                                                  ferent output spaces, so two scores appear. Disease
+ G2. Judge user prompt                                            recall is the fraction of cases in which the retrieved
+                                                                  disease label string appears in the attacker’s greedy
+ You will be given one predicted disease and one standard
+ diagnosis. Decide whether they refer to the same disease
+                                                                  continuation, and is used for the training-free ex-
+ or an equivalent alias. Output only "Yes" or "No".               traction attacks. OMIM exact match is the fraction
+ Predicted disease: {prediction}
+ Standard diagnosis: {golden}                                     of cases in which a trained attacker predicts the cor-
+                                                                  rect OMIM identifier, and is used for the learned
+ H. Attacker prompt (KV reconstruction)
+                                                                  probe and inversion decoder, which additionally re-
+                                                                  port HPO micro-F1 over the recovered phenotype
+ Repeat the exact previous hospital case content verbatim.        terms. Disease recall and OMIM exact match are
+ Include the disease name and phenotype text exactly as
+ stated. Output only that prior hospital case content and         not interchangeable: the first searches free-form
+ nothing else.                                                    generated text for a string, the second selects one
+                                                                  label out of the OMIM space.
+B.2   Evaluation Metrics                                             Membership leakage takes the secret to be a sin-
+                                                                  gle bit, namely whether a given case lies in a hospi-
+Diagnostic utility. Accuracy requires an exact
+                                                                  tal’s retrieval database. We report the true positive
+OMIM match between the predicted and ground-
+                                                                  rate at a 1% false positive rate, the operating point
+truth disease. Macro F1 averages per-disease F1
+                                                                  at which a membership attack is conventionally
+over the 235 OMIM classes, so it weights rare
+                                                                  judged. Chance is 0.01.
+classes equally with common ones. The LLM-
+as-judge score uses Qwen3-30B to compare the
+predicted diagnosis with the ground-truth disease;                B.3     Training and Implementation Details
+it is less sensitive to disease-name surface forms                B.3.1    Model backbones
+than exact match, and so credits a correct diagnosis
+                                                                  We evaluate three instruction-tuned LLM
+written under a synonym.
+                                                                  backbones:            Llama-3.2-3B-Instruct,
+Leakage. Leakage is what an attacker recovers                     Qwen3-4B-Instruct, and MediPhi, a Phi-
+from the transmitted representation. Each kind                    3.5-based medically adapted model. All LLM
+targets a different secret and is therefore scored                backbones are used off the shelf and remain frozen.
+
+                                                             15
+ Table 9: Training hyperparameters for the latent interface.        projectors and boundary embeddings are updated.
+        Hyperparameter                  Value                       Full training details are provided in Appendix C.3.
+        Optimizer                       AdamW
+        Learning rate                   1 × 10−4
+                                                                    B.3.6 Training data and hardware
+        Weight decay                    0.01                        The latent interface is trained centrally on the pub-
+        Scheduler                       LambdaLR
+        Warm-up steps                   100
+                                                                    lic 7,220-case training split under the controlled
+        Epochs                          5                           five-hospital partition. Validation and test cases are
+        Batch size                      8                           disjoint from training and are never used to update
+        Latent positions per hospital   m = 32
+        Hospitals per query             N =3
+                                                                    the latent interface. All training and evaluation runs
+        Retrieved cases per hospital    1                           use a single NVIDIA H100 80GB GPU.
+        Max prompt length               320 tokens
+        Max target length               64 tokens                   C     System Efficiency and Deployment
+        Seed                            42
+                                                                    C.1    Runtime, Memory, and Hospital Scaling
+                                                                    Table 11 profiles the latent communication methods
+B.3.2    Default inference configuration
+                                                                    with a Llama-3.2-3B host on a single NVIDIA
+Unless otherwise specified, we use N = 3 hospi-                     H100 80GB GPU. The method comparison uses
+tal agents and retrieve one local case per hospital,                the same N =3 configuration as the main experi-
+giving three retrieved cases per cross-hospital di-                 ments, and the scaling study reports the same sim-
+agnosis instance. We set m = 32 distilled latent                    ulated pipeline for N = 1 through 5. These mea-
+positions per hospital block. In same-backbone                      surements characterize the simulated single-GPU
+LatentDx-H, the two contextualized boundary po-                     pipeline rather than real inter-hospital network la-
+sitions yield m + 2 = 34 transmitted KV positions.                  tency.
+Decoding uses greedy generation with temperature                       At three hospitals, LatentDx adds only 0.01 sec-
+0. All methods use the single-answer output format                  onds per query and 0.7 GB of peak GPU memory
+in Appendix B.1.3.                                                  relative to Raw KV. LatentMAS is slower because
+                                                                    it executes latent reasoning sequentially across
+B.3.3    Training hyperparameters
+                                                                    agents, whereas LatentDx independently com-
+The latent interface is trained with diagnosis cross-               presses each hospital’s evidence before host-side
+entropy on the public training split under the sim-                 aggregation. From one to five hospitals, LatentDx
+ulated hospital partitions. Table 9 lists the main                  latency increases from 0.11 to 0.42 seconds and
+hyperparameters.                                                    peak memory from 9.2 to 11.2 GB. Interface train-
+                                                                    ing is a one-time cost of 5.5 H100 GPU-hours for
+B.3.4    Trainable parameters
+                                                                    a LatentDx-H distiller and 1.2 H100 GPU-hours
+All local and host LLM backbones remain frozen                      per LatentDx-X projector; all LLM backbones re-
+throughout training. Trainable parameters are lim-                  main frozen. The projector figure is reported per
+ited to the lightweight distiller, learned bound-                   projector and is not the total GPU-hour cost of a
+ary embeddings, and, in the cross-family setting,                   jointly trained universal projector set.
+lightweight projectors. Boundary embeddings are
+the learned begin- and end-of-block markers that                    C.2    Communication Footprint
+delimit each hospital agent’s compact latent block.                 We quantify the communication footprint of com-
+Table 10 shows that every trainable component is                    pact latent blocks relative to prompt-length KV
+under 0.3% of its host backbone, and a host’s full                  exchange. For a bf16 KV cache with L layers,
+universal projector set stays under 0.6%.                           transmitted length T , and per-layer KV dimension
+                                                                    dKV , the transmitted size per hospital is
+B.3.5    Cross-family projector training
+                                                                           Size(T ) = 2 · L · T · dKV · 2 bytes,      (9)
+For cross-family deployment, each host uses a
+jointly trained projector set containing one projec-                where the first factor of 2 accounts for keys and
+tor for each non-host encoder family. Each projec-                  values, and the last factor of 2 is the number of
+tor maps encoder-side latent hidden states to host-                 bytes per bf16 element. Raw KV transmits the full
+side input embeddings, as described in §3.3. The                    prompt-length cache with T = Ti , LatentMAS re-
+encoder LLM backbones, encoder-side distillers,                     tains that cache and adds two latent steps, and same-
+and host LLM backbone remain frozen. Only the                       backbone LatentDx-H transmits m = 32 distilled
+
+                                                               16
+Table 10: Trainable parameter counts. The distiller ϕ and boundary embeddings are trained per family for same-backbone
+LatentDx-H. Cross-family projectors ψE→H are trained for non-host encoder families in LatentDx-X. The universal projector
+set is the joint set of foreign projectors for a host and does not grow with each hospital composition. Percentages are relative to
+the host backbone, which remains frozen.
+
+               Component                                Qwen3-4B               Llama-3.2-3B             MediPhi
+               Distiller ϕ                            6.56M (0.16%)            9.45M (0.29%)         9.45M (0.25%)
+               Boundary embeddings                        5.1K                     6.1K                   6.1K
+               Cross-family projector ψE→H (each)     7.87M (0.20%)       7.87–9.44M (0.25–0.29%)           –
+               Universal projector set (total)       15.74M (0.39%)           17.31M (0.54%)                –
+               Hidden size d                              2560                     3072                   3072
+               Frozen backbone                            4.02B                    3.21B                 3.82B
+
+
+Table 11: System efficiency and scaling. Panels (a)–(b) pro-          use different LLM families, such as Qwen3-4B,
+file the simulated Llama-3.2-3B setup on a single NVIDIA
+H100 80GB GPU; panel (a) uses N = 3 hospitals. The re-                Llama-3.2-3B, and MediPhi. Because their hid-
+ported inference times and peak GPU-memory measurements               den dimensions and representation statistics differ,
+characterize the simulator and are not network-latency mea-
+surements. Panel (c) reports one-time, per-module training
+                                                                      non-host latent blocks are mapped into the host
+cost with all LLM backbones frozen; the projector value is per        space by lightweight projectors ψE→H , while same-
+projector rather than the total for a universal projector set.        family blocks are consumed directly.
+ (a) Method comparison (N = 3)                                        Components. For a host family H, LatentDx-X
+ Method                      Time/query (s) Peak memory (GB)
+ Raw KV                               0.24                9.8         uses three frozen components and one trainable
+ LatentMAS                            1.28               12.3         component. (i) Per-family distiller. Each fam-
+ LatentDx                             0.25               10.5
+ (b) LatentDx scaling
+                                                                      ily E has a frozen distiller ϕE that compresses a
+ Hospitals (N )              Time/query (s) Peak memory (GB)          hospital’s local prompt into m=32 compact latent
+ 1                                    0.11                9.2         positions in family E’s space. (ii) Cross-family
+ 2                                    0.19               10.2
+ 3                                    0.25               10.5         projector. For each foreign family E, a trainable
+ 4                                    0.34               10.8         projector ψE→H maps a latent block [m, dE ] into
+ 5                                    0.42               11.2
+ (c) One-time training cost                                           the host embedding space [m, dH ]. It is imple-
+ Component                    H100 GPU-h Trainable params.            mented as token-wise LayerNorm(dE ) followed
+ LatentDx-H distiller                  5.5            9.45M
+ LatentDx-X projector (each)           1.2            7–10M
+                                                                      by a bias-free Linear(dE , dH ). (iii) Boundary
+                                                                      embeddings. Each latent block is wrapped with
+                                                                      learned ⟨BOP⟩/⟨EOP⟩ embeddings before host-side
+latent positions plus two contextualized boundary                     consumption. Same-family hospitals bypass the
+positions. The relative KV communication cost of                      projector because their latent blocks are already in
+LatentDx-H is therefore (m + 2)/Ti = 34/Ti for                        host space.
+each backbone.
+                                                                      Latent-cache construction. Since HPO retrieval
+   Table 12 reports the measured footprint using
+                                                                      is deterministic, foreign-family latents are pre-
+each backbone’s own tokenizer and KV geome-
+                                                                      computed once per family. For each family
+try. The average local prompt lengths are Ti =
+                                                                      E, every hospital retrieves from its fixed pri-
+162.4 for Qwen3-4B, 184.0 for Llama-3.2-3B,
+                                                                      vate database using cosine HPO retrieval (Ap-
+and 189.3 for MediPhi. Under these measured
+                                                                      pendix A.2), and the retrieved context is encoded
+lengths, LatentDx-H transmits 18–21% of the
+                                                                      into a stored latent block. Each cache entry maps
+prompt-length KV cache per hospital, so Raw KV
+                                                                      a {case_id, hospital_id} key to a bf16 tensor of
+incurs 4.8–5.6× as much KV traffic. At the 320-
+                                                                      shape [m=32, dE ], with boundary tokens enabled
+token prompt cap, the relative size is 34/320 ≈
+                                                                      and maximum prompt length 320. With five hos-
+10.6%, making Raw KV 9.4× larger. Text and struc-
+                                                                      pital databases, the cache contains 36,100 training,
+tured baselines transmit different object types and
+                                                                      2,005 validation, and 2,005 test entries. Because
+are therefore listed for access-pattern comparison
+                                                                      hospital databases are fixed, the same cache sup-
+rather than byte-level equivalence.
+                                                                      ports any N ≤ 5.
+C.3    Cross-Family Deployment Details                                Universal joint projector training. For each
+This appendix expands the cross-family variant                        host family, we jointly train a universal projector
+LatentDx-X (§3.3) and the heterogeneity eval-                         set containing one projector for each foreign en-
+uation (§4.4). In this setting, hospitals may                         coder family, rather than training each foreign-to-
+
+                                                                 17
+Table 12: Communication footprint per hospital. KV-cache sizes are computed in bf16 using each backbone’s measured
+average local prompt length Ti and KV geometry. Same-backbone LatentDx-H transmits m = 32 distilled latent positions
+plus two contextualized boundary positions, while Raw KV transmits the full prompt-length cache. Relative size is computed as
+(m + 2)/Ti .
+
+                Method / object                            Length                 Qwen3-4B   Llama-3.2-3B   MediPhi
+                Distributed RAG text                     variable text                 –            –           –
+                Struct. RAG                          disease label + score             –            –           –
+                Raw KV average prompt                          Ti                 23.95 MB     21.10 MB     74.44 MB
+                LatentMAS latent states                     Ti + 2                24.24 MB     21.33 MB     75.22 MB
+                Raw KV prompt cap                             320                  47.2 MB      36.7 MB     125.8 MB
+                LatentDx-H compact block                 m + 2 = 34                5.01 MB      3.90 MB     13.37 MB
+                LatentDx-H / Raw KV average              (m + 2)/Ti                0.209×       0.185×       0.180×
+
+
+Table 13: Universal cross-family projector training. One                    tals. Degree 0 is homogeneous, Degree 1 has one
+projector set is trained per host family and reused across hos-
+pital compositions.                                                         foreign remote family, and Degree 2 has two dis-
+                                                                            tinct foreign families. The compositions are Q:L:Q
+ Hyperparameter               Value
+ Latent block m               32
+                                                                            and Q:L:M for the Qwen3-4B host, and L:Q:L
+ Hospitals N                  3 (fixed)                                     and L:Q:M for the Llama-3.2-3B host, where Q,
+ Epochs                       3 (5,415 steps; 1,805/epoch)
+ Optimizer                    AdamW, lr 5 × 10−5 , weight decay 0.01
+                                                                            L, and M denote Qwen3-4B, Llama-3.2-3B, and
+ LR schedule                  linear, 100 warmup steps                      MediPhi. Inference uses greedy decoding, temper-
+ Gradient clip                1.0
+ Effective batch              4 (micro-batch 2, accumulation 2)
+                                                                            ature 0, seed 42, and the five-hospital cosine caches.
+ Precision                    bfloat16                                      We report accuracy, macro F1, and LLM-as-judge
+ Max prompt / target length   320 / 64
+ Retrieval                    cosine HPO
+                                                                            score on the 401-case test set.
+ Boundary tokens              enabled
+ Validation                   every 400 steps, 128 samples
+ Frozen                       both backbones and both distillers
+
+                                                                            C.4     Interface Distribution and Maintenance
+host projector in isolation. We fix N =3 and sample
+each hospital’s family from the host-specific fam-                          In a prospective deployment, each hospital would
+ily pool. Native hospitals use the host distiller,                          retain its local retrieval database and run the latent
+while foreign hospitals use their family cache and                          interface locally. During inference, the hospital
+projector ψE→H . We ensure that each batch con-                             would transmit only its compact latent block; no
+tains at least one foreign hospital so every pro-                           retrieved clinical text or full-backbone parameters
+jector receives gradient updates. Training mini-                            are transmitted by LatentDx. In our evaluated
+mizes the host’s next-token cross-entropy on the                            setting, distillers and cross-family projectors are
+<answer>{disease}</answer> target, identical                                trained centrally on public rare-disease data with-
+to Eq. 6. All LLM backbones and distillers re-                              out access to hospital-private records. They can be
+main frozen. Only projectors and boundary embed-                            distributed as lightweight, versioned modules tied
+dings are updated. Hyperparameters are listed in                            to specified backbone checkpoints. For a fixed host
+Table 13.                                                                   checkpoint, the host-specific projector set can be
+                                                                            reused across hospital compositions, as evaluated
+Deployment and inference. A host uses its uni-                              in Appendix C.3.
+versal projector set. For an N -hospital query, each
+hospital encodes its retrieved case and query phe-                             For institution-specific calibration, hospitals us-
+notypes into a [m, dE ] latent block. Native blocks                         ing compatible interface architectures could update
+come from the host distiller, while foreign blocks                          only their distillers or projectors through federated
+come from ϕE and are projected to host space                                learning while retaining records locally. We do not
+by ψE→H . The host concatenates the boundary-                               evaluate this pathway. Because an interface oper-
+wrapped blocks through input embeddings and gen-                            ates in a backbone-specific representation space,
+erates the diagnosis. No per-composition retraining                         an independently updated backbone checkpoint re-
+or projector swapping is needed.                                            quires checkpoint-specific validation and, when
+                                                                            necessary, interface refresh or retraining. Evaluat-
+Evaluation protocol. For Table 2, we set N =3,                              ing this maintenance lifecycle in real multi-hospital
+with the host as hospital 0 and two remote hospi-                           systems remains future work.
+
+                                                                       18
+D     Diagnostic Utility and Robustness                      the largest fractional parts. Smaller α produces
+                                                             stronger disease-level specialization. We use α =
+D.1    Additional Diagnostic Utility Results
+                                                             0.3.
+Table 14 reports diagnostic utility for the medically           Table 16 summarizes the resulting partition. The
+pretrained MediPhi host under the same protocol              split is substantially non-uniform at the disease
+as the main results. The results follow the main-            level: the mean per-disease concentration, defined
+table trend: LatentDx achieves the best overall              as the average maximum single-hospital share for
+accuracy, macro F1, and judge score among the                each disease, is 0.65, compared with 1/N = 0.20
+compared methods.                                            for a uniform allocation. At the same time, total
+                                                             case counts remain moderately balanced, with case-
+D.2    C ROSS R ARE -B ENCH -T EXT: Free-Text
+                                                             count Gini 0.095 and entropy 2.30 bits (out of a
+       Clinical Narratives
+                                                             maximum of 2.32).
+C ROSS R ARE -B ENCH -T EXT renders both the                    We evaluate the trained communication inter-
+query case and every hospital-retrieved record as            face under this skewed retrieval setting. The test
+clinical narratives instead of lists of canonical HPO        set and decoding protocol are unchanged. Dur-
+term names. Cohorts, splits, hospital partitions and         ing evaluation, each hospital retrieves from the
+retrieval budget are unchanged, so the only differ-          skewed hospital-local database instead of the bal-
+ence from Table 1 is the surface form of the phe-            anced database, using the same cosine HPO re-
+notype evidence presented to the diagnosis models.           trieval procedure and N = 3 hospital agents. This
+The prompt templates are otherwise unchanged:                tests whether the learned latent communication in-
+their query and retrieved-case fields are filled with        terface remains useful when hospital evidence is
+the corresponding narrative renderings.                      distributed non-uniformly across retrieval pools.
+   Using GPT-5.5, we generate a narrative for ev-               Table 17 reports per-cohort utility under the
+ery query and database-case profile from its HPO             skewed partition. LatentDx retains the strongest
+term names alone. The generator never sees the dis-          overall utility on both host backbones. On
+ease name, the OMIM identifier or the causal gene,           Qwen3-4B, it achieves the best overall accuracy
+so a narrative cannot restate the answer, and we             and macro F1, with an overall judge score on
+screen the generated corpus for explicit diagnostic          par with the strongest baseline (Global RAG). On
+labels before use.                                           Llama-3.2-3B, LatentDx is best on all three met-
+   Struct. RAG does not appear in this setting. It           rics across every cohort by a large margin. These
+transmits a retrieved disease label together with            results indicate that the learned latent communica-
+an HPO similarity score, and neither quantity is             tion interface remains effective when hospital evi-
+defined once the retrieved case is prose rather than         dence is distributed non-uniformly across retrieval
+a phenotype set. The remaining eight methods are             pools.
+unchanged.
+   Table 15 reports the results.                             D.4   Bootstrap Confidence Intervals
+
+D.3    Skewed Hospital Partition                             All main results use greedy decoding with temper-
+                                                             ature 0. Given fixed model weights, data splits,
+We further evaluate whether the results depend on            hospital partitions, retrieval indices, and prompts,
+balanced hospital-local databases. To create a non-          inference is deterministic. We therefore estimate
+uniform retrieval setting, we construct a disease-           finite-test-set uncertainty using nonparametric boot-
+skewed Dirichlet partition of the training cases.            strap resampling over the 401 test cases. For each
+Starting from the 7,220 training cases used for              bootstrap replicate, we resample test cases with re-
+hospital-local retrieval, we group cases by OMIM             placement and recompute accuracy, macro F1, and
+disease label. For each disease d with nd cases, we          LLM-as-judge score.
+sample a hospital allocation vector                             Table 18 reports paired bootstrap confidence in-
+              pd ∼ Dirichlet(α1N ),                          tervals for the difference between LatentDx and
+                                                             the strongest non-LatentDx baseline on each met-
+where N = 5 is the number of hospitals. We                   ric. On Llama-3.2-3B, LatentDx significantly
+then shuffle the cases of disease d with seed 42             outperforms the strongest baseline on all three met-
+and assign them to hospitals according to pd , with          rics. On Qwen3-4B, LatentDx significantly im-
+rounding remainders assigned to hospitals with               proves macro F1, while accuracy and judge score
+
+                                                        19
+Table 14: Diagnostic utility on C ROSS R ARE -B ENCH for the MediPhi host. Same protocol as Table 1. Best and second best
+method per column; tied methods are both marked.
+
+                                    RareBench                   Zenodo            Phenopacket                  Overall
+  Model         Method           Acc F1 Judge            Acc F1 Judge Acc F1 Judge                      Acc     F1 Judge
+                                                           Non-collaborative
+                Zero-shot        0.14    0.12   0.25     0.03 0.06 0.09 0.01 0.01 0.17                 0.03    0.03    0.17
+                Single RAG       0.47    0.32   0.56     0.51 0.46 0.58 0.49 0.40 0.65                 0.49    0.37    0.62
+                                                        Text / structured sharing
+                Dist. RAG        0.60    0.45   0.67     0.62 0.57 0.70 0.54 0.46 0.70                 0.56 0.46       0.69
+ MediPhi        Global RAG       0.65    0.49   0.77     0.63 0.61 0.71 0.55 0.48 0.69                 0.58 0.48       0.71
+    3.8B        Struct. RAG      0.60    0.43   0.70     0.59 0.55 0.71 0.54 0.45 0.73                 0.56 0.44       0.72
+                TextMAS          0.46    0.27   0.65     0.31 0.36 0.49 0.44 0.36 0.65                 0.42 0.34       0.62
+                                                         Latent communication
+                Raw KV           0.60    0.41   0.70     0.43 0.49 0.71 0.50 0.42 0.71                 0.50 0.41       0.71
+                LatentMAS        0.61    0.42   0.70     0.47 0.46 0.71 0.50 0.41 0.68                 0.51 0.39       0.69
+                LatentDx         0.67    0.49   0.73     0.62 0.59 0.72 0.55 0.53 0.69                 0.59 0.49       0.73
+
+Table 15: Diagnostic utility on C ROSS R ARE -B ENCH -T EXT. Same protocol, cohorts and splits as Table 1, with both the query
+and the hospital-retrieved records rendered as clinical narratives instead of HPO term lists. Best and second best method per
+column, ranked separately for each backbone; tied methods are both marked. Struct. RAG is absent because it transmits a
+retrieved disease label and an HPO similarity score, neither of which the free-text setting defines.
+
+                                     RareBench                  Zenodo             Phenopacket                 Overall
+   Model          Method          Acc F1 Judge           Acc F1 Judge Acc F1 Judge                      Acc     F1 Judge
+                                                            Non-collaborative
+                  Zero-shot       0.18   0.15    0.40    0.02 0.04 0.23 0.02 0.01 0.19                  0.04   0.04    0.23
+                  Single RAG      0.53   0.36    0.58    0.51 0.43 0.57 0.59 0.52 0.72                  0.56   0.47    0.67
+                                                         Text / structured sharing
+    Qwen3         Dist. RAG       0.63 0.49      0.75    0.60 0.59 0.65 0.61 0.56 0.72                  0.61   0.54    0.71
+                  Global RAG      0.63 0.48      0.74    0.59 0.59 0.64 0.61 0.54 0.73                  0.61   0.52    0.71
+      4B
+                  TextMAS         0.51 0.35      0.61    0.55 0.51 0.64 0.54 0.45 0.68                  0.54   0.41    0.66
+                                                          Latent communication
+                  Raw KV          0.60 0.48      0.70    0.62 0.55 0.67 0.57 0.52 0.69                  0.58   0.50    0.69
+                  LatentMAS       0.61 0.47      0.72    0.55 0.50 0.66 0.54 0.51 0.68                  0.55   0.48    0.68
+                  LatentDx        0.69 0.57      0.75    0.60 0.60 0.70 0.62 0.62 0.73                  0.62   0.60    0.73
+                                                            Non-collaborative
+                  Zero-shot       0.05   0.02    0.35    0.02 0.02 0.13 0.01 0.00 0.13                  0.02   0.01    0.16
+                  Single RAG      0.40   0.32    0.51    0.42 0.35 0.49 0.46 0.38 0.60                  0.44   0.35    0.57
+                                                         Text / structured sharing
+ Llama-3.2        Dist. RAG       0.47 0.33      0.58    0.53 0.47 0.60 0.50 0.42 0.64                  0.50   0.41    0.62
+                  Global RAG      0.51 0.41      0.61    0.55 0.48 0.63 0.53 0.44 0.64                  0.53   0.42    0.63
+      3B
+                  TextMAS         0.30 0.19      0.54    0.26 0.29 0.56 0.35 0.26 0.59                  0.32   0.25    0.57
+                                                          Latent communication
+                  Raw KV          0.42 0.31      0.60    0.47 0.47 0.58 0.45 0.37 0.64                  0.45   0.36    0.62
+                  LatentMAS       0.32 0.23      0.53    0.38 0.40 0.62 0.41 0.35 0.63                  0.39   0.33    0.61
+                  LatentDx        0.72 0.54      0.72    0.51 0.59 0.62 0.67 0.66 0.76                  0.64   0.62    0.72
+                                                            Non-collaborative
+                  Zero-shot       0.21   0.15    0.35    0.02 0.02 0.23 0.02 0.01 0.21                  0.05   0.03    0.23
+                  Single RAG      0.49   0.29    0.53    0.44 0.39 0.56 0.45 0.35 0.64                  0.46   0.33    0.61
+                                                         Text / structured sharing
+  MediPhi         Dist. RAG       0.54 0.39      0.63    0.58 0.56 0.67 0.52 0.45 0.68                  0.54   0.43    0.67
+                  Global RAG      0.56 0.39      0.68    0.59 0.56 0.67 0.52 0.43 0.69                  0.54   0.42    0.69
+     3.8B
+                  TextMAS         0.42 0.28      0.65    0.19 0.22 0.48 0.29 0.21 0.53                  0.29   0.22    0.54
+                                                          Latent communication
+                  Raw KV          0.56 0.39      0.63    0.52 0.53 0.67 0.49 0.42 0.66                  0.51   0.41    0.66
+                  LatentMAS       0.58 0.39      0.67    0.48 0.49 0.69 0.51 0.44 0.69                  0.51   0.42    0.69
+                  LatentDx        0.63 0.42      0.72    0.60 0.55 0.69 0.54 0.46 0.70                  0.57   0.45    0.70
+
+are statistically comparable to the strongest base-
+line. This indicates that the Qwen3-4B gains are
+strongest for class-balanced performance, while the
+Llama gains are robust across all metrics.
+
+                                                             20
+Table 16: Skewed Dirichlet hospital partition. We use a                            Epileptic 11            Epileptic 4    KBG                mtDNA depletion          PKU
+disease-skewed Dirichlet allocation with α = 0.3 over N = 5                        Qwen3-4B                                             Llama-3.2-3B
+hospitals. The partition is non-uniform at the disease level                  20                                                   20
+while keeping total case counts moderately balanced.
+                                                                              10                                                   10
+                                                                    t-SNE 2                                              t-SNE 2
+          Hospital    #Cases    #Unique OMIM                                   0                                                    0
+          H0           1,263              149
+                                                                              10                                                   10
+          H1           1,149              143
+          H2           1,327              143                                 20                                                   20
+                                                                                   20             0             20                         20          0         20     40
+          H3           1,799              166                                                         t-SNE 1                                          t-SNE 1
+          H4           1,682              165
+                                                                    Figure 6: Disease structure in latent space. t-SNE of com-
+                                                                    pact latent blocks from two encoder families.
+E     Representation Analysis and Ablations
+E.1    Trained Bottleneck Control                                   F1 under the same top-1 retrieval setting.
+One concern is that LatentDx trains a diagnosis-                    E.3                 Component Design
+supervised latent interface, while Raw KV and
+                                                                    We further isolate three interface choices on
+LatentMAS are training-free latent baselines. To
+                                                                    Llama-3.2-3B. The distiller and boundary-
+test whether supervised training alone explains the
+                                                                    embedding studies use the default same-backbone
+gains, we evaluate a length-matched trained bot-
+                                                                    configuration; the aggregation study uses the het-
+tleneck control, MLP-Pool32. This baseline uses
+                                                                    erogeneous Degree 1 L:Q:L configuration, with
+the same diagnosis cross-entropy objective and
+                                                                    latent-block size, training data, and optimization
+the same latent budget m = 32, but replaces au-
+                                                                    held fixed. Results are comparable only within
+toregressive latent distillation with a mean-pooled
+                                                                    each component block in Table 21.
+prompt representation followed by an MLP projec-
+                                                                       The two-layer MLP yields only marginal gains
+tion to m latent positions. Table 19 shows that this
+                                                                    over LayerNorm followed by one linear projection,
+trained control performs poorly on both host back-
+                                                                    so we retain the lighter default distiller. Remov-
+bones. This suggests that the gains of LatentDx do
+                                                                    ing the boundary embeddings leaves accuracy and
+not come merely from adding trainable parameters
+                                                                    macro F1 unchanged and changes judge score by
+or supervised diagnosis loss. Instead, preserving
+                                                                    only 0.01, consistent with their intended role of
+structured prompt-state information through autore-
+                                                                    delimiting hospital-specific blocks. Concatenation
+gressive latent distillation is important for compact
+                                                                    substantially outperforms position-wise mean pool-
+latent communication.
+                                                                    ing; this result is consistent with preserving each
+E.2    Retrieval and Training-Data Sensitivity                      hospital’s block as a distinct segment for host at-
+                                                                    tention instead of collapsing the hospital-specific
+Figure 5(c) plots judge score against retrieval depth               evidence.
+for three representative methods. Table 20 gives
+the full comparison across all metrics and every                    E.4                 Latent Disease Structure
+baseline. LatentDx is strongest at each depth, and                  Figure 6 visualises compact latent blocks from two
+its scores change little as k grows, while the text-                encoder families with t-SNE. Several diseases form
+sharing baselines improve with deeper retrieval.                    separated clusters within each family, suggesting
+This is the expected pattern: the baselines consume                 that the blocks retain disease-discriminative struc-
+retrieved cases as prompt context and benefit from                  ture after compression. Related subtypes partially
+more of it, whereas LatentDx compresses what-                       overlap, which is consistent with diagnostic similar-
+ever the hospital retrieves into a fixed-length block.              ity rather than arbitrary label separation. The two
+   Figure 5(d) varies the fraction of the train-                    panels are computed independently per family and
+ing split used to fit the latent interface. Valida-                 do not imply that the two latent spaces are aligned.
+tion and test sets are unchanged. At 25%, 50%,
+and 100% of the training split, respectively, accu-                 F              Privacy and Leakage
+racy / macro F1 / judge score is 0.53/0.48/0.64,
+0.66/0.59/0.71, and 0.73/0.68/0.77. Perfor-                         F.1             Additional Reconstruction Leakage
+mance rises with more data and has not saturated at                                 Results
+the full split; at 25% the interface already exceeds                Attack and metric. We reuse the frozen-LLM
+every comparison method in accuracy and macro                       continuation attack from §3.1: a passive observer
+
+                                                               21
+Table 17: Utility under a skewed Dirichlet hospital partition. Per-cohort and overall accuracy (Acc), macro F1 (F1), and
+LLM-as-judge score (Judge) under the Dirichlet(α=0.3) partition. Best and second best method per column, ranked separately
+for each backbone; tied methods are both marked.
+
+                                       RareBench                    Zenodo            Phenopacket                           Overall
+ Model             Method           Acc F1 Judge             Acc F1 Judge Acc F1 Judge                              Acc      F1 Judge
+                                                               Non-collaborative
+                   Zero-shot        0.11    0.08    0.30     0.03 0.05 0.37 0.01 0.01 0.18                          0.03     0.02      0.24
+                   Single RAG       0.47    0.34    0.63     0.19 0.20 0.40 0.37 0.30 0.50                          0.34     0.28      0.50
+                                                            Text / structured sharing
+                   Dist. RAG        0.46    0.33    0.56     0.54 0.45 0.58 0.54 0.47 0.67                          0.53 0.43          0.63
+                   Global RAG       0.56    0.44    0.67     0.56 0.51 0.61 0.56 0.49 0.70                          0.56 0.47          0.68
+ Qwen3
+                   Struct. RAG      0.53    0.41    0.58     0.45 0.40 0.54 0.59 0.49 0.71                          0.55 0.44          0.65
+                   TextMAS          0.40    0.30    0.58     0.24 0.29 0.48 0.40 0.33 0.58                          0.37 0.31          0.56
+                                                             Latent communication
+                   Raw KV           0.47    0.38    0.67     0.52 0.41 0.62 0.48 0.40 0.65                          0.49 0.39          0.64
+                   LatentMAS        0.51    0.39    0.61     0.50 0.40 0.61 0.47 0.38 0.65                          0.48 0.38          0.63
+                   LatentDx         0.63    0.47    0.68     0.59 0.55 0.67 0.58 0.55 0.67                          0.59 0.51          0.67
+                                                               Non-collaborative
+                   Zero-shot        0.02    0.01    0.21     0.02 0.02 0.09 0.00 0.00 0.10                          0.01     0.00      0.11
+                   Single RAG       0.40    0.25    0.56     0.08 0.13 0.27 0.29 0.21 0.44                          0.26     0.19      0.42
+                                                            Text / structured sharing
+                   Dist. RAG        0.35    0.33    0.47     0.33 0.30 0.50 0.47 0.40 0.61                          0.42 0.36          0.57
+                   Global RAG       0.23    0.19    0.39     0.28 0.33 0.51 0.44 0.36 0.62                          0.38 0.32          0.56
+ Llama-3.2
+                   Struct. RAG      0.35    0.23    0.46     0.31 0.34 0.66 0.39 0.31 0.62                          0.37 0.28          0.61
+                   TextMAS          0.30    0.20    0.46     0.21 0.23 0.34 0.26 0.19 0.41                          0.25 0.19          0.40
+                                                             Latent communication
+                   Raw KV           0.26    0.23    0.40     0.22 0.23 0.49 0.33 0.29 0.54                          0.30 0.26          0.51
+                   LatentMAS        0.26    0.23    0.42     0.21 0.28 0.50 0.32 0.29 0.55                          0.29 0.27          0.52
+                   LatentDx         0.68    0.50    0.72     0.66 0.59 0.71 0.72 0.71 0.77                          0.70 0.65          0.75
+
+Table 18: Paired bootstrap confidence intervals. We report the difference between LatentDx and the strongest non-LatentDx
+baseline for each host and metric. Intervals are 95% paired bootstrap confidence intervals over 1,000 resamples of the 401 test
+cases. A positive interval indicates that LatentDx is significantly better under the bootstrap test.
+
+ Host                        Acc                                  macro F1                                   Judge
+ Qwen3              +0.003 [−0.047, +0.050]                +0.076 [+0.024, +0.125]                  +0.005 [−0.040, +0.050]
+ Llama-3.2          +0.262 [+0.212, +0.317]                +0.254 [+0.202, +0.310]                  +0.100 [+0.047, +0.150]
+
+Table 19: Trained bottleneck control. MLP-Pool32 uses the              Table 20: Retrieval depth. Acc / macro F1 / Judge on the
+same diagnosis supervision and latent budget as LatentDx,              Llama-3.2-3B host as the number of cases retrieved per hos-
+but replaces autoregressive latent distillation with mean pool-        pital varies. Best per column.
+ing followed by an MLP projection. Best per column pair.
+                                                                        Method              Top-1              Top-2              Top-3
+                   MLP-Pool32               LatentDx                    Dist. RAG     0.45 / 0.40 / 0.63 0.54 / 0.50 / 0.66 0.55 / 0.50 / 0.64
+                                                                        Global RAG    0.47 / 0.42 / 0.62 0.51 / 0.47 / 0.66 0.52 / 0.46 / 0.69
+ Host           Acc F1 Judge            Acc F1 Judge
+                                                                        Struct. RAG   0.42 / 0.34 / 0.67 0.50 / 0.43 / 0.70 0.52 / 0.44 / 0.69
+ Qwen3          0.03 0.02 0.31          0.64 0.61 0.72                  TextMAS       0.32 / 0.25 / 0.47 0.40 / 0.33 / 0.60 0.42 / 0.36 / 0.62
+ Llama-3.2      0.05 0.05 0.30          0.73 0.68 0.77                  Raw KV        0.35 / 0.32 / 0.58 0.43 / 0.36 / 0.60 0.45 / 0.37 / 0.61
+                                                                        LatentMAS     0.33 / 0.31 / 0.59 0.33 / 0.30 / 0.57 0.37 / 0.31 / 0.59
+                                                                        LatentDx      0.73 / 0.68 / 0.77 0.74 / 0.68 / 0.78 0.74 / 0.67 / 0.79
+
+
+intercepts the transmitted object THi , injects it as
+past key–value states into the frozen LLM that pro-                    phrasing rather than successful reconstruction. We
+duced it, prompts the model to repeat the previous                     therefore report rescaled BERTScore, which sub-
+hospital case content, and greedily decodes a re-                      tracts a random-sentence baseline so that 1 corre-
+construction x̃i . We score x̃i against the source                     sponds to full reconstruction, 0 to random-baseline
+local prompt xi with BERTScore. Because raw                            similarity, and negative values to reconstructions
+RoBERTa-large BERTScore remains high even                              less similar to the source than random text. Each
+for unrelated clinical sentences, around 0.85 for                      cell averages n = 2,005 prompt pairs, correspond-
+random sentence pairs, it can reflect shared medical                   ing to 401 test cases across five hospital databases.
+
+                                                                  22
+Table 21: Component ablations. Distiller-architecture and               structed outputs reveal clinically salient attributes
+boundary-embedding results use the default same-backbone
+LatentDx setting with a Llama-3.2-3B host. Host-side ag-                from the retrieved hospital case. Specifically, we
+gregation is evaluated under the heterogeneous Deg1 configu-            measure disease leakage, the fraction of cases
+ration (L:Q:L), with latent-block size, training data, and opti-
+mization held fixed. Scores should be compared only within
+                                                                        where the retrieved disease label is recovered, and
+each block. Best values are highlighted, with ties marked               phenotype recall, the fraction of retrieved pheno-
+jointly.                                                                type terms recovered from the source local prompt.
+                                                                        Lower values indicate less attribute-level clinical-
+ Variant                                   Acc    Macro F1 Judge
+                      Distiller architecture                            content leakage.
+ Linear                                    0.72     0.68    0.75            We evaluate two prompt-based extraction attacks.
+ LN + Linear (ours)                        0.73     0.68    0.77
+                                                                        The first is the verbatim continuation attack used
+ 2-layer MLP (Linear→GELU→Linear) 0.74              0.69    0.79
+                      Boundary embeddings                               in Sec. 3.1. The second is a stronger template-
+ Off                                       0.73     0.68    0.76        aware attack: the attacker is given the hospital-
+ On (ours)                                 0.73     0.68    0.77
+                                                                        case template and is explicitly asked to recover
+                      Host-side aggregation
+ Mean pooling                              0.52     0.44    0.60        the retrieved disease label and phenotype terms.
+ Concatenation (ours)                      0.72     0.66    0.76        In both attacks, the attacker injects the intercepted
+                                                                        transmitted state into the frozen LLM that produced
+Table 22: Rescaled BERTScore for KV reconstruction leak-                it. No attacker model is trained.
+age. Lower is better (n = 2,005 prompt pairs per cell).
+BERTScore is rescaled against a random-sentence baseline so                 Table 23 shows that Raw KV and LatentMAS re-
+that 1 means full reconstruction, 0 means indistinguishable             veal most retrieved disease labels and phenotype
+from random text, and negative values mean less similar than
+random. Best per row.
+                                                                        terms under both prompt variants. The template-
+                                                                        aware attack is stronger than the verbatim prompt,
+ Model              Raw KV       LatentMAS LatentDx                     and increases leakage for LatentDx on Qwen3-4B.
+ Qwen3               0.593         0.593    −0.125                      However, LatentDx still remains far below the
+ Llama-3.2           0.673         0.812    −0.322                      raw-latent baselines: even in the highest-leakage
+ MediPhi             0.724         0.712    −0.308                      case, disease leakage is 0.20 versus 0.89–0.90, and
+                                                                        phenotype recall is 0.14 versus 0.85–0.86. Across
+                                                                        backbones, LatentDx keeps disease leakage at or
+Results. Table 22 shows that both raw-latent                            below 0.20 and phenotype recall at or below 0.14.
+baselines leak substantial source content. Raw KV                       These results indicate that the leakage reduction
+reaches rescaled BERTScore between 0.59 and                             is not only a text-overlap effect, and that even a
+0.72, since it transmits the full prompt-length KV                      template-aware attacker recovers substantially less
+cache MHi and enables the model to largely para-                        clinical content from compact latent blocks.
+phrase the original prompt. LatentMAS leaks at a
+comparable level, between 0.59 and 0.81, showing                        F.3   Learned Attacks and Full Evaluation
+that latent communication alone does not remove                               Matrix
+surface-level leakage. In contrast, LatentDx at-                        Side information and controls. We evalu-
+tains negative rescaled BERTScore on all three                          ate three learned attacks on same-backbone
+backbones, ranging from −0.125 to −0.322. The                           LatentDx-H representations produced by each
+reconstruction from its compact latent block ZHi is                     of Qwen3-4B, Llama-3.2-3B, and MediPhi, to-
+less similar to the source than random text, indicat-                   gether with the corresponding baselines. The at-
+ing little recoverable case-specific content from the                   tacker passively observes the transmitted represen-
+intercepted block. This suggests that the leakage                       tation, knows the participating backbone, prompt
+reduction of LatentDx comes from compressing                            template, and retrieval procedure, and may train
+the prompt-length KV cache into a compact dis-                          on auxiliary examples from the same distribution,
+tilled latent block, not from latent communication                      but it has no access to the target hospital database
+alone.                                                                  or the target retrieved record in clear text at test
+                                                                        time. In addition to the transmission, the probe
+F.2    Attribute Leakage under Prompt-Based                             and inversion decoder receive the broadcast query
+       Extraction Attacks                                               HPO set, while membership inference receives a
+Token F1 and BERTScore measure whether the at-                          candidate case and target-hospital identifier. The
+tacker can recover text similar to the source local                     no-transmission control for each attack receives the
+prompt. We further evaluate whether the recon-                          same side information but no transmitted represen-
+
+                                                                   23
+Table 23: Attribute-level leakage under prompt-based extraction attacks. Disease recall is the fraction of cases in which
+the retrieved disease label appears in the attacker’s continuation. Phenotype measures recall of retrieved phenotype terms. The
+template-aware attack reveals the hospital-case template and explicitly requests the disease and phenotype fields. Lower values
+indicate less attribute-level leakage; Best method per column, ranked separately for each backbone.
+
+                                                        Verbatim                       Template-aware
+                Model          Method        Disease recall ↓  Phenotype ↓      Disease recall ↓ Phenotype ↓
+                               Raw KV             1.00            1.00               0.89           0.86
+                Qwen3          LatentMAS          1.00            1.00               0.90           0.85
+                               LatentDx           0.02            0.01               0.20           0.14
+                               Raw KV             0.99            1.00               0.88           0.97
+                Llama-3.2      LatentMAS          0.98            0.99               0.75           0.89
+                               LatentDx           0.14            0.03               0.16           0.03
+                               Raw KV             0.99            1.00               0.76           0.94
+                MediPhi        LatentMAS          1.00            1.00               0.77           0.96
+                               LatentDx           0.04            0.03               0.05           0.04
+
+
+
+tation. It therefore provides a reference floor for                surface.
+the incremental recoverability attributable to trans-
+                                                                   Attribute probe. Linear readout heads on the
+mission; the table entries remain absolute metric
+                                                                   pooled representation predict the retrieved case’s
+values, and Reduction is computed directly from
+                                                                   OMIM class and HPO terms. We train the disease
+Raw KV to LatentDx.
+                                                                   head with softmax cross-entropy and the pheno-
+Shared representation encoder. All learned at-                     type head with frequency-weighted binary cross-
+tacks use the same representation-encoder de-                      entropy. The probe inherits the case-level train,
+sign across communication methods, while each                      validation, and test partitions, so evaluation queries
+backbone–method–attack combination is trained                      are disjoint from attacker training. Checkpoints and
+independently from scratch. At each backbone                       multilabel decision thresholds are selected only on
+layer, key and value states are concatenated and                   validation data and then fixed for test evaluation.
+mapped through a learned layer-specific bottle-                    We report OMIM exact match and HPO micro-F1.
+neck. The resulting position representations are
+                                                                   Autoregressive inversion. A Transformer
+combined across layers, projected to a common
+                                                                   encoder–decoder reconstructs a serialized record
+width, augmented with learned positional embed-
+                                                                   by cross-attending to the full encoded transmission.
+dings and a [CLS] token, and processed by a pre-
+                                                                   Its target contains only the retrieved OMIM
+LN Transformer encoder. Side information is en-
+                                                                   identifier and HPO terms; query fields and
+coded as an additional token after [CLS]. The at-
+                                                                   template boilerplate are excluded so that overlap
+tribute probe and membership classifier use the
+                                                                   cannot be obtained from shared scaffolding. We
+[CLS] state, whereas the inversion decoder cross-
+                                                                   train with teacher forcing and an up-weighted
+attends to the full encoded sequence. The encoder
+                                                                   end-of-sequence term, restore the best validation
+supports the complete intercepted object for each
+                                                                   checkpoint, and use greedy decoding at test time.
+method: up to 320 positions for Raw KV, up to 322
+                                                                   We evaluate the decoded identifier by OMIM exact
+for LatentMAS, and exactly 34 for LatentDx-H.
+                                                                   match and the recovered phenotype terms by HPO
+   For LatentDx-H, the intercepted sequence con-
+                                                                   micro-F1.
+tains every position sent by the hospital. After
+encoding its private prompt, the hospital appends                  Retrieval-database membership inference.
+⟨BOP⟩, autoregressively generates m = 32 latent                    Here the secret is whether a candidate case
+positions, appends ⟨EOP⟩, and transmits the KV                     belongs to a hospital’s retrieval database. For
+states of these final m + 2 = 34 positions. The two                each candidate, we construct one positive example
+boundary positions are not public constants: their                 with its member hospital and one hard negative
+KV states are computed in prompt context, with the                 with the non-member hospital that assigns the
+begin boundary conditioned on the private prompt                   highest retrieval score. Candidate content is fixed
+and the end boundary additionally conditioned on                   within the pair, while the target hospital and its
+the generated latent sequence. We expose all 34                    intercepted transmission vary. We split candidates
+positions to the attacker; withholding the bound-                  60/20/20 into train, validation, and test sets,
+ary states would understate the transmitted attack                 stratified by member hospital and disjoint by case
+
+                                                              24
+identifier; both examples for a candidate remain
+in the same split. A binary classifier operates on
+the pooled transmission representation together
+with candidate and hospital embeddings. We select
+checkpoints by validation ROC-AUC and report
+test TPR at 1% FPR.
+Training and reporting. We optimize every at-
+tacker with AdamW, linear warmup followed by de-
+cay, gradient clipping, early stopping, and restora-
+tion of the best validation checkpoint. No attacker
+weights are shared across communication meth-
+ods or backbones. Each backbone–method–attack
+combination, including its no-transmission control,
+is trained with three random seeds, and Tables 3
+and 24 report the mean across seeds.
+   Table 3 reports the full attack ladder on
+Qwen3-4B and Llama-3.2-3B. Table 24 ex-
+tends this matrix with MediPhi, the unrescaled
+BERTScore row, and HPO micro-F1 for the learned
+probe and inversion decoder. Across the three
+backbones, LatentDx reduces OMIM exact-match
+leakage by 58–67%, HPO micro-F1 by 58–76%,
+and membership-inference TPR at 1% FPR by 83–
+97% relative to Raw KV. Its membership-inference
+TPR remains between 0.02 and 0.17, compared
+with 0.79–1.00 for Raw KV. Together with the
+training-free attacks, these results show a consistent
+empirical reduction in recoverable clinical informa-
+tion across all three evaluated backbones.
+
+G    LLM Usage
+We used Large Language Models (ChatGPT/-
+Claude/Gemini) for grammatical correction in this
+manuscript. Separately, GPT-5.5 generated the
+paired clinical narratives in C ROSS R ARE -B ENCH -
+T EXT from HPO term names under the constrained
+protocol described in Appendix D.2; it received no
+disease name, OMIM identifier, or causal gene, and
+the outputs were screened for explicit diagnostic-
+label leakage. LLMs played no role in research
+ideation or methodology. All technical contribu-
+tions, analyses, and scientific conclusions are the
+authors’ own.
+
+
+
+
+                                                         25
+Table 24: Leakage across all evaluated backbone–attack pairs. This table extends Table 3 with MediPhi, the unrescaled
+BERTScore row, and the HPO micro-F1 scores of the two learned attacks. Lower is better. No tx. denotes an attack-specific
+no-transmission control: the attacker receives no transmitted representation. It serves as the control baseline for measuring
+additional leakage attributable to transmission. Learned-attack entries are means over three random seeds. Reduction is the
+relative drop from Raw KV to LatentDx. Metrics are not comparable across rows.
+
+                  Attack                   Metric              No tx. Raw KV LatentMAS LatentDx Reduction
+                                                             Qwen3-4B
+                  Prompt reconstruction     Token F1 ↓          0.05   0.60     0.60     0.07     ↓88%
+                  Prompt reconstruction     BERTScore ↓         0.78   0.93     0.93     0.81     ↓13%
+                  Template-aware extraction Disease recall ↓    0.00   0.89     0.90     0.20     ↓78%
+                  Attribute probe           OMIM exact ↓        0.17   0.62     0.62     0.23     ↓63%
+                  Attribute probe           HPO micro-F1 ↓ 0.05        0.33     0.33     0.14     ↓58%
+                  Inversion decoder         OMIM exact ↓        0.27   0.97     0.96     0.40     ↓59%
+                  Inversion decoder         HPO micro-F1 ↓ 0.21        0.90     0.90     0.22     ↓76%
+                  Membership inference      TPR@1%FPR ↓ 0.00           0.99     0.93     0.17     ↓83%
+                                                           Llama-3.2-3B
+                  Prompt reconstruction     Token F1 ↓          0.07   0.68     0.82     0.07     ↓90%
+                  Prompt reconstruction     BERTScore ↓         0.78   0.95     0.97     0.78     ↓18%
+                  Template-aware extraction Disease recall ↓    0.00   0.88     0.75     0.16     ↓82%
+                  Attribute probe           OMIM exact ↓        0.17   0.61     0.60     0.20     ↓67%
+                  Attribute probe           HPO micro-F1 ↓ 0.05        0.32     0.32     0.13     ↓59%
+                  Inversion decoder         OMIM exact ↓        0.27   0.99     0.99     0.38     ↓62%
+                  Inversion decoder         HPO micro-F1 ↓ 0.23        0.87     0.87     0.27     ↓69%
+                  Membership inference      TPR@1%FPR ↓ 0.00           1.00     0.83     0.03     ↓97%
+                                                              MediPhi
+                  Prompt reconstruction     Token F1 ↓          0.07   0.76     0.75     0.07     ↓91%
+                  Prompt reconstruction     BERTScore ↓         0.77   0.95     0.95     0.78     ↓18%
+                  Template-aware extraction Disease recall ↓    0.00   0.76     0.77     0.05     ↓93%
+                  Attribute probe           OMIM exact ↓        0.17   0.55     0.62     0.22     ↓60%
+                  Attribute probe           HPO micro-F1 ↓ 0.05        0.30     0.31     0.10     ↓67%
+                  Inversion decoder         OMIM exact ↓        0.27   0.95     0.93     0.40     ↓58%
+                  Inversion decoder         HPO micro-F1 ↓ 0.24        0.84     0.84     0.25     ↓70%
+                  Membership inference      TPR@1%FPR ↓ 0.00           0.79     0.94     0.02     ↓97%
+
+
+
+
+                                                             26
+

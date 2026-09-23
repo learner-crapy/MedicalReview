@@ -1,0 +1,1244 @@
+                                         DDO: Dual-Decision Optimization for LLM-Based Medical Consultation
+                                                            via Multi-Agent Collaboration
+
+                                                           Zhihao Jia1 , Mingyi Jia1 , Junwen Duan1 * , Jianxin Wang1 ,
+                                                                  1
+                                                                    Hunan Provincial Key Lab on Bioinformatics,
+                                                       School of Computer Science and Engineering, Central South University
+
+                                                  {zhihaojia, jiamingyi, jwduan}@csu.edu.cn, jxwang@mail.csu.edu.cn
+
+
+                                                                Abstract                                          I have herpes on skin and lose appetite.
+
+                                              Large Language Models (LLMs) demonstrate                              Have you had a fever recently?
+
+
+
+
+arXiv:2505.18630v2 [cs.CL] 10 Oct 2025
+                                              strong generalization and reasoning abilities,
+                                                                                                                   Yes, I have a fever these days.
+                                              making them well-suited for complex decision-
+                                                                                                                                  symptom checking
+                                              making tasks such as medical consultation
+                                              (MC). However, existing LLM-based methods                             You may suffer from HFMD.
+
+                                              often fail to capture the dual nature of MC,
+                                              which entails two distinct sub-tasks: symptom                        Medical Consultation Record
+                                              inquiry, a sequential decision-making process,                 Explicit Symptoms:
+                                              and disease diagnosis, a classification problem.               - herpes: True; loss of appetite: True
+                                              This mismatch often results in ineffective symp-               Implicit Symptoms:
+                                              tom inquiry and unreliable disease diagnosis.                  - fever: True; vomiting; False; cough: False
+                                              To address this, we propose DDO, a novel
+                                                                                                             True Diagnosis:
+                                              LLM-based framework that performs Dual-
+                                                                                                             - hand, foot, and mouth disease(HFMD)
+                                              Decision Optimization by decoupling the two
+                                              sub-tasks and optimizing them with distinct
+                                                                                                     Figure 1: An example of a Medical Consultation (MC)
+                                              objectives through a collaborative multi-agent
+                                                                                                     task, where an AI doctor iteratively inquires about ad-
+                                              workflow. Experiments on three real-world
+                                                                                                     ditional symptoms based on the patient’s initial self-
+                                              MC datasets show that DDO consistently out-
+                                                                                                     reported symptoms and ultimately provides a diagnosis.
+                                              performs existing LLM-based approaches and
+                                              achieves competitive performance with state-of-
+                                              the-art generation-based methods, demonstrat-
+                                              ing its effectiveness in the MC task. The code            Compared to the models used in traditional re-
+                                              is available at https://github.com/zh-jia/DDO.         inforcement learning (RL)-based methods (Zhong
+                                                                                                     et al., 2022; Yan et al., 2023) and generation-based
+                                         1    Introduction                                           approaches (Hou et al., 2023; Zhao et al., 2024),
+                                                                                                     large language models (LLMs) provide stronger
+                                         Medical Consultation (MC), aiming to automate               generalization and more transparent reasoning (Qin
+                                         symptom collection and support clinical diagnosis,          et al., 2024; Singh et al., 2024), potentially reduc-
+                                         has become a promising application in AI-driven             ing training costs and improving interpretability
+                                         healthcare and attracted growing attention (Zhao            for the MC task. However, due to hallucinations
+                                         et al., 2024; Hu et al., 2024; Chopra and Shah,             and limited domain adaptation, directly applying
+                                         2025). As shown in Figure 1, MC involves multi-             LLMs to MC often results in inefficient inquiry
+                                         turn interactions between an AI doctor and a pa-            and unreliable diagnosis. Recent approaches (Hu
+                                         tient, encompassing two core decision-making pro-           et al., 2024; Chopra and Shah, 2025) improve in-
+                                         cesses: symptom inquiry—a sequential decision               formation gathering by incorporating LLM-based
+                                         task over a large action space—and disease diag-            planning, yet overlook diagnostic optimization. To
+                                         nosis—a classification task over a limited set of           jointly optimize symptom inquiry and disease di-
+                                         candidate diseases (Chen et al., 2023, 2024). The           agnosis, Chen et al. (2024) introduced the Chain-
+                                         effectiveness of MC hinges on the AI doctor’s abil-         of-Diagnosis (CoD) framework, enabling LLMs
+                                         ity to perform both efficient information seeking           to learn both components from CoD training data.
+                                         and accurate disease differentiation.                       Nevertheless, the fundamentally different nature
+                                             * Corresponding Author. Email: jwduan@csu.edu.cn.       of these two decision-making sub-tasks presents
+
+                                                                                                 1
+significant challenges for unified optimization.             leveraged attention mechanisms to enhance opti-
+   To overcome these limitations, we propose DDO,            mization efficiency, achieving SOTA performance
+an LLM-based MC approach that leverages multi-               in the MC task. AIME (Tu et al., 2024) demon-
+agent collaboration to decouple and optimize the             strated the potential of LLMs in medical history-
+two core decision-making components with distinct            taking by learning from realistic medical dialogues.
+objectives. For symptom inquiry, DDO integrates              MediQ (Li et al., 2024b) introduced an abstention
+a lightweight RL-based policy agent that generates           module to assess whether the collected diagnos-
+reliable candidate actions, thereby reducing the             tic evidence is sufficient. UoT (Hu et al., 2024)
+decision-making burden on LLMs. For disease                  and MISQ-HF (Chopra and Shah, 2025) aimed to
+diagnosis, DDO derives fine-grained diagnostic               reduce decision uncertainty through LLM-driven
+confidence from LLM logits and enhances disease              planning. CoD (Chen et al., 2024) improved the
+discrimination through a plug-and-play adapter               interpretability of doctor agent’s decisions by gen-
+trained via in-batch contrastive learning. Experi-           erating transparent chained thought processes.
+ments on three real-world MC datasets demonstrate
+that DDO consistently outperforms other LLM-                 2.2    LLMs in Medical Decision-Making
+based methods and achieves performance on par                LLMs have demonstrated strong potential across
+with state-of-the-art (SOTA) generation-based ap-            various medical applications (Zhou et al., 2024).
+proaches, while requiring substantially less training        They are capable of answering medical exam ques-
+overhead. Our contributions are as follows:                  tions (Kim et al., 2024; Shi et al., 2024), collecting
+    • We introduce DDO, a novel multi-agent frame-           patient history (Johri et al., 2024), offering diag-
+      work for the MC task, where four collabora-            nostic suggestions (Jia et al., 2025; Rose et al.,
+      tive agents enable an effective and transparent        2025), and recommending treatment plans (Li et al.,
+      diagnostic MC workflow.                                2024a). Leveraging prompt engineering (Zheng
+                                                             et al., 2024; Liu et al., 2024) and domain adaptation
+    • DDO decouples the two core decision-making             techniques (Tian et al., 2024; Wang et al., 2025),
+      processes—symptom inquiry and disease di-              their reasoning capabilities have significantly im-
+      agnosis—and optimizes them with distinct ob-           proved, leading to more reliable medical decision-
+      jectives, leading to more informative question-        making. Moreover, to tackle more complex tasks
+      ing and improved diagnostic accuracy.                  in the medical domain, recent studies (Kim et al.,
+    • By tuning only a small number of model pa-             2024; Bani-Harouni et al., 2024) have explored the
+      rameters, DDO surpasses other LLM-based                use of multiple LLM agents, offering promising di-
+      methods and achieves performance compara-              rections for enabling collaborative decision-making
+      ble to SOTA generation-based approaches.               in challenging clinical scenarios.
+
+2     Related Work                                           3     Problem Definition
+2.1    Medical Consultation Task                             A real-world Medical Consultation Record (MCR)
+Medical Consultation (MC), a key application of              is denoted as P = {S ex , S im , dl }, where S ex =
+                                                             {(sex    ex l1
+AI in medicine (Valizadeh and Parde, 2022), was                  i , pi )}i=1 represents explicit symptoms ini-
+initially formulated as a Markov Decision Process            tially reported by the patient, and implicit symp-
+                                                             toms S im = {(sim      im l2
+(MDP) and optimized using reinforcement learning                               j , pj )}j=1 are elicited through
+(RL) (Tang et al., 2016; Wei et al., 2018; Kao et al.,       follow-up inquiries by the doctor. The label dl
+2018). However, due to the high variability of RL            denotes the ground-truth disease of the patient.
+agents (Xia et al., 2020), researchers have incorpo-            The MC task simulates a multi-turn interaction
+rated disease-symptom prior knowledge to enhance             process between an AI doctor and a simulated pa-
+the decision-making (Xu et al., 2019; Liu et al.,            tient, where the AI doctor actively collects diagnos-
+2022; Yan et al., 2023) by the agents. HRL (Zhong            tic information to facilitate differential diagnosis.
+et al., 2022) introduced a hierarchical RL frame-            Starting from the initial symptoms S ex , the AI doc-
+work to refine the action space. Additionally, gen-          tor selectively inquires about additional symptoms
+erative approaches such as Diaformer (Chen et al.,           S ad to accumulate diagnostic evidence. The interac-
+2022), CoAD (Wang et al., 2023), MTDiag (Hou                 tion terminates when sufficient information is col-
+et al., 2023) and HAIformer (Zhao et al., 2024)              lected or a predefined maximum number of turns L
+
+                                                         2
+      Self-Report
+                                           Diagnostic Confidence Estimation                                                       Candidate Actions Generation
+     : I have noticed some
+ herpes on my skin and                                                                                                   Observation State                      Policy Learning
+                                      Diagnostic
+ have been experiencing a            Instructions                                 BTP                 ground
+                                                                                        𝑑1 𝑑2 𝑑3       truth                                                                 Env
+ loss of appetite. What’s                                                                                                                                         reward
+ wrong with me?
+                                                                                        In-Batch Contrast               Masked Action Space
+                                                Binary Token            Logits
+                                                                                        Positive( ): 𝑑2                                                                    Actions
+                                                                                        Negative( ): 𝑑1 𝑑3
+                                                                                                                                                                  sample
+                                       True     ok     False    \n
+      Agent Roles                                                                                  finetune                          mask
+                                       19.16   -8.42    6.87   1.95                                                                                       Check for nauseous(     )
+                                                                                                                                                          Check for fever( )
+                                                                                           Lora Adapter
+          Diagnosis Agent            𝑐𝑜𝑛𝑓𝑖 = 𝑠𝑜𝑓𝑡𝑚𝑎𝑥([𝑙𝑜𝑔𝑖𝑡T𝑟𝑢𝑒 , 𝑙𝑜𝑔𝑖𝑡F𝑎𝑙𝑠𝑒 ])                                                                           Check for
+
+
+          Policy Agent
+                                                Patient Response Simulation                                    Memory         Optimal Inquiry Action Selection
+          Inquiry Agent
+                                                                        Symptom 𝑠𝑜 is not explicitly                               include termination action
+                                     Inquired Symptom 𝑠𝑜                                                                Actions                                     Final Diagnosis
+                                                                        recorded, but its typicality in
+          Patient Agent                                                 HFMD suggests it is highly
+                                                                                                                                      regenerate if uncertain
+                                                     search             likely to be present/absent.
+
+                                          Patient Profile
+                                                                      𝑠𝑜 is not recorded                                                               Optimal Inquiry Action 𝑎𝑜
+     Final Diagnosis                 Actual Disease: HFMD                                                                          reasoning
+                                                                                                   infer
+                                     Recorded Symptoms:
+                                                                                                                        Given the current evidence,
+     : I infer that the              herpes, loss of appetite;         𝑠𝑜 is recorded                                   𝑠𝑜 is more likely to be an
+ patient may suffer from             no vomiting,                                             Status 𝑝𝑜                 existing symptom than               Check for symptom 𝑠𝑜
+ hand, foot, and mouth                                                                                                  other choices because
+ disease(HFMD).
+
+
+
+Figure 2: Overview of the proposed DDO framework, comprising four collaborative agents operating over a shared
+memory to execute the consultation workflow: the Diagnosis Agent estimates disease confidences from LLM logits;
+the Policy Agent generates candidate actions via masked sampling; the Inquiry Agent selects the optimal symptom
+to query or terminates the consultation; and the Patient Agent responds based on the patient profile.
+                                                                                             ，
+
+is reached. The final diagnosis dp is selected from                                                fidence Estimation—The Diagnosis Agent esti-
+the candidate set D = {d1 , d2 , . . . , dn } based on                                             mates confidence scores for each candidate disease
+the highest diagnostic confidence:                                                                 based on the current diagnostic evidence. 2) Can-
+                                                                                                   didate Actions Generation—The Policy Agent
+        dp = arg max confi S ex ∪ S ad , di
+                                               
+                                                    (1)                                            samples multiple interaction actions based on the
+                             di ∈D
+                                                                                                   current state, providing a set of reliable choices for
+4    Multi-Agent Collaborative Medical                                                             the next inquiry. 3) Optimal Inquiry Action Selec-
+     Consultation in DDO                                                                           tion—The Inquiry Agent selects the most informa-
+To enhance the decision-making capability of                                                       tive symptom checking action from the candidate
+LLMs in the MC task, the DDO framework inte-                                                       actions. 4) Patient Response Simulation—The
+grates three LLM-based agents—Diagnosis Agent,                                                     Patient Agent simulates the patient’s responses, in-
+Inquiry Agent, and Patient Agent—alongside an                                                      dicating whether the inquired symptom is present.
+RL-based Policy Agent implemented with an actor-
+                                                                                                    4.1        Diagnostic Confidence Estimation
+critic architecture. The Diagnosis Agent employs
+a learnable adapter to enhance the LLM’s ability                                                    4.1.1       Binary Token Probability
+to perform differential diagnosis, while the Pol-                                                  The Diagnosis Agent estimates the diagnostic con-
+icy Agent and the Inquiry Agent collaborate to                                                     fidence score confi ∈ (0, 1) for each candidate
+strategically acquire informative symptoms. All                                                    disease di ∈ D, reflecting the likelihood of di
+agents operate over a shared memory, consist-                                                      being the correct diagnosis given the current evi-
+ing of (1) a static component that encodes prior                                                   dence. Rather than relying on decoding to gener-
+disease–symptom knowledge exclusively derived                                                      ate numeric scores (Li et al., 2024b; Chen et al.,
+from the training portion of the dataset (thus avoid-                                              2024; Qin et al., 2024), the Diagnosis Agent adopts
+ing any leakage of test labels), and (2) a dy-                                                     Binary Token Probability (BTP)—a logit-based
+namic component that is continuously updated                                                       method inspired by multiple-choice QA (Detom-
+with observed symptoms and diagnostic confidence                                                   maso et al., 2024; Kumar et al., 2024)—to provide
+throughout the consultation process.                                                               a more efficient and interpretable confidence esti-
+   As shown in Figure 2, each consultation round                                                   mation for LLMs.
+proceeds through four steps: 1) Diagnostic Con-                                                       Specifically, given a structured prompt that in-
+
+                                                                                              3
+tegrates the current evidence with disease-specific                   minimizes the KL divergence between the target
+knowledge of di retrieved from the shared mem-                        and predicted distributions:
+ory, the LLM-based Diagnosis Agent is instructed
+                                                                                    n
+to output a single binary token (True/False) in-                                    X                            disttarget (di )
+                                                                            LKL =         disttarget (di ) log                      (3)
+dicating whether di is a plausible diagnosis. We                                                                 distdiag (di )
+                                                                                    i=1
+extract the logits distribution at the position of this
+binary token and obtain the logits corresponding                      4.2     Candidate Actions Generation
+to True and False, denoted as logitT and logitF ,                     Symptom inquiry poses a significant challenge due
+respectively. The diagnostic confidence is finally                    to the high-dimensional action space, which limits
+computed via a temperature-scaled softmax over                        the LLM’s ability to identify the most informative
+the binary logits, where the temperature τ controls                   symptoms. A natural solution is to reduce decision
+the sharpness of the logits distribution:                             complexity by supplying a small set of reliable
+                                                                      candidate symptoms. Since each inquiry depends
+                       exp(logitT /τ )
+    confi =                                                (2)        only on the current state, the process satisfies the
+               exp(logitT /τ ) + exp(logitF /τ )
+                                                                      Markov property, making reinforcement learning
+4.1.2    Calibrating the Diagnostic Confidence                        (RL) well-suited for this task (Sun et al., 2024).
+                                                                      Unlike RLHF approaches that fine-tune LLM pa-
+Diagnostic confidence scores from base LLMs                           rameters—such as GRPO (Ramesh et al., 2024)
+often lack discriminative power when candidate                        in DeepSeek-R1 (Guo et al., 2025)—we adopt a
+diseases share overlapping symptoms—e.g., both                        lightweight RL policy model as an external agent
+upper respiratory tract infections and pneumonia                      to guide the LLM’s inquiry decisions.
+commonly present with fever and cough. Existing
+calibration methods typically require fine-grained                    4.2.1    Observation State and Action Space
+supervision (Detommaso et al., 2024; Chen et al.,                     In reinforcement learning, the observation state
+2024), such as expert-annotated confidence scores,                    encodes the information available to the agent at
+which are often infeasible to implement in clinical                   each decision step, while the action space defines
+practice. Instead, we treat diagnosis as a multi-class                the set of allowable actions.
+classification task (Ma et al., 2024) and leverage                        We define the observation state as S = [p, c],
+ground-truth disease labels dl from Medical Con-                      where p ∈ {−1, 0, 1}m is an m-dimensional symp-
+sultation Records (MCRs) as weak supervision to                       tom vector indicating absence (−1), unknown sta-
+calibrate the diagnostic confidence.                                  tus (0), or presence (1) of each symptom (initialized
+   To construct the calibration training data, we                     to 0), and c ∈ Rn is a diagnostic confidence vector
+generate partial consultation trajectories by trun-                   over n candidate diseases.
+cating each full MCR at different interaction steps.                      The action space A = {ai }m+1  i=1 comprises m
+For a training MCR P with k turns, we extract                         inquiry actions—each ai corresponds to check for
+(k − lself + 1) sub-trajectories of the form Pc =                     the i-th symptom—and a termination action am+1
+{(s1 , p1 ), . . . , (sc , pc ), dl }, where lself is the num-        to end the consultation. To reflect clinical heuris-
+ber of self-reported symptoms and c < l. Each                         tics where physicians prioritize symptoms relevant
+sub-trajectory Pc serves as a training data.                          to likely diagnoses (Stanley and Campos, 2013),
+   We calibrate diagnostic confidence through in-                     we introduce a binary action mask M ∈ {0, 1}m+1
+batch contrastive learning (Ma et al., 2024), train-                  to constrain the action space. The mask enables
+ing a lightweight adapter using LoRA (Hu et al.,                      actions (Mi = 1) associated with symptoms rel-
+2022) to improve the Diagnosis Agent’s ability to                     evant to the top-w ranked diseases and disables
+distinguish among similar diseases. For each pa-                      actions that have already selected or deemed irrel-
+tient sub-trajectory Pc, the ground-truth diagnosis                   evant (Mi = 0). The final masked action space
+dl is treated as the positive instance, while all other               is:
+candidate diseases serve as negatives. We construct                                    Amasked = A ⊙ M                   (4)
+a target distribution disttarget = [ϵ, . . . , 1−ϵ, . . . , ϵ],
+where ϵ is a label smoothing constant. The Diagno-                    4.2.2    RL Policy Learning
+sis Agent outputs confidence scores {confi }ni=1 us-                  We adopt an actor-critic architecture to jointly learn
+ing the BTP method, yielding a batch-level predic-                    the policy π, which is implemented via multi-layer
+tive distribution distdiag . The calibration objective                perceptron (MLP) layers. The policy π outputs a
+
+                                                                  4
+log-probability distribution over actions. Training            step-by-step reasoning, the Inquiry Agent ensures
+is conducted using Proximal Policy Optimization                that the selected symptom so maximizes diagnostic
+(PPO) (Schulman et al., 2017), which maximizes                 value while maintaining interpretability and trans-
+the total reward return R, composed of both short-             parency throughout the decision-making process.
+term and long-term components.
+   The short-term reward Rshort is computed after              4.4     Patient Response Simulation
+each doctor-patient interaction:                               The Patient Agent responds to each inquiry from
+                                                               the Inquiry Agent based on the patient profile P. If
+ Rshort (St , at , St+1 ) = f req(at )+rhit +rrank , (5)       the queried symptom so is explicitly documented,
+                                                               it returns the recorded status po . However, since
+where f req(at ) denotes the frequency of symptom
+                                                               real-world Medical Consultation Records (MCRs)
+st (corresponding to action at ) among the relevant
+                                                               typically contain only a limited subset of symp-
+symptoms of the ground-truth disease dl , with neg-
+                                                               tom annotations, many queried symptoms may be
+ative values assigned to irrelevant symptoms. The
+                                                               undocumented, leading to ineffective queries and
+term rhit is positive if st is present in the patient
+                                                               ambiguous responses.
+profile P and negative otherwise. The term rrank
+measures the change in the confidence ranking of dl               To reduce this uncertainty bias, we leverage the
+from state St to St+1 , assigning positive reward for          disease label dl from the MCR and incorporate
+improved ranking, negative for worsened ranking,               clinical knowledge for inference. If the queried
+and zero if unchanged.                                         symptom is uncommon in the clinical presentation
+   The long-term reward Rlong (dp ) assesses the fi-           of dl , the agent infers it is likely absent; if the symp-
+nal diagnostic prediction dp , yielding a positive             tom is strongly associated with dl , it is inferred to
+reward if dp = dl and a negative reward otherwise.             be likely present. Once the presence status po is de-
+                                                               termined, the shared diagnostic memory is updated
+4.2.3 Masked Sampling for Candidate Actions                    as: E = E ∪ {(so , po )}.
+The RL policy model’s sampling nature inherently                  In DDO, the multi-agent collaborative consul-
+prevents the guarantee of optimal actions. However,            tation proceeds for up to L turns, and terminates
+by performing multiple sampling iterations, we can             either when the turn limit is reached or when the
+leverage this characteristic to provide the LLM with           termination action is sampled by the Policy Agent.
+a reliable set of candidate actions, thus avoiding             The disease with the highest diagnostic confidence
+decision-making within a large action space.                   is then selected as the final diagnosis.
+   Specifically, given the current state S, the Policy
+Agent π samples N actions from the masked ac-                  5     Experiments
+tion space to construct a candidate action set Acandi          5.1     Baselines
+(Equation 6). If the sampled candidate action set
+includes the termination action am+1 , the consulta-           5.1.1    Traditional Methods.
+tion process is terminated.                                    We compare the proposed DDO framework with
+                                                               two state-of-the-art generation-based methods in
+       Acandi = {ai ∼ π(Amasked | S)}N
+                                     i=1            (6)        the MC task: MTDiag (Hou et al., 2023), which
+                                                               independently optimizes symptom inquiry and dis-
+4.3   Optimal Inquiry Action Selection
+                                                               ease diagnosis, and HAIformer (Zhao et al., 2024),
+Upon receiving the candidate action set Acandi , the           which leverages human-AI collaboration. We ad-
+Inquiry Agent selects the most informative inquiry             ditionally include EBAD (Yan et al., 2023) as a
+action ao , corresponding to symptom so , by follow-           reinforcement learning-based baseline.
+ing a set of predefined reasoning strategies. Specif-
+ically, it either: (1) attempts to confirm the most            5.1.2    LLM-Based Methods
+probable diagnosis by prioritizing symptoms that               We compare the DDO framework with three LLM-
+are highly representative of the top-ranked disease,           based methods in the MC task: Uncertainty of
+or (2) selects the symptom most relevant to the                Thoughts (UoT) (Hu et al., 2024), Chain-of-
+currently collected diagnostic evidence. If none               Diagnosis (CoD) (Chen et al., 2024), and Direct
+of the candidate actions meet the selection crite-             Prompting (DP). UoT plans future inquiries by
+ria, the Inquiry Agent requests the Policy Agent to            computing information gain. CoD employs instruc-
+regenerate a new set of actions. By engaging in                tion tuning to teach LLMs transparent diagnostic
+
+                                                           5
+reasoning. DP relies solely on the inherent capa-               UoT is set to -0.5. The threshold τ in CoD is set
+bilities of the LLM, without prompt engineering or              to 0.5. All LLM-based approaches adopt the same
+instruction tuning.                                             LLM for both doctor and patient agents. The max-
+                                                                imum of doctor-patient interaction turns L is set
+5.2    Datasets                                                 to 10 for all the methods. More implementation
+We evaluate the proposed DDO framework and the                  details can be found in the Appendix A.
+baseline methods on three real-world medical con-
+                                                                5.5   Overall Performance
+sultation datasets: DXY (Xu et al., 2019), collected
+from online medical dialogues, and GMD (Liu                     Table 2 summarizes the main experimental results
+et al., 2022) and CMD (Yan et al., 2023), both                  of the proposed DDO framework and baseline
+derived from electronic medical records (EMRs).                 methods across the three MC datasets.
+Dataset statistics are summarized in Table 1. Other             Comparison with Traditional Methods. DDO
+dataset details can be found in Appendix A.1.                   achieves diagnostic accuracy on par with traditional
+                                                                baselines while substantially reducing training over-
+      Dataset                DXY     GMD      CMD               head. For instance, the SOTA baseline HAIformer
+      # Total MCR Samples    527     2,374    5,200             adopts a multi-stage training pipeline requiring hun-
+      # Disease Types         5        12       27
+                                                                dreds of epochs for training its diagnostic module,
+      # Symptom Types         41      118      358
+      # Avg. Symptoms        4.74     5.55    17.92
+                                                                while DDO only needs a few epochs for confidence
+                                                                calibration—less than one epoch on both the GMD
+Table 1: Dataset statistics, including the number of med-       and CMD datasets. This efficiency stems from the
+ical consultation records (MCR), disease types, symp-           strong generalization capabilities of LLMs, which
+tom types, and average recorded symptoms per sample.            enable effective domain adaptation with a small
+                                                                number of parameter tuning. Moreover, the inher-
+                                                                ent reasoning ability of LLMs contributes to the
+5.3    Evaluation Metrics
+                                                                interpretability of the MC task.
+Diagnostic Accuracy. We use diagnostic accuracy                 Comparison with LLM-based Methods. Com-
+(Acc) as an evaluation metric, which measures the               pared to other LLM-based methods, DDO signif-
+proportion of test cases where the ground-truth                 icantly improves diagnostic effectiveness. After
+disease is correctly identified from a limited set of           symptom inquiry, it boosts diagnostic accuracy by
+candidate diseases. This metric reflects the model’s            an average of 24.6%, 11.3%, and 3.2% on the DXY,
+ability to perform accurate differential diagnosis.             GMD, and CMD datasets, respectively, over initial
+Average Turns. The average number of inquiry                    diagnoses based only on self-reported symptoms.
+turns Avg.n is calculated as the total number of                DDO consistently achieves the highest accuracy,
+symptom queries divided by the number of test                   notably 94.2% on DXY. The DP baseline reflects
+samples, reflecting the efficiency and informative-             the raw inquiry behavior of LLMs, where the lack
+ness of the multi-turn consultation process.                    of external guidance results in arbitrary questioning
+                                                                and unreliable diagnoses. UoT improves upon DP
+5.4    Implemention Details                                     by using LLM-based planning to prioritize symp-
+For traditional baselines, we reproduce EBAD                    toms with the highest expected information gain.
+and HAIformer following their original implemen-                However, its pruning strategy—eliminating can-
+tations, while the MTDiag results are adopted                   didate diseases as soon as key symptoms are de-
+from their paper. All LLM-based baselines are                   nied—restricts comprehensive evidence gathering,
+re-implemented, where UoT adopts its pruned ver-                often resulting in a small Avg.n and ultimately lim-
+sion to improve planning efficiency. The backbone               iting diagnostic performance. CoD attempts to
+LLMs include the Qwen2.5 series (Yang et al.,                   jointly optimize symptom inquiry and diagnosis
+2024), GPT-4o-mini (Achiam et al., 2023), and                   via large-scale synthetic reasoning data but yields
+DiagnosisGPT (Chen et al., 2024), which is fine-                negative performance gains. This is likely due to
+tuned to align with the CoD consultation process.               the intrinsic differences between the two sub-tasks,
+For methods that involve parameter tuning, includ-              which hinder effective unified learning. In contrast,
+ing CoD and our proposed DDO, we use locally                    DDO decouples the two decision-making processes
+deployed LLMs; other LLM-based baselines rely                   in the MC task, enhancing them separately through
+on API-based models. The pruning percentage in                  a lightweight RL policy and a diagnostic adapter.
+
+                                                            6
+                                                                    DXY                      GMD                         CMD
+ Method                                 LLM
+                                                        Accinit      Acc   Avg.n   Accinit    Acc Avg.n       Accinit     Acc Avg.n
+ Traditional Methods
+ EBAD (Yan et al., 2023)                  -                -        72.1    7.0       -       78.7    7.4        -       64.1    9.0
+ MTDiag (Hou et al., 2023)                -                -        81.9    9.6       -       85.9    9.6        -        -       -
+ HAIformer (Zhao et al., 2024)            -                -        88.5    1.8       -       90.4    1.9        -       71.1    3.6
+ LLM-based Methods
+                                 Qwen2.5-72B-Instruct    59.6       64.4   9.0      59.8      64.4     9.9     44.2      46.8    9.8
+                                     GPT-4o-mini         57.7       61.5   10.0     57.3      65.7    10.0     45.9      49.5   10.0
+ DP
+                                 Qwen2.5-14B-Instruct    54.8       53.8   10.0     55.2      61.1    10.0     42.2      45.7   10.0
+                                 Qwen2.5-7B-Instruct     59.6       63.5   10.0     54.8      57.3    10.0     46.8      46.2   10.0
+                                 Qwen2.5-72B-Instruct     -         67.3   0.1       -        68.6    0.1       -        34.6   0.1
+                                     GPT-4o-mini          -         64.4   0.1       -        65.3    0.4       -        23.0   1.3
+ UoT (Hu et al., 2024)
+                                 Qwen2.5-14B-Instruct     -         60.6   0.2       -        61.1    0.6       -        32.6   1.3
+                                 Qwen2.5-7B-Instruct      -         61.5   2.2       -        71.1    0.5       -        32.5   1.6
+                                  DiagnosisGPT-34B       61.5       53.8   3.9      54.0      44.8     3.6     46.1      34.6    3.7
+ CoD (Chen et al., 2024)
+                                  DiagnosisGPT-6B        61.5       36.9   5.1      56.1      37.2     3.9     46.6      28.5    3.4
+                                 Qwen2.5-14B-Instruct    66.3       94.2   10.0     67.8      80.3     9.8     65.3      68.6   10.0
+ DDO(Ours)
+                                 Qwen2.5-7B-Instruct     66.3       87.5    9.9     69.5      79.5     9.6     60.6      63.6   10.0
+
+Table 2: Overall performance of DDO and baseline methods on three public medical consultation (MC) datasets.
+Accinit denotes diagnostic accuracy without any symptom inquiry. Bold numbers indicate the best performance,
+underlined numbers indicate the second-best. All diagnostic accuracy results are reported as percentages.
+
+
+                    DXY             GMD          CMD                                           DXY            GMD             CMD
+ Method                                                              Method
+                Acc Avg.n        Acc Avg.n    Acc Avg.n                                    Accinit Acc    Accinit Acc     Accinit Acc
+ DDO(Ours)      87.5   9.9       79.5  9.6    63.6 10.0              Numerical              62.5   78.8    53.6   74.5     29.7   39.4
+                                                                     Numerical-SC           65.4   77.9    54.4   74.9     32.8   45.3
+ w/o adapter    86.5   9.9       78.7 9.6     54.2 10.0
+                                                                     FirstLogit             59.6   70.2    60.3   74.1     40.5   43.7
+ w/o policy     77.7 10.0        73.6 10.0    60.3 10.0              AvgLogit               42.3   75.0    59.4   74.5     25.2   28.8
+ w/o masking    83.5   9.9       74.5 10.0    61.8 10.0              BTP                    63.5   86.5    63.6   78.7     54.2   54.2
+ w/o retry      83.5 10.0        78.7  9.8    63.0 10.0              BTP-adapter(Ours)      66.3   87.5    69.5   79.5     60.6   63.6
+ w/o decision   84.6   9.8       78.2  9.8    63.2 10.0
+                                                                    Table 4: Comparison of diagnostic performance across
+Table 3: Ablation results of DDO. w/o adapter denotes               different confidence estimation methods for LLMs.
+removing the diagnostic adapter. w/o policy and w/o de-
+cision use the LLM and RL model for symptom inquiry,
+respectively. w/o masking disables action space mask-               the RL policy (w/o decision) or solely by the LLM
+ing. w/o retry omits candidate actions regeneration.                (w/o policy). Results show that both variants per-
+                                                                    form significantly worse, with the LLM-only vari-
+This modular approach yields substantial gains in                   ant exhibiting a greater performance drop. This
+diagnostic accuracy.                                                highlights the advantage of multi-agent collabo-
+                                                                    ration in DDO for conducting effective symptom
+5.6   Ablation Study                                                inquiry. Moreover, removing action space mask-
+                                                                    ing (w/o masking) or disabling the regeneration
+As shown in Table 3, we perform ablation exper-
+                                                                    mechanism for low-quality actions (w/o retry) also
+iments on three MC datasets, using Qwen2.5-7B-
+                                                                    degrades performance, underscoring their role in
+Instruct as the LLM backbone.
+                                                                    ensuring reliable inquiry decisions.
+Impact of Diagnostic Adapter. Removing the
+diagnostic adapter (w/o adapter)—using only the
+                                                                    5.7    Evaluation of Diagnostic Performance in
+vanilla BTP method to estimate diagnostic confi-
+                                                                           LLM Confidence Estimation
+dence—results in a drop in diagnostic accuracy,
+with the largest decline observed on the CMD                        To further assess the diagnostic effectiveness of our
+dataset. This demonstrates the effectiveness of the                 BTP-adapter, we compare it with several alternative
+in-batch contrastive learning–based adapter in en-                  confidence estimation methods for LLMs using
+hancing the disease discrimination ability of LLMs.                 three MC datasets. All methods are evaluated with
+Impact of RL-LLM Collaboration. To assess the                       the same initial and final symptom sequences, and
+effectiveness of RL-LLM collaborative symptom                       the results are presented in Table 4.
+inquiry process, we conduct ablation experiments                    Decoding-based Methods.             Numerical and
+in which symptom inquiry is performed solely by                     Numerical-SC prompt the LLM to directly gen-
+
+                                                                7
+                          95                                                                                                                                     Without Inquiry
+                                    DXY                                                                         Bronchial Asthma                                 With Inquiry
+                          90
+                                    GMD                                                          Pneumonia                                           Coronary Artery Disease
+
+
+
+
+Diagnostic Accuracy (%)
+                          85
+                                                                                Conjunctivitis                                                                        Enteritis
+                          80
+                                                                                                                                                                 1.0
+                                                                                                                                                           0.8
+                          75                                                                                                                         0.6
+                                                                                                                                               0.4
+                                                                                                                                         0.2
+                                                                                 Rhinitis                                          0.0                                     Esophagitis
+                          70
+
+                          65
+                                0             5                 10     15
+                                                  Max Turns L                      Thyroiditis                                                                        Mastitis
+
+                                    Figure 3: Effect of max turns L.
+                                                                                                 Brain Injury                                        Otitis Externa
+                                                                                                                      Dermatitis
+  erate a confidence score between 0 and 1 (Li
+                                                                                Figure 4: Diagnosis performance at the disease level on
+  et al., 2024b), with SC indicating the use of Self-
+                                                                                the GMD dataset.
+  Consistency (Wang et al., 2022). These approaches
+  show significantly lower diagnostic accuracy than
+  the BTP-adapter, highlighting the limitations of                              with high initial diagnostic confidence. When the
+  decoding-based confidence estimation and the ad-                              ground-truth disease dl initially ranks lower, addi-
+  vantages of our logits-based strategy.                                        tional inquiries may offer diminishing returns in
+  Logits-based Methods. Similar to our approach,                                terms of diagnostic accuracy.
+  FirstLogits and AvgLogits (Ma et al., 2025) esti-
+  mate confidence based on the logits of the first                              5.9         Diagnostic Effectiveness Across Different
+  generated token. However, their diagnostic perfor-                                        Diseases
+  mance is notably inferior to that of the BTP-adapter.                         To assess diagnostic performance of DDO at a fine-
+  This may be due to their practice of computing con-                           grained level, we visualize the diagnostic accuracy
+  fidence scores for all candidate diseases in a single                         before and after symptom inquiry across 12 can-
+  generation process, which can lead to context in-                             didate diseases in the GMD dataset, as shown in
+  terference. In contrast, BTP-adapter independently                            Figure 4. The results indicate that multi-turn symp-
+  evaluates each candidate diagnosis, effectively mit-                          tom inquiry substantially enhances diagnostic ac-
+  igating such interference. We also compare against                            curacy for most diseases. Notably, the final ac-
+  the original BTP method without the diagnostic                                curacy for Coronary Artery Disease and Rhinitis
+  adapter. Incorporating the adapter consistently en-                           reaches 100%, highlighting the effectiveness of the
+  hances diagnostic accuracy, particularly in the ini-                          collaborative symptom collection between the Pol-
+  tial diagnosis, which is critical for guiding effective                       icy Agent and Inquiry Agent in DDO. However,
+  symptom inquiry during the early stages of MC.                                for certain diseases such as Conjunctivitis and Thy-
+                                                                                roiditis, the inquiry process yields no improvement
+  5.8                          Effect of Max Turns L                            in diagnostic accuracy, and even shows a slight de-
+  As shown in Figure 3, we evaluate the diagnostic                              cline for Thyroiditis. Further analysis reveals that
+  performance of the DDO framework on the DXY                                   some MCRs for these diseases include only one or
+  and GMD datasets for different maximum interac-                               two vague or non-specific self-reported symptoms,
+  tion turns (L = 0/5/10/15). The line charts show                              which causes these diseases to be ranked relatively
+  an upward trend, indicating that increasing the max-                          low initially, making it difficult for the Agents to
+  imum number of turns L generally improves diag-                               identify critical symptoms for accurate prediction.
+  nostic accuracy. This suggests that the symptom in-                              In addition, Table 5 reports both macro-F1 and
+  quiry process in DDO effectively collects critical di-                        micro-F1 scores when comparing DDO with the
+  agnostic evidence. Notably, the most significant im-                          strongest baseline HAIformer. Although DDO
+  provements occur in the early stages, with the gains                          does not surpass this baseline, it achieves compara-
+  diminishing as more turns are added—especially                                ble performance within fewer training epochs. The
+  evident on the GMD dataset. One possible explana-                             micro-F1 results demonstrate that DDO preserves
+  tion is that DDO prioritizes inquiries for diseases                           overall diagnostic accuracy, while the macro-F1
+
+                                                                            8
+                    DXY                 GMD                 CMD
+ Method
+             macro-F1 micro-F1   macro-F1 micro-F1   macro-F1 micro-F1       be achieved by jointly optimizing the diagnosis
+ HAIformer     88.8     88.5       90.1     90.4       69.3     71.1
+ DDO(Ours)     93.6     93.3       81.6     80.3       65.8     67.4
+                                                                             adapter and the RL policy model. Such joint train-
+                                                                             ing may not only enable the diagnosis adapter to ac-
+Table 5: Macro-F1 and Micro-F1 scores of DDO and                             quire more robust multi-disease diagnostic capabil-
+the SOTA baseline on three MC datasets.                                      ities better aligned with interactive doctor–patient
+                                                                             scenarios, but also facilitate more stable reward
+results highlight that DDO maintains relatively bal-                         learning for the RL policy.
+anced diagnostic effectiveness across different dis-                         Mitigating Inference Overhead from Multi-
+eases, avoiding bias toward high-frequency classes.                          Agent Collaboration. Our DDO framework em-
+                                                                             ploys four collaborating agents to accomplish the
+6    Discussion                                                              MC task, substantially enhancing the diagnostic
+                                                                             performance of LLM-based methods. However,
+Impact of Action Space on RL Policy Learning.                                this multi-agent design also introduces significant
+In general, the larger the action space of an RL                             inference overhead—for instance, a single multi-
+policy model, the more challenging the decision-                             turn consultation per MCR typically takes 3–5 min-
+making process becomes, and the more difficult the                           utes. To mitigate this cost, a promising direction
+optimization tends to be. For example, we observed                           inspired by (Chopra and Shah, 2025) is to store
+that with a smaller action space size (42 for DXY),                          completed consultation trajectories in a memory
+the RL policy was able to sample more informa-                               tree. When processing a new MCR, the system can
+tive symptoms, whereas with a larger action space                            first retrieve similar cases from the tree; if a close
+size (359 for CMD), the policy was more prone                                match is identified, the consultation can follow the
+to sampling irrelevant ones. This motivates our                              retrieved trajectory, thereby reducing the number
+use of masked sampling and LLM-voting during                                 of LLM inference calls.
+inference: by pruning the action space and leverag-
+ing RL–LLM collaboration, we aim to reduce the                               7   Conclusion
+decision burden placed on the RL policy.
+                                                                             In this paper, we propose DDO, a novel LLM-based
+Improving Diagnostic Gains in Challenging Dis-
+                                                                             multi-agent collaborative framework designed to
+eases. For certain diseases, diagnostic accuracy
+                                                                             address the mismatch between existing LLM-based
+exhibits only modest gains—or even slight de-
+                                                                             methods and the dual-decision nature of medical
+clines—after symptom inquiry (e.g., Thyroiditis
+                                                                             consultation (MC), which involves both sequen-
+in GMD). As discussed in Section 4, this likely
+                                                                             tial symptom inquiry and diagnosis over a con-
+stems from insufficient information in the initial
+                                                                             strained set of candidate diseases. DDO decouples
+symptom presentation of some MCR cases, which
+                                                                             these two decision-making processes and optimizes
+constrains the Agents’ ability to identify and query
+                                                                             them with distinct objectives: it improves disease
+informative symptoms. Possible remedies include:
+                                                                             discrimination through a plug-and-play diagnos-
+(1) enhancing the initial Top-K accuracy of the Di-
+                                                                             tic adapter, and enhances information gathering
+agnosis Agent for these challenging diseases, since
+                                                                             via the synergy of an reinforcement learning-based
+a stronger initial ranking increases the chance of
+                                                                             policy agent an LLM-based inquiry agent. Experi-
+retrieving relevant symptoms and thereby improves
+                                                                             ments on three public MC datasets show that DDO
+inquiry effectiveness; and (2) refining the inquiry
+                                                                             consistently outperforms existing LLM-based base-
+strategy by leveraging the LLM’s reasoning capac-
+                                                                             lines and achieves performance competitive with
+ity to filter out irrelevant diseases, thus avoiding
+                                                                             state-of-the-art generation-based methods, demon-
+excessive focus on unrelated conditions.
+                                                                             strating its effectiveness in the MC task.
+Joint Optimization of the Diagnosis Adapter and
+RL Policy. In this work, we assign different op-                             Limitations
+timization objectives to the diagnosis module and
+the symptom inquiry module, and adopt a cascaded                             While we propose DDO to enhance the effective-
+optimization scheme. This dual-decision optimiza-                            ness of LLMs in the medical consultation task, sev-
+tion effectively enhances the overall performance                            eral limitations remain: (1) Label granularity:
+of LLM-based medical consultation. Nevertheless,                             During confidence calibration, DDO assigns a tar-
+LLM-RL cascading training can be inherently un-                              get confidence of 1 to the ground-truth disease and
+stable. We believe that further improvements could                           a small constant to all others. This hard-labeling
+
+                                                                         9
+scheme may hinder the model’s ability to softly                  with dense symptom representations. Bioinformatics,
+distinguish between clinically similar diseases. (2)             39(1):btac744.
+Model deployment: Since DDO requires training                  Harshita Chopra and Chirag Shah. 2025. Feedback-
+a diagnostic adapter for the underlying LLM, it is               aware monte carlo tree search for efficient informa-
+currently incompatible with API-based LLMs and                   tion seeking in goal-oriented conversations. arXiv
+                                                                 preprint arXiv:2501.15056.
+must be deployed with locally hosted models. (3)
+Inference efficiency: DDO involves multi-agent                 Gianluca Detommaso, Martin Bertran, Riccardo
+reasoning, which introduces inference latency com-               Fogliato, and Aaron Roth. 2024. Multicalibration
+                                                                 for confidence scoring in llms. In Proceedings of the
+pared to traditional deep learning methods.
+                                                                 41st International Conference on Machine Learning,
+                                                                 pages 10624–10641.
+Ethical Consideration
+                                                               Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song,
+Due to the hallucination problem inherent in large               Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma,
+language models, they may generate content that is               Peiyi Wang, Xiao Bi, et al. 2025. Deepseek-r1: In-
+not factually accurate. Therefore, the DDO frame-                centivizing reasoning capability in llms via reinforce-
+                                                                 ment learning. arXiv preprint arXiv:2501.12948.
+work proposed in this paper is intended solely for
+academic research. In real-world scenarios, med-               Zhenyu Hou, Yukuo Cen, Ziding Liu, Dongxue Wu,
+ical decisions should always be based on profes-                 Baoyan Wang, Xuanhe Li, Lei Hong, and Jie Tang.
+                                                                 2023. Mtdiag: an effective multi-task framework
+sional diagnoses made by qualified physicians.                   for automatic diagnosis. In Proceedings of the AAAI
+                                                                 Conference on Artificial Intelligence, pages 14241–
+Acknowledgments                                                  14248.
+This work was supported in part by National Natu-              Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan
+ral Science Foundation of China (No. 62576363),                  Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang,
+the Natural Science Foundation of Hunan Province                 Weizhu Chen, et al. 2022. Lora: Low-rank adap-
+                                                                 tation of large language models. ICLR, 1(2):3.
+(No. 2025JJ50342) and Changsha Municipal Natu-
+ral Science Foundation Project (No. kq2502144).                Zhiyuan Hu, Chumin Liu, Xidong Feng, Yilun Zhao,
+This work was carried out in part using comput-                  See-Kiong Ng, Anh Tuan Luu, Junxian He, Pang
+                                                                 Wei W Koh, and Bryan Hooi. 2024. Uncertainty
+ing resources at the High-Performance Computing                  of thoughts: Uncertainty-aware planning enhances
+Center of Central South University.                              information seeking in llms. Advances in Neural
+                                                                 Information Processing Systems, 37:24181–24215.
+
+References                                                     Mingyi Jia, Junwen Duan, Yan Song, and Jianxin Wang.
+                                                                 2025. medikal: Integrating knowledge graphs as as-
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama                sistants of llms for enhanced clinical diagnosis on
+  Ahmad, Ilge Akkaya, Florencia Leoni Aleman,                    emrs. In Proceedings of the 31st International Con-
+  Diogo Almeida, Janko Altenschmidt, Sam Altman,                 ference on Computational Linguistics, pages 9278–
+  Shyamal Anadkat, et al. 2023. Gpt-4 technical report.          9298.
+  arXiv preprint arXiv:2303.08774.
+                                                               Shreya Johri, Jaehwan Jeong, Benjamin A Tran, Daniel I
+David Bani-Harouni, Nassir Navab, and Matthias Ke-               Schlessinger, Shannon Wongvibulsin, Zhuo Ran Cai,
+  icher. 2024. Magda: Multi-agent guideline-driven               Roxana Daneshjou, and Pranav Rajpurkar. 2024.
+  diagnostic assistance. In International workshop on            Craft-md: A conversational evaluation framework
+  foundation models for general medical AI, pages 163–           for comprehensive assessment of clinical llms. In
+  172. Springer.                                                 AAAI 2024 Spring Symposium on Clinical Founda-
+                                                                 tion Models.
+Junying Chen, Chi Gui, Anningzhe Gao, Ke Ji, Xidong
+  Wang, Xiang Wan, and Benyou Wang. 2024. Cod,                 Hao-Cheng Kao, Kai-Fu Tang, and Edward Chang.
+  towards an interpretable medical agent using chain             2018. Context-aware symptom checking for disease
+  of diagnosis. arXiv preprint arXiv:2407.13301.                 diagnosis using hierarchical reinforcement learning.
+                                                                 In Proceedings of the AAAI conference on artificial
+Junying Chen, Dongfang Li, Qingcai Chen, Wenxiu                  intelligence, volume 32.
+  Zhou, and Xin Liu. 2022. Diaformer: Automatic
+  diagnosis via symptoms sequence generation. In               Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik Siu
+  Proceedings of the AAAI Conference on Artificial               Chan, Xuhai Xu, Daniel McDuff, Hyeonhoon Lee,
+  Intelligence, volume 36, pages 4432–4440.                      Marzyeh Ghassemi, Cynthia Breazeal, Hae Park,
+                                                                 et al. 2024. Mdagents: An adaptive collaboration
+Wei Chen, Cheng Zhong, Jiajie Peng, and Zhongyu                  of llms for medical decision-making. Advances in
+ Wei. 2023. Dxformer: a decoupled automatic diag-                Neural Information Processing Systems, 37:79410–
+ nostic system based on decoder–encoder transformer              79452.
+
+
+                                                          10
+Abhishek Kumar, Robert Morabito, Sanzhar Umbet,                  John Schulman, Filip Wolski, Prafulla Dhariwal,
+  Jad Kabbara, and Ali Emami. 2024. Confidence                     Alec Radford, and Oleg Klimov. 2017. Proxi-
+  under the hood: An investigation into the confidence-            mal policy optimization algorithms. arXiv preprint
+  probability alignment in large language models. In               arXiv:1707.06347.
+  Proceedings of the 62nd Annual Meeting of the As-
+  sociation for Computational Linguistics (Volume 1:             Wenqi Shi, Ran Xu, Yuchen Zhuang, Yue Yu, Haotian
+  Long Papers), pages 315–334.                                    Sun, Hang Wu, Carl Yang, and May Dongmei Wang.
+                                                                  2024. Medadapter: Efficient test-time adaptation of
+Junkai Li, Yunghwei Lai, Weitao Li, Jingyi Ren, Meng              large language models towards medical reasoning.
+  Zhang, Xinhui Kang, Siyu Wang, Peng Li, Ya-Qin                  In Proceedings of the 2024 Conference on Empiri-
+  Zhang, Weizhi Ma, et al. 2024a. Agent hospital:                 cal Methods in Natural Language Processing, pages
+  A simulacrum of hospital with evolvable medical                 22294–22314.
+  agents. arXiv preprint arXiv:2405.02957.
+                                                                 Gopendra Singh, Sai Vemulapalli, Mauajama Firdaus,
+Shuyue Stella Li, Vidhisha Balachandran, Shangbin                  and Asif Ekbal. 2024. Deciphering cognitive distor-
+  Feng, Jonathan S Ilgen, Emma Pierson, Pang Wei                   tions in patient-doctor mental health conversations: A
+  Koh, and Yulia Tsvetkov. 2024b. Mediq: Question-                 multimodal llm-based detection and reasoning frame-
+  asking llms and a benchmark for reliable interactive             work. In Proceedings of the 2024 Conference on
+  clinical reasoning. In The Thirty-eighth Annual Con-             Empirical Methods in Natural Language Processing,
+  ference on Neural Information Processing Systems.                pages 22546–22570.
+Jiaxiang Liu, Yuan Wang, Jiawei Du, Joey Zhou, and               Donald E Stanley and Daniel G Campos. 2013. The
+   Zuozhu Liu. 2024. Medcot: Medical chain of                      logic of medical diagnosis. Perspectives in Biology
+   thought via hierarchical expert. In Proceedings of the          and Medicine, 56(2):300–315.
+   2024 Conference on Empirical Methods in Natural
+   Language Processing, pages 17371–17389.                       Zhoujian Sun, Cheng Luo, and Zhengxing Huang. 2024.
+                                                                   Conversational disease diagnosis via external planner-
+Wenge Liu, Yi Cheng, Hao Wang, Jianheng Thang,                     controlled large language models. arXiv preprint
+ Yafei Liu, Ruihui Zhao, Wenjie Li, Yefeng Zheng,                  arXiv:2404.04292.
+ and Xiaodan Liang. 2022. "my nose is running.”“are
+ you also coughing?”: Building a medical diagnosis               Kai-Fu Tang, Hao-Cheng Kao, Chun-Nan Chou, and Ed-
+ agent with interpretable inquiry logics. In Proceed-              ward Y Chang. 2016. Inquire and diagnose: Neural
+ ings of the 31st International Joint Conference on                symptom checking ensemble using deep reinforce-
+ Artificial Intelligence, pages 4266–4272.                         ment learning. In NIPS workshop on deep reinforce-
+                                                                   ment learning.
+Mingyu Derek Ma, Yanna Ding, Zijie Huang, Jianxi
+  Gao, Yizhou Sun, and Wei Wang. 2025. Inferring                 Yuanhe Tian, Ruyi Gan, Yan Song, Jiaxing Zhang, and
+  from logits: Exploring best practices for decoding-              Yongdong Zhang. 2024. Chimed-gpt: A chinese med-
+  free generative candidate selection. arXiv preprint              ical large language model with full training regime
+  arXiv:2501.17338.                                                and better alignment to human preferences. In Pro-
+                                                                   ceedings of the 62nd Annual Meeting of the Associa-
+Mingyu Derek Ma, Xiaoxuan Wang, Yijia Xiao, An-                    tion for Computational Linguistics (Volume 1: Long
+  thony Cuturrufo, Vijay S Nori, Eran Halperin, and                Papers), pages 7156–7173.
+ Wei Wang. 2024. Memorize and rank: Elevating
+  large language models for clinical diagnosis predic-           Tao Tu, Anil Palepu, Mike Schaekermann, Khaled Saab,
+  tion. In GenAI for Health: Potential, Trust and Policy           Jan Freyberg, Ryutaro Tanno, Amy Wang, Brenna
+  Compliance.                                                      Li, Mohamed Amin, Nenad Tomasev, et al. 2024.
+                                                                   Towards conversational diagnostic ai. arXiv preprint
+Jeremy Qin, Bang Liu, and Quoc Nguyen. 2024. En-                   arXiv:2401.05654.
+   hancing healthcare llm trust with atypical presenta-
+   tions recalibration. In Findings of the Association           Mina Valizadeh and Natalie Parde. 2022. The ai doctor
+   for Computational Linguistics: EMNLP 2024, pages                is in: A survey of task-oriented dialogue systems for
+   2520–2537.                                                      healthcare applications. In Proceedings of the 60th
+                                                                   Annual Meeting of the Association for Computational
+Shyam Sundhar Ramesh, Yifan Hu, Iason Chaimalas,                   Linguistics (Volume 1: Long Papers), pages 6638–
+  Viraj Mehta, Pier Giuseppe Sessa, Haitham Bou Am-                6660.
+  mar, and Ilija Bogunovic. 2024. Group robust prefer-
+  ence optimization in reward-free rlhf. In The Thirty-          Guoxin Wang, Minyu Gao, Shuai Yang, Ya Zhang,
+  eighth Annual Conference on Neural Information                   Lizhi He, Liang Huang, Hanlin Xiao, Yexuan Zhang,
+  Processing Systems.                                              Wanyue Li, Lu Chen, et al. 2025. Citrus: Leverag-
+                                                                   ing expert cognitive pathways in a medical language
+Daniel Rose, Chia-Chien Hung, Marco Lepri, Israa                   model for advanced medical decision support. arXiv
+  Alqassem, Kiril Gashteovski, and Carolin Lawrence.               preprint arXiv:2502.18274.
+  2025. Meddxagent: A unified modular agent frame-
+  work for explainable automatic differential diagnosis.         Huimin Wang, Wai-Chung Kwan, Kam-Fai Wong, and
+  arXiv preprint arXiv:2502.19175.                                 Yefeng Zheng. 2023. Coad: Automatic diagnosis
+
+
+                                                            11
+  through symptom and disease collaborative genera-             A       Other Implementation Details
+  tion. arXiv preprint arXiv:2307.08290.
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le,
+                                                                A.1      Datasets Details
+  Ed Chi, Sharan Narang, Aakanksha Chowdhery, and               We use three public medical consultation (MC)
+  Denny Zhou. 2022. Self-consistency improves chain
+  of thought reasoning in language models. arXiv                datasets: DXY1 (Xu et al., 2019) , which is
+  preprint arXiv:2203.11171.                                    the most widely used online dialogue–based MC
+                                                                dataset in prior work, and GMD2 (Liu et al., 2022)
+Zhongyu Wei, Qianlong Liu, Baolin Peng, Huaixiao
+  Tou, Ting Chen, Xuan-Jing Huang, Kam-Fai Wong,                together with CMD3 (Yan et al., 2023) , which are
+  and Xiang Dai. 2018. Task-oriented dialogue system            representative of electronic medical record–based
+  for automatic diagnosis. In Proceedings of the 56th           MC datasets. These datasets were released for aca-
+  Annual Meeting of the Association for Computational           demic research and have been de-identified by their
+  Linguistics (Volume 2: Short Papers), pages 201–
+  207.
+                                                                original authors. We reviewed the accompanying
+                                                                papers and code repositories for licensing informa-
+Yuan Xia, Jingbo Zhou, Zhenhui Shi, Chao Lu, and                tion: GMD is explicitly provide an MIT license,
+  Haifeng Huang. 2020. Generative adversarial reg-
+  ularized mutual information policy gradient frame-
+                                                                while DXY and CMD, though lacking formal li-
+  work for automatic diagnosis. In Proceedings of the           censes, clearly state in their papers that the data
+  AAAI conference on artificial intelligence, volume 34,        is intended for public research use. In our study,
+  pages 1062–1069.                                              we strictly follow these terms and use the datasets
+Lin Xu, Qixian Zhou, Ke Gong, Xiaodan Liang, Jian-              solely for research purposes. All three datasets
+  heng Tang, and Liang Lin. 2019. End-to-end                    are primarily in Chinese, with GMD additionally
+  knowledge-routed relational dialogue system for au-           offering an English version.
+  tomatic diagnosis. In Proceedings of the AAAI con-
+  ference on artificial intelligence, volume 33, pages             For validation, we apply stratified sampling to
+  7346–7353.                                                    the training sets of DXY and CMD to create devel-
+                                                                opment sets (GMD has already included a prede-
+Lian Yan, Yi Guan, Haotian Wang, Yi Lin, and
+  Jingchi Jiang. 2023. Efficient evidence-based di-             fined split). The final train/dev/test splits for DXY,
+  alogue system for medical diagnosis. In 2023                  GMD, and CMD are 318/103/103, 1912/239/239,
+  IEEE International Conference on Bioinformatics               and 3379/671/1342, respectively.
+  and Biomedicine (BIBM), pages 3406–3413. IEEE.                   Since MCRs in DXY and GMD contain rela-
+An Yang, Baosong Yang, Binyuan Hui, Bo Zheng,                   tively few symptoms on average—only 4.74 and
+  Bowen Yu, Chang Zhou, Chengpeng Li, Chengyuan                 5.55 per record, respectively—this sparsity may
+  Li, Dayiheng Liu, Fei Huang, et al. 2024. Qwen2               hinder the reliable calibration of diagnostic con-
+  technical report. arXiv preprint arXiv:2407.10671.
+                                                                fidence in LLMs. Therefore, when constructing
+Xuehan Zhao, Jiaqi Liu, Yao Zhang, Zhiwen Yu, and               the confidence calibration dataset, we also provide
+  Bin Guo. 2024. Haiformer: Human-ai collaboration
+                                                                an augmented version of the data to address this
+  framework for disease diagnosis via doctor-enhanced
+  transformer. In ECAI 2024, pages 1495–1502. IOS               issue, enriching MCRs with additional symptoms
+  Press.                                                        to enhance the adapter’s long-range diagnostic ca-
+                                                                pability. Specifically, for each training MCR with a
+Zi’ou Zheng, Christopher Malon, Martin Renqiang Min,
+   and Xiaodan Zhu. 2024. Exploring the role of rea-            small number of symptoms, we sample additional
+   soning structures for constructing proofs in multi-          implicit symptoms based on disease knowledge ex-
+   step natural language reasoning with large language          tracted from the training data. As a result, the cali-
+   models. In Proceedings of the 2024 Conference on             bration training dataset contains 2,185 instances for
+   Empirical Methods in Natural Language Processing,
+   pages 15299–15312.                                           DXY (originally 553), 13,598 for GMD (originally
+                                                                4,837), and 54,608 for CMD.
+Cheng Zhong, Kangenbei Liao, Wei Chen, Qianlong
+  Liu, Baolin Peng, Xuanjing Huang, Jiajie Peng, and
+                                                                   To improve training efficiency, we do not include
+  Zhongyu Wei. 2022. Hierarchical reinforcement                 all diseases in each contrastive batch when con-
+  learning for automatic disease diagnosis. Bioinfor-           structing confidence calibration data. Instead, each
+  matics, 38(16):3995–4001.                                     ground-truth disease is paired with four clinically
+Shuang Zhou, Zidu Xu, Mian Zhang, Chunpu Xu,                    similar candidate diseases for comparison.
+  Yawen Guo, Zaifu Zhan, Sirui Ding, Jiashuo Wang,
+                                                                    1
+  Kaishuai Xu, Yi Fang, et al. 2024. Large language                   https://github.com/HCPLab-SYSU/Medical_DS
+                                                                    2
+  models for disease diagnosis: A scoping review.                     https://github.com/lwgkzl/BR-Agent
+                                                                    3
+  arXiv preprint arXiv:2409.00097.                                    https://github.com/YanPioneer/EBAD
+
+
+                                                           12
+A.2     Training Details                                                     A.3      Model Deployment
+
+Hyperparameters and model checkpoints were se-                               We locally deployed the LLMs used in our DDO
+lected based on the validation dataset, considering                          framework on GPU devices. Specifically, Qwen2.5-
+both Top-K accuracy and diagnostic effectiveness                             7B-Instruct was run on an NVIDIA RTX 3090
+across diseases. The key configurations are sum-                             GPU, while Qwen2.5-14B-Instruct was run on an
+marized in Table 6, Table 7 and Table 8.                                     NVIDIA Tesla V100 GPU. For reproducing the
+   During confidence calibration, for Qwen2.5-7B-                            Chain-of-Diagnosis baseline (Chen et al., 2024),
+Instruct, several promising checkpoints were re-                             we deployed DiagnosisGPT-6B and DiagnosisGPT-
+tained as candidate adapters for the subsequent                              34B using 1 and 3 NVIDIA Tesla V100 GPUs,
+RL training, while for other LLMs only the best-                             respectively. For reproducing EBAD (Yan et al.,
+performing checkpoint was used for inference.                                2023) and HAIformer (Zhao et al., 2024), we used a
+                                                                             single NVIDIA RTX 3090 GPU. For implementing
+   LLM-RL cascading training can be inherently
+                                                                             the Direct Prompting baseline and reproducing the
+unstable. To mitigate this, each candidate adapter
+                                                                             Uncertainty of Thoughts baseline (Hu et al., 2024),
+was employed to train a policy model. The re-
+                                                                             we utilized the Qwen2.5-Instruct API provided by
+sulting models were then evaluated, and the one
+                                                                             the Siliconflow platform4 and the ChatGPT API
+achieving the highest Top-K accuracy was selected
+                                                                             provided by the ChatAnywhere platform5 .
+as the final Policy Agent. This agent was subse-
+                                                                                Based on Stable-Baselines36 , the reinforcement
+quently deployed across different LLM backbones,
+                                                                             learning policy model in DDO is trained and de-
+demonstrating both robustness and transferability.
+                                                                             ployed on a single NVIDIA RTX 3090 GPU.
+          Hyperparameters           DXY      GMD        CMD
+          max training epochs         5        1          1                  B       Statistical Results
+            global batch size         8        8          8
+              learning rate         5e-5     5e-5       5e-5                 B.1      Standard Errors and Confidence
+                lora rank            16       16         16                           Intervals
+         in-bacth group length        5        5          5
+                                                                             We report the standard errors and confidence inter-
+Table 6: Hyperparameters for confidence calibration.                         vals of the results for the proposed DDO framework
+                                                                             on the three MC datasets in Table 9, based on ex-
+                                                                             periments conducted with different random seeds.
+ Hyperparameters            DXY             GMD             CMD              For efficiency considerations, we use Qwen2.5-7B-
+ actor hidden layers    [256,128,128]   [256,128,128]   [512,256,256]
+ critic hidden layers        [64]            [64]           [128]
+                                                                             Instruct as the LLM backbone. The comparison
+      learning rate         5e-5            5e-5             5e-5            between our proposed DDO framework and the
+        batch size            64             128             128
+   steps per update         1024            2048            2048
+                                                                             baseline methods in the main experiments was per-
+         epochs                5               5               5             formed using the random seed that achieved the
+       total steps         51200           102400          102400
+     hitting reward           0.5             0.5             0.5
+                                                                             best overall performance.
+    ranking reward            0.5             0.5             0.5               The statistical results in Table 9 indicate that
+  diagnosis reward            1.0             1.0             1.0
+  frequency penaty            0.2             0.2             0.2
+                                                                             the diagnostic performance of DDO is relatively
+      window size              3               5               5             stable across different random seeds. The standard
+       floor turns             3               6               5
+                                                                             errors are very small (below 1.0 on all datasets),
+Table 7: Hyperparameters for RL policy model’s train-                        and the 95% confidence intervals are also narrow
+ing and inference.                                                           (e.g., only 0.6 on GMD), suggesting that repeated
+                                                                             runs of DDO yield relatively consistent results.
+
+         Hyperparameters           DXY      GMD         CMD
+                                                                             B.2      Significance Testing
+          sampling times            6        6           7                   We conducted paired significance tests between
+           window size              3        4           5
+                                                                             the diagnostic performance of our proposed
+            floor turns             3        5           5
+            retry times             1        2           2                   DDO framework and the state-of-the-art baseline
+                                                                             HAIformer on the same set of random seeds. On
+Table 8: Hyperparameters for LLM–RL collaboration                                4
+in symptom inquiry.                                                                https://www.siliconflow.cn/
+                                                                                 5
+                                                                                   https://chatanywhere.apifox.cn/
+                                                                                 6
+                                                                                   https://github.com/DLR-RM/stable-baselines3
+
+
+                                                                        13
+ Dataset   Mean Accuracy    Standard Error    95% CI (%)
+ DXY           84.4              0.8             2.3
+ GMD           79.6              0.1             0.6
+ CMD           63.1              0.4             1.6
+
+Table 9: Mean accuracy, standard error (SE), and 95%
+confidence interval (CI) of DDO for final diagnostic
+accuracy across three MC datasets.
+
+
+the DXY dataset, DDO demonstrates a statisti-
+cally significant improvement over HAIformer
+(p < 0.05). However, on the GMD and CMD
+datasets, DDO achieves lower diagnostic accuracy
+than HAIformer, and the differences are statisti-
+cally significant (p < 0.01). These results highlight
+potential challenges in scaling LLM-based medical
+consultation methods to datasets with more diverse
+disease categories.
+
+    Metric                   DXY     GMD       CMD
+    Paired t-test p-value   0.0355   0.0002    0.0046
+
+Table 10: Statistical significance of DDO compared to
+HAIformer across three MC datasets.
+
+
+C    Case Study
+Table 11 shows a medical consultation case. The
+patient initially reported the symptom runny nose,
+and DDO used this information to conduct multi-
+ple rounds of symptom inquiries to gather more
+evidence. In each round, DDO first provides a set
+of candidate inquiry actions via the Policy Agent.
+The Inquiry Agent then selects the most appropriate
+action based on reasoning. The Patient Agent re-
+sponds with the presence or absence of symptoms
+based on the Medical Consultation Record (MCR).
+For symptoms not recorded in the MCR, the Pa-
+tient Agent infers their likely presence or absence
+based on the clinical presentation of the disease.
+The Diagnosis Agent evaluates the diagnostic con-
+fidence for each candidate disease. In this case,
+after reaching the maximum number of interaction
+rounds, the disease with the highest diagnostic con-
+fidence—allergic rhinitis (AR)—was identified as
+the patient’s final diagnosis, which aligns with the
+ground-truth diagnosis in the MCR.
+
+D    Prompt Templates
+Tables 12-14 show the prompts used in our DDO
+framework. Tables 15-18 show the prompts used
+in the DP baseline.
+
+
+
+                                                           14
+Self Report (Explicit Symptoms): The patient has symptoms of cough, restlessness, and runny nose.
+Explicit Symptoms & Implicit Symptoms: {"cough": True, "restlessness": True, "runny nose": True, "anorexia": True,
+"short of breath": True}
+Disease Label: pneumonia
+Candidate Diseases: ["hand-foot-and mouth disease (HFMD)", "upper respiratory tract infection (URTI)", "pneumonia",
+"allergic rhinitis (AR)", "diarrhea"]
+Diagnostic Confidence of Top Diseases: {"URTI": 0.68, "pneumonia": 0.16, "AR": 0.16}
+Turn 1
+Candidate Actions: ["check for fever", "check for vomiting", "check for short of breath", "check for pharyngeal discom-
+fort"]
+Selected Symptom for Inquiry: fever
+Selection Reasoning: First, we examine the current diagnostic confidence scores: upper respiratory infection (0.68),
+pneumonia (0.16), and allergic rhinitis (0.16). Since upper respiratory infection has a significantly higher confidence, we
+prioritize symptoms associated with it. Looking at symptom frequencies for this disease, fever (0.507) is the most common,
+followed by vomiting (0.233), throat discomfort (0.164), and short of breath (0.123). Based on Strategy 1, we should ask
+the patient about fever next, as it is the most indicative symptom.
+Symptom Status: True
+Response Reasoning: To assess whether the patient is likely to have the symptom "fever," we examine its frequency
+relative to other listed symptoms. A higher frequency—i.e., a higher rank in the sorted list—indicates the symptom is more
+typical and thus more likely to be present in the patient. According to the information, "fever" has a frequency of 0.533.
+When we sort all symptoms by frequency in descending order, "fever" ranks 3rd, following "cough" (0.883) and "sputum
+production" (0.65). This places "fever" in the high-frequency range. Therefore, based on this analysis, we determine the
+likelihood of the patient having the symptom "fever" to be high, and the final judgment is True.
+Diagnostic Confidence of Top Diseases: {"URTI": 0.45, "pneumonia": 0.45, "HFMD": 0.11}
+Turn 2
+Candidate Actions: ["check for herpes", "check for sneezing", "check for pharyngeal discomfort", "check for short of
+breath", "check for vomiting"]
+Selected Symptom for Inquiry: short of breath
+Selection Reasoning: The current diagnostic confidence scores are: upper respiratory infection (0.45), pneumonia (0.45),
+and hand, foot, and mouth disease (0.11). Since no single disease stands out, we can’t apply Strategy 1. So we use Strategy
+2, which selects symptoms related to the patient’s current presentation—cough, irritability, runny nose, and fever. Among
+the candidate symptoms (herpes, sneezing, throat discomfort, short of breath, vomiting), short of breath is the most relevant,
+as it is strongly associated with pneumonia. Therefore, we choose short of breath as the next symptom to inquiry about.
+Symptom Status: True
+Response Reasoning: Short of breath is recorded in MCR, which indicates that the patient has this symptom.
+Diagnostic Confidence of Top Diseases: {"pneumonia": 0.68, "URTI": 0.16, "HFMD": 0.16}
+Turn 3
+Candidate Actions: ["check for pulmonary moist rales", "check for bubble-like spitting", "check for sneeze", "check for
+vomiting"]
+Selected Symptom for Inquiry: pulmonary moist rales
+Selection Reasoning: The current diagnostic confidence scores are: pneumonia (0.68), upper respiratory infection (0.16),
+and hand, foot, and mouth disease (0.16). Since pneumonia stands out with the highest confidence, we prioritize its typical
+symptoms. Among the candidate symptoms—pulmonary moist rales (0.167), bubble blowing (0.167), sneezing (0.117),
+and vomiting (0.383)—both pulmonary moist rales and bubble blowing are more specific to pneumonia, despite vomiting
+having a higher frequency. Following Strategy 1, we choose pulmonary moist rales as the next symptom to ask the patient.
+Symptom Status: False
+Response Reasoning: To assess whether the patient is likely to have the symptom pulmonary moist rales, we first examine
+its frequency in pneumonia cases and compare it with other symptoms. The frequency of pulmonary moist rales is 0.167.
+When we sort all listed symptoms by their frequency in pneumonia, pulmonary moist rales ranks relatively low—below
+common symptoms like cough (0.883), sputum production (0.65), and fever (0.533), and only slightly higher than symptoms
+like fatigue, loose stools, and sweating. This suggests that pulmonary moist rales is not among the most typical symptoms
+of pneumonia. Therefore, we conclude that the patient is less likely to have this symptom, and the judgment is False.
+Diagnostic Confidence of Top Diseases: {"pneumonia": 0.68, "URTI": 0.16, "diarrhea": 0.16}
+Turn 4
+Candidate Actions: ["check for anorexia", "check for vomiting", "check for lethargy"]
+Selected Symptom for Inquiry: vomiting
+Selection Reasoning: The current diagnostic confidence scores are: pneumonia (0.68), upper respiratory infection (0.16),
+and pediatric diarrhea (0.16). Since pneumonia has the highest confidence, we focus on symptoms related to it. Among the
+candidate symptoms, vomiting has the highest frequency in pneumonia cases at 0.383, compared to anorexia (0.15) and
+fatigue (0.083). Based on this, we choose vomiting as the next symptom to ask the patient about.
+Symptom Status: True
+Response Reasoning: To determine whether the patient is likely to have the symptom "vomiting," we examine its frequency
+among pneumonia patients, which is 0.383. Although this is lower than symptoms like cough (0.883), sputum production
+(0.65), fever (0.533), runny nose (0.467), and short of breath (0.433), it is higher than others such as nasal obstruction
+(0.267) and irritability (0.233). This indicates that vomiting is relatively common in pneumonia cases. While it may not
+be the most typical symptom, its frequency suggests it has moderate representativeness. Therefore, we conclude that the
+likelihood of the patient having this symptom is relatively high, and the judgment result is True.
+Diagnostic Confidence of Top Diseases: {"pneumonia": 0.68, "URTI": 0.16, "HFMD": 0.16}
+Turn 5
+
+
+                                                             15
+Candidate Actions: ["check for rash", "check for expectoration", "check for anorexia", "check for herpes", "check for
+sneeze"]
+Selected Symptom for Inquiry: expectoration
+Selection Reasoning: Pneumonia currently has the highest diagnostic confidence (0.68), much higher than upper respiratory
+infection and hand-foot-mouth disease (both 0.16). So, we focus on symptoms typical of pneumonia. Among the candidate
+symptoms, only expectoration (coughing up phlegm) has a high occurrence in pneumonia (65%), while others like rash,
+anorexia, sneezing, and herpes are either rare or not typical. Therefore, the most appropriate next symptom to ask about is
+expectoration.
+Symptom Status: True
+Response Reasoning: To determine whether the patient is likely to have the symptom expectoration, we refer to the
+symptom frequency data for pneumonia. The frequency of expectoration is 0.65, which is relatively high—only lower
+than cough (0.883) and fever (0.533). This indicates that expectoration is a common and typical symptom of pneumonia.
+Therefore, it’s reasonable to conclude that the patient is likely to have this symptom. Final judgment: True.
+Diagnostic Confidence of Top Diseases: {"pneumonia": 0.68, "URTI": 0.16, "diarrhea": 0.16}
+Turn 6
+Candidate Actions: ["check for lethargy", "check for sneeze", "check for nasal obstruction"]
+Selected Symptom for Inquiry: nasal obstruction
+Selection Reasoning: First, we look at the current diagnostic confidence scores: pneumonia (0.68), upper respiratory
+infection (0.16), and pediatric diarrhea (0.16). Since pneumonia has the highest confidence, we prioritize its related
+symptoms. Among the candidate symptoms, nasal obstruction (0.267) is more common in pneumonia than listlessness
+(0.083) and sneezing (0.033). According to strategy 1, we should select the most typical symptom, so we choose "nasal
+obstruction" as the next symptom to ask the patient about. Final answer: choose nasal obstruction as the next symptom to
+inquire.
+Symptom Status: False
+Response Reasoning: To determine whether the patient is likely to have the symptom "nasal obstruction," we examine its
+frequency in pneumonia cases. The data shows a frequency of 0.267, which ranks 7th among all listed symptoms: lower
+than common ones like cough (0.883), sputum (0.65), and fever (0.533). Since "nasal obstruction" is not among the most
+typical symptoms of pneumonia, it is less likely the patient has it. Final judgment: False.
+Diagnostic Confidence of Top Diseases: {"pneumonia": 0.66, "URTI": 0.18, "diarrhea": 0.16}
+Turn 7
+Candidate Actions: ["check for anorexia", "check for lethargy", "check for sneeze"]
+Selected Symptom for Inquiry: anorexia
+Selection Reasoning: The current diagnostic confidence for diseases is: Pneumonia: 0.66, Upper Respiratory Tract
+Infection: 0.18, Pediatric Diarrhea: 0.16. Since pneumonia has the highest confidence, we will focus on pneumonia-related
+symptoms. Among the candidate symptoms, anorexia (0.15), lethargy (0.083), and sneezing (0.117) are considered, with
+anorexia having the highest frequency. Based on Strategy 1, we will select anorexia as the next symptom to ask the patient.
+Symptom Status: True
+Response Reasoning: Anorexia is recorded in MCR, which indicates that the patient has this symptom.
+Diagnostic Confidence of Top Diseases: {"pneumonia": 0.45, "URTI": 0.45, "diarrhea": 0.11}
+Turn 8
+Candidate Actions: ["check for sneeze", "check for pharyngeal discomfort", "check for lethargy"]
+Selected Symptom for Inquiry: sneeze
+Selection Reasoning: The diagnostic confidence for pneumonia and upper respiratory tract infection is the same (0.45),
+while pediatric diarrhea is much lower (0.11), so we can’t apply Strategy 1. Instead, we use Strategy 2 and focus on
+symptoms related to the patient’s condition. The patient’s symptoms include cough, irritability, runny nose, fever, difficulty
+breathing, vomiting, phlegm, and anorexia. Looking at the frequency of candidate symptoms: Sneezing is more common in
+upper respiratory tract infection (0.233), while throat discomfort and lethargy appear less frequently across all diseases.
+Since sneezing is more related to upper respiratory tract infection and the patient’s symptoms are mostly respiratory,
+sneezing helps distinguish between pneumonia and upper respiratory tract infection. Therefore, we should ask about
+sneezing next.
+Symptom Status: False
+Response Reasoning: To determine if the patient is likely to have the symptom ‘sneezing’, we first look at its frequency in
+pneumonia and compare it to other symptoms. The frequency of sneezing in pneumonia is 0.117. When we rank all listed
+symptoms by frequency, sneezing is 13th with a relatively low frequency. The symptoms with higher frequencies include
+cough (0.883), phlegm (0.65), fever (0.533), and others. Given that sneezing ranks low in the list, it is not considered a
+typical symptom of pneumonia. Therefore, the conclusion is that the patient is unlikely to have the symptom ‘sneezing’.
+Diagnostic Confidence of Top Diseases: {"pneumonia": 0.66, "URTI": 0.18, "diarrhea": 0.16}
+Turn 9
+Candidate Actions: ["check for pharyngeal discomfort", "check for lethargy"]
+Selected Symptom for Inquiry: lethargy
+Selection Reasoning: Given the diagnostic confidence for pneumonia (0.66), upper respiratory tract infection (0.18), and
+pediatric diarrhea (0.16), we prioritize symptoms related to pneumonia since its confidence is much higher. The candidate
+symptoms for pneumonia are lethargy (0.083) and throat discomfort (0.05). Although both have low frequencies, lethargy is
+more typical of pneumonia, so we choose it as the next symptom to ask the patient about.
+Symptom Status: False
+Response Reasoning: Lethargy is not recorded in MCR. This symptom is rarely present in pneumonia, so it is unlikely that
+the patient has this symptom.
+Diagnostic Confidence of Top Diseases: {"pneumonia": 0.68, "URTI": 0.16, "HFMD": 0.16}
+Turn 10
+
+
+
+                                                             16
+  Candidate Actions: ["check for bubble-like spitting", "check for pulmonary shadow", "check for rash", "check for
+  pharyngeal discomfort"]
+  Selected Symptom for Inquiry: bubble-like spitting
+  Selection Reasoning: Given the diagnostic confidence for pneumonia (0.68), upper respiratory tract infection (0.16),
+  and hand-foot-and-mouth disease (0.16), we prioritize pneumonia-related symptoms since its confidence is significantly
+  higher. The candidate symptoms for pneumonia are bubble-like spitting (0.167), lung shadow (0.167), throat discomfort
+  (0.15), and rash (0.033). Both "bubble-like spitting" and "lung shadow" have the highest occurrence rates, but considering
+  that bubble-like spitting may directly reflect lung dysfunction, it is likely more valuable. Therefore, we should choose
+  "bubble-like spitting" as the next symptom to ask the patient about to further confirm pneumonia.
+  Symptom Status: False
+  Response Reasoning: To determine if the patient is likely to have the symptom "bubble-like spitting," we first check its
+  frequency in pneumonia symptoms. The frequency is 0.167. When we rank all symptoms by frequency, "bubble-like
+  spitting" ranks 9th. The most common symptoms of pneumonia include cough, sputum, and fever, while "bubble-like
+  spitting" is relatively uncommon. Therefore, it’s not a typical pneumonia symptom. Based on this, we conclude that the
+  patient is unlikely to have the symptom "bubble-like spitting." The judgment is False.
+  Diagnostic Confidence of Top Diseases: {"pneumonia": 0.68, "URTI": 0.16, "diarrhea": 0.16}
+
+Table 11: A medical consultation case by DDO. The symptom status of True and False represent the presence and
+absence, respectively. "Top Diseases" refers to the diseases with the highest diagnostic confidence, ranked in the
+top-w positions, with their diagnostic confidence values being processed using Softmax.
+
+
+  You are an experienced medical expert. The following information is provided to you:
+
+  ## Patient’s Symptom Presentation
+  Present symptoms: {positive_symptoms}
+  Absent symptoms: {negative_symptoms}
+  ## Symptom Knowledge for {candidate_disease}
+  Symptom occurrence frequencies based on existing diagnosed cases of {candidate_disease}: {empirical_knowledge}
+
+  Based on the patient’s symptom presentation and the symptom knowledge of {candidate_disease}, determine whether
+  this disease can be diagnosed. The presence of relevant symptoms increases diagnostic confidence, while the absence of
+  relevant symptoms decreases it. The influence of a symptom’s presence or absence on diagnostic confidence increases with
+  its typicality for the disease. There are two possible outputs: True or False. Output True if you believe the disease can be
+  diagnosed; output False if it cannot.
+  Please output only the judgment result, without any additional content.
+
+          Table 12: The prompt used to estimate diagnostic confidence by BTP in our DDO framework.
+
+
+  You are an experienced medical expert. Your task is to help select the next symptom to inquire about from a given set of
+  candidate symptoms, in order to further collect the patient’s symptom information. You are provided with the following
+  information:
+
+  # Current known patient symptom status (already inquired symptoms):
+  Present symptoms: {positive_symptoms}
+  Absent symptoms: {negative_symptoms}
+  # Disease diagnostic confidence (confidence values range from 0 to 1; the higher the value, the more likely the disease):
+  # Clinical presentation knowledge of diseases (symptom occurrence frequency based on historical case statistics):
+  {top_diseases_empirical_knowledge}
+  # Candidate symptoms: {candidate_symptoms}
+
+  Based on the above information, choose one suitable symptom from the candidate symptoms to ask next. The symptom
+  selection strategies are as follows:
+  Strategy 1 (preferred): If the top-ranked disease has significantly higher diagnostic confidence than the others, choose a
+  symptom from the candidate list that is relatively typical for the top-ranked disease, to help confirm its likelihood.
+  Strategy 2: If no candidate symptom fits Strategy 1, choose a symptom that is relatively related to the patient’s current
+  symptom presentation.
+  Output format:
+  If there exists a suitable symptom ‘xx’ in the candidate symptoms, output: Select ‘xx’ as the next symptom to inquire about.
+  If no suitable symptom exists in the candidate symptoms, output: New candidate symptoms are needed.
+  Please think step by step.
+
+                   Table 13: The prompt used to select an inquiry action in our DDO framework.
+
+
+
+
+                                                              17
+You are a patient simulator. The disease that the simulated patient truly has is {disease_label}.
+
+The symptom knowledge of disease {disease_label} is as follows:
+Based on statistics from previously diagnosed cases of {disease_label}, the symptom occurrence frequencies are: {empiri-
+cal_knowledge}
+
+You need to determine whether the patient is likely to have the symptom {inquiried_symptom} based on the symptom
+knowledge of the disease. The judgment should be either True or False:
+True indicates that the patient is likely to have the symptom.
+False indicates that the patient is unlikely to have the symptom.
+
+The criteria for judgment are as follows:
+If the symptom {inquiried_symptom} is relatively typical for the disease {disease_label} (i.e., it ranks high in the symptom
+occurrence frequency), then it is considered likely that the patient has the symptom (judgment should be True).
+If the symptom is not typical for the disease, then the patient is considered unlikely to have it (judgment should be False).
+Please think step by step and decide whether the patient is likely to have the symptom {inquiried_symptom}.
+
+            Table 14: The prompt used to simulating the patient’s response in our DDO framework.
+
+
+You are an experienced medical expert conducting a consultation with a patient.
+
+After several rounds of symptom inquiries, the patient has confirmed the following symptoms: {positive_symptoms}. The
+patient has denied the following symptoms: {negative_symptoms}. The diseases you suspect are: {candidate_diseases}.
+
+You need to decide whether to continue asking about symptoms to gather diagnostic evidence or to provide a final diagnosis
+based on the symptoms reported and your diagnostic knowledge of the diseases. The decision should be one of the following
+two options: (1) Ask about symptoms (2) Diagnose disease. Please provide your decision directly, without any additional
+explanation.
+Decision:
+
+                     Table 15: The prompt for deciding interaction action in the DP baseline.
+
+
+You are an experienced medical expert conducting a consultation with a patient.
+
+The symptoms that have already been inquired about and their status are as follows: The symptoms confirmed by the
+patient: {positive_symptoms}. The symptoms denied by the patient: {negative_symptoms}.
+
+To increase diagnostic confidence, you need to choose a symptom to inquire about, ensuring that it has not been previously
+inquired about. Please provide the name of the symptom directly, without any additional content.
+The symptom to inquire about:
+
+                           Table 16: The prompt for symptom inquiry in the DP baseline.
+
+
+You will play the role of a patient diagnosed with {disease}.
+
+Your symptom presentation is as follows: The symptoms you have: {positive_symptoms}. The symptoms you do not have:
+{negative_symptoms}.
+
+Based on your symptom presentation, please answer truthfully whether you have the symptom {symptom}. The answer
+should be either ‘Yes’ or ‘No’. Please provide the answer directly without any additional content.
+Answer:
+
+                  Table 17: The prompt for simulating the patient’s response in the DP baseline.
+
+
+You are an experienced medical expert, currently conducting a consultation with a patient.
+
+After several rounds of symptom inquiries: The symptoms confirmed by the patient are: {positive_symptoms}. The
+symptoms denied by the patient are: {negative_symptoms}. The diseases you suspect include: {candidate_diseases}.
+
+Please select three diseases from the suspected list above as the diagnosis results, ordered from most to least likely. Provide
+the answer in the form of a Python string list, and do not include any additional content.
+Top three most likely diseases:
+
+                           Table 18: The prompt for disease diagnosis in the DP baseline.
+
+
+                                                             18
+

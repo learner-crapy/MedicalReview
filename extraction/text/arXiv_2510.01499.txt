@@ -1,0 +1,1932 @@
+                                               Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order
+                                                                          Information
+
+
+                                                                Rui Ai * 1 Yuqi Pan * 2 David Simchi-Levi 1 Milind Tambe 2 Haifeng Xu 3
+
+
+                                                                   Abstract                                       to account for heterogeneity and correlation among models,
+                                               With the rapid progress of multi-agent large lan-                  which are often captured by higher-order information such
+                                                                                                                  as LLMs’ expected accuracies (first-order information) and
+
+
+
+
+arXiv:2510.01499v2 [cs.LG] 19 May 2026
+                                               guage model (LLM) reasoning, how to effec-
+                                               tively aggregate answers from multiple LLMs has                    answer correlation (second-order information). This thus
+                                               emerged as a fundamental challenge. Standard                       raises the following natural question:
+                                               majority voting treats all answers equally, failing
+                                                                                                                  Is it possible to leverage such higher-order information to
+                                               to consider latent heterogeneity and correlation
+                                                                                                                  develop better methods for aggregating LLMs’ responses?
+                                               across models. In this work, we design two new
+                                               aggregation algorithms called Optimal Weight                       Effective solutions to the above problem can not only im-
+                                               (OW) and Inverse Surprising Popularity (ISP),                      prove LLM debate, but also help us understand the collective
+                                               leveraging both first-order and second-order in-                   power frontier LLMs have in important tasks such as reason-
+                                               formation. Our theoretical analysis shows these                    ing and forecasting. Such advances can be applied to many
+                                               methods provably mitigate the inherent limita-                     downstream applications of LLMs, such as making a profit
+                                               tions of majority voting under mild assumptions,                   in prediction markets (Karger et al., 2024) and enabling
+                                               leading to more reliable collective decisions. We                  prediction as a service using LLMs (Santhosh et al., 2019;
+                                               empirically validate our algorithms on synthetic                   Peng et al., 2025). Notably, a relevant yet crucially different
+                                               datasets, popular LLM fine-tuning benchmarks                       problem is the mixture of experts (MoE) method (Dai et al.,
+                                               such as UltraFeedback and MMLU, and a real-                        2024). MoE tackles a distinct problem where each expert is
+                                               world healthcare setting ARMMAN. Our algo-                         good at solving problems from certain domains, and their
+                                               rithms consistently outperform standard baselines,                 task is to learn which expert is the best to use upon seeing a
+                                               establishing a robust, training-free framework for                 query. Our response aggregation problem is different and
+                                               effective multi-agent LLM aggregation.                             requires fundamentally different techniques.1
+                                                                                                                  Information aggregation is a natural and classic research
+                                         1. Introduction                                                          question (Penrose, 1946; Tullock, 1959; Austen-Smith &
+                                                                                                                  Banks, 1996). At its core, it is the problem of aggregat-
+                                         The aggregation of responses from multiple large language                ing random answers or predictions from different agents
+                                         models has been widely used in practice. For example,                    by accounting for their strengths while mitigating the ran-
+                                         a popular application is to improve reasoning via multi-                 dom noise in their predictions. This general problem has
+                                         agent LLM debate (Khan et al., 2024; Subramaniam et al.,                 been widely studied in both economic and machine learning
+                                         2025; Choi et al., 2025) and LLM council (Zhao et al.,                   literature (Austen-Smith & Banks, 1996; Frongillo et al.,
+                                         2024). Previous works thus far have mostly employed the                  2015; Guo et al., 2025); however, our focus on the LLM
+                                         simple majority voting (MV) rule as a natural first instinct             domain poses both new challenges and opportunities. On
+                                         to aggregate different LLMs’ responses into a single answer.             one hand, our problem of using LLMs for question answer-
+                                         Intuitively, MV can be viewed as a zero-order aggregation                ing gives rise to new problem structures such as symmetric
+                                         method that only depends on the observed answers and fails               prior beliefs on correct and incorrect answers by assuming
+                                           *                                                                      all problems’ answers are randomly shuffled, as is typically
+                                             Equal contribution 1 Institute for Data, Systems, and Society,
+                                         Massachusetts Institute of Technology 2 School of Engineering            done in practice. These problem structures allow us to de-
+                                         and Applied Sciences, Harvard University 3 Computer Science and          rive an interpretable closed-form optimal solution to the
+                                         Data Science, The University of Chicago; supported in part by            problem tailored for LLM aggregation, which is otherwise
+                                         the AI2050 program at Schmidt Sciences (Grant G-24-66104).
+                                                                                                                      1
+                                         Correspondence to: Rui Ai <ruiai@mit.edu>, Yuqi Pan <yuqi-                     In some sense, MoE aggregates “internal representations” via
+                                         pan@g.harvard.edu>.                                                      gated expert selection, rather than getting final outputs using higher-
+                                                                                                                  order information. Solutions to this scenario require intrinsically
+                                         Preprint. May 20, 2026.                                                  different techniques.
+
+                                                                                                              1
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+impossible under general information structures. On the               truth, we propose two practical algorithms, OW-L and OW-
+other hand, our focus on LLM applications also gives rise             I, which approximate these accuracies using second-order
+to new challenges, such as the high cost of obtaining the             information and apply them within OW. We evaluate our
+first-order information of expected accuracy, whose evalua-           second-order-based method, ISP, which can function either
+tion requires knowing many ground-truth answers. These                as an independent aggregator or as an accuracy estimator.
+challenges motivate us to study novel research questions,             Across all evaluation settings, our proposed algorithms con-
+such as how to avoid the dependence on data’s correct labels,         sistently outperform majority voting. Notably, OW-L and
+and instead take advantage of the significantly lower cost            OW-I demonstrate strong empirical consistency with each
+of querying different LLMs on the same question so as to              other and together achieve the best performance.
+learn their correlations, i.e., the second-order information.
+                                                                      Additional Discussions on Related Works. Our work
+Overview of Results. Motivated by the wide use of ma-                 is closely related to the literature on multi-agent LLM rea-
+jority voting for LLM aggregation in recent literature, this          soning (Du et al., 2023; Chen et al., 2023a; Lu et al., 2024;
+paper studies how to leverage higher-order information to             Tekin et al., 2024; Li, 2024; Elumar et al., 2025; Subrama-
+better aggregate N different LLMs’ answers into a single an-          niam et al., 2025; Chen et al., 2025), but differs in studying
+swer. To obtain a principled understanding of this problem,           label-free unsupervised aggregation (e.g., auto-annotation)
+we put forward a formal model rooted in the rich informa-             and deriving a theoretically optimal one-round method using
+tion aggregation literature (Austen-Smith & Banks, 1996;              higher-order information. Other related topic is information
+Frongillo et al., 2015) yet with novel ingredients directly mo-       aggregation (Penrose, 1946; Tullock, 1959; Prelec et al.,
+tivated by LLM applications. We then proceed to study LLM             2017; Arieli et al., 2018; De Oliveira et al., 2021; Chen
+aggregation schemes. First, when the designer knows all               et al., 2021; Pan et al., 2024; Guo et al., 2025), and we bring
+the LLMs’ expected accuracy, we design a linear weighted              it to LLM reasoning with the distinctive features of heteroge-
+aggregation scheme coined Optimal Weight (OW), which                  neous LLM experts, and study why traditional higher-order
+uses weight wi for LLM i as the inverse function value of             information mechanisms can fail in this setting. Due to
+                                            ex
+the sigmoid-like function σK (x) = K−1+e        x on LLM i’s          the space limit, we discuss these and more related works
+accuracy xi . Perhaps surprisingly, this simple linear aggre-         thoroughly in Section A.1.
+gator with carefully designed weights turns out to be the
+Bayesian-optimal aggregator — that is, it maximizes the               Conflict of Interest Disclosure The authors declare no
+expected accuracy among all possible (linear or not) aggre-           financial conflicts of interest. This work was conducted
+gators with the same information access. We further show              independently and is not associated with any commercial
+that this Bayesian-optimal aggregator has strictly higher             product or proprietary system developed by the authors’
+accuracy than any single LLM under mild assumptions.                  employers or sponsors.
+Despite the nice properties, a key limitation of applying
+this Bayesian-optimal aggregator is the use of accuracy xi            2. Model
+whose estimation needs comparison with correct answers
+over many questions and is very costly to obtain. We thus             We consider a setting with a collection of questions with-
+turn to the use of second-order information about correla-            out ground truth (e.g., an unlabeled dataset), and aim to
+tions of different LLMs’ answers on a given question. Such            predict, for each question, the correct answer from K can-
+information can be estimated from querying LLMs on many               didates (e.g., multiple-choice options; or for pairwise pref-
+questions, without requiring true answers to these questions.         erence, K = 2). Assume K is the same for all questions.
+For our principled analysis, we design an aggregator coined           Since we can assign a label to each candidate answer (e.g.,
+Inverse Surprising Popularity (ISP) — a counterfactual vari-          A, B, C, D, etc.), we will focus on labels rather than the
+ant of the seminal surprising popularity rule of Prelec et al.        specific answer content throughout the paper. Therefore, let
+(2017) — which only uses second-order information yet                 S = {s1 , . . . , sK } denote the K labels of possible answers.
+provably has an advantage over majority voting.                       We can query from N different LLM agents, i.e., different
+                                                                      zero-shot LLMs in our setting, and observe their predicted
+Finally, we empirically evaluate our approaches over both             answers across the entire collection of questions.
+simulated settings, which exactly match our technical as-
+sumptions, and real-world LLM experiments on standard                 Consider a question sampled uniformly at random. Let S ∗ ∈
+benchmarks, namely UltraFeedback (Cui et al., 2023) and               S denote the ground-truth label, and let A1 , · · · , AN ∈
+MMLU (Hendrycks et al., 2020), as well as a real-world                S N denote the predictions from N agents. Note that
+maternal health dataset ARMMAN (Mate et al., 2022).                   S ∗ , A1 , · · · , AN are all random variables. The correct an-
+Since our first-order-based optimal aggregator, OW, relies            swers to all questions are treated as fixed but unknown. The
+on model accuracies that are inaccessible without ground              randomness here comes from drawing the problem and from
+                                                                      the agents’ prediction mechanisms. There is an underlying
+
+                                                                  2
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+joint distribution P0 ∈ ∆(S × S N ) of the ground-truth              Assumption 2.2. [Conditional independence] Condi-
+label and all agents’ predictions. Agents may have het-              tional on the ground truth label S ∗ , the agents’ pre-
+erogeneous accuracies, denoted by x1 , · · · , xN , such that        dictions A1 , · · · , ANQare independent. Mathematically,
+                                                                                               N
+xi = P0 [Ai = S ∗ ] for all i ∈ [N ]. We consider the prior-         P(A1 , ..., AN |S ∗ ) = i=1 P(Ai |S ∗ ).
+free scenario that we have no knowledge about P0 .
+Our goal is to design aggregation algorithms f : S N →               3. Leveraging First-order Information
+∆(S) that better exploit cross-agent information to achieve
+                                                                     We begin by aggregating first-order information: LLM
+higher accuracy than majority voting. Since we have no
+                                                                     agents’ accuracies x1 , . . . , xN . In this section, we treat
+knowledge of the marginal distribution P0 (S ∗ ), before in-
+                                                                     these inputs as given, assuming each xi is correct; practi-
+troducing any specific aggregation algorithm, we first ap-
+                                                                     cal estimation is deferred to Section 5.2. For comparison,
+ply a pre-processing step to randomly shuffle all labels
+                                                                     majority voting uses only zero-order information—the raw
+s1 , · · · , sK for each question in the dataset. This random-
+                                                                     answers—and therefore ignores heterogeneity in agent capa-
+ization mechanism naturally enforces statistical uniformity
+                                                                     bility by assigning every agent equal weight. Formally, MV
+on the error distribution over the shuffled indices (see The-
+                                                                     outputs the label with the largest unweighted vote count.
+orem 2.1). We further show in Section B.1 that this pre-
+                                                                                                             N
+processing does not result in any information loss within                                                    X
+our setting. Let P ∈ ∆(S N +1 ) denote the joint distribution            fM V (a1 , . . . , aN ) = arg max wi 1{ai = s},           (1)
+                                                                                                    s
+                                                                                                       i=1
+after a random shuffle π.
+                                                                                            where wi = N1 for ∀i ∈ [N ].
+We assume outputs of all LLM agents are not affected by
+the ordering of the options. With the improvement of LLMs’           A natural improvement is to design weights based on first-
+long-context abilities, we assume that they no longer for-           order information x1 , . . . , xN . To this end, we propose a
+get or exhibit bias toward earlier options (Guo & Vosoughi,          new weighted linear aggregation algorithm, the Optimal
+2024). For example, if we ask the LLM agent which an-                Weight (OW) in Algorithm 1. Mathematically, OW sets
+                                                                                                          −1
+swer is better, namely A, B, or C, the agent replies A with          the weight for agent i as ωi = σK       (xi ), where σK (x) =
+                                                                           x
+probability 80%, and both B and C with probability 10%.                  e
+                                                                     K−1+ex . We prove the Bayesian optimality of OW among
+When the order changes to B, C, or A, the distribution of            all aggregation algorithms, not limited to linear weight-
+responses should remain 10% for options B and C, and                 ing. Here Bayesian optimality refers to choosing, given the
+80% for the third option A. This assumption also ensures             joint distribution P over random variables S ∗ , A1 , . . . , AN
+that our pre-processing step does not change the information         and observed LLM agents’ answers a1 , . . . , aN , the predic-
+structure, up to relabeling.                                         tion of the correct label S ∗ that maximizes the posterior
+                                                                     probability P(S ∗ = ·|A1 = a1 , . . . , AN = aN ). In other
+From randomly shuffling, we obtain the following properties
+                                                                     words, Bayesian optimality is measured with respect to the
+of the joint distribution P:
+                                                                     expected accuracy under the true distribution P.
+Proposition 2.1. The joint distribution P satisfies the fol-
+lowing properties:                                                   In OW, we first apply a random shuffle mapping π obtained
+                                                                     from data pre-processing and finally map the results back.
+   • P(S ∗ = sj ) = K
+                    1
+                      ,    ∀j ∈ [K];
+                                                                     For example, in the binary case, we may ask either “Do
+   • P(Ai = sj |S = sj ) = P(Ai = S ∗ ) = xi ,
+                   ∗
+                                                        ∀j ∈         you prefer A or B?” or “Do you prefer B or A?” with
+     [K], i ∈ [N ];                                                  equal probability; the corresponding mapping π is then
+   • P(Ai = sk |S ∗ = sj ) = 1−x    K−1 ,
+                                        i
+                                             ∀j ∈ [K], i ∈           determined directly by the question. For simplicity of pre-
+     [N ], k ̸= j.                                                   sentation, we omit the normalization of weights.
+Crucially, this property is a structural result guaranteed by
+the pre-processing, not an assumption that naively treats all        Algorithm 1 Optimal Weight (OW) Algorithm
+incorrect answers as equivalent in the original distribution.         1: Input: Accuracies x1 , ..., xN .
+                                                                      2: Pre-processing: Randomly shuffle candidate labels, ob-
+We also make the following assumption of conditional inde-
+                                                                         taining the shuffle mapping π.
+pendence among different LLM agents, which is a standard
+                                                                      3: Observe predictions a1 , ..., aN .
+assumption in the information aggregation literature (Pr-
+                                                                      4: Aggregate via
+elec et al., 2017; Arieli et al., 2018; Schoenebeck & Tao,                                                   N
+                                                                                                             X
+2021; Kong, 2024; Pan et al., 2024). Nevertheless, to ensure                                                        −1
+                                                                         fOW (a1 , · · · , aN ) = arg max          σK  (xi ) 1{ai = s}.
+robustness, we also extend all our theoretical results to a                                         s∈S      i=1
+more general setting without this assumption in Section C,            5: Output:   Map back using π −1                    and return
+                                                                          −1
+and verify the effectiveness of our methods in experiments               π (fOW (a1 , · · · , aN )).
+where perfect conditional independence might not hold.
+
+                                                                 3
+                     Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Theorem 3.1. Under Theorem 2.2, fOW defined in Algo-                   obtain multiple samples (A1 , · · · , AN ), which motivates us
+rithm 1 is the Bayesian optimal aggregator for any P.                  to estimate and exploit information such as correlations be-
+                                                                       tween agents’ predictions. For example, P(Aj |Ai ) captures
+For preference selection where there are only K = 2 labels,            the distribution of agent j’s prediction as estimated by agent
+we have the following corollary.                                       i while forming its own prediction Ai . This type of infor-
+Corollary 3.2. When there are K = 2 labels, the optimal                mation is referred to as second-order information (Prelec
+                                                ex
+weights satisfy ωi ∝ σ −1 (xi ), where σ(x) = 1+e  x is the            et al., 2017; Chen et al., 2021; Kong et al., 2022). We aim
+logistic function.                                                     to leverage this second-order information in designing our
+                                                                       aggregation algorithm. Note that the estimation of second-
+Theorem 3.2 establishes a connection between the optimal               order information can be made arbitrarily accurate with a
+weighting scheme and the ubiquitous Bradley–Terry (BT)                 sufficiently large number of samples (A1 , · · · , AN ), with-
+model used in LLM post-training (Bradley & Terry, 1952;                out requiring any assumptions on the information structure
+Ouyang et al., 2022; Chiang et al., 2024), thereby providing           P. In what follows, we first present our results assuming an
+a theoretical justification for the validity of the BT model.          accurate P(Aj |Ai ), and later discuss estimation with finite
+This suggests that when combining agents with different                samples in Section 4.3.
+capabilities, for instance, large models with higher accu-
+racy but higher cost and small models with lower accuracy              Throughout, we assume that all agents perform no worse
+but lower cost, it is advisable to adopt an inverse-logistic           than random guessing, i.e., each agent achieves an accuracy
+                                                                                   1
+weighting scheme, or more rigorously, Algorithm 1.                     of at least K . Otherwise, we can simply exclude inferior
+                                                                       agents whose performance falls below that of a random
+In addition, Theorem 3.1 characterizes the conditions under            predictor. After random shuffling, the second-order infor-
+which majority voting is the optimal weighting strategy.               mation exhibits desirable properties as a scoring rule, and
+When we repeatedly sample from the same LLM agent, for                 we defer the discussion to Section E.1.
+example, in computing self-consistency within reasoning
+or fine-tuning (Wang et al., 2022; Chen et al., 2023b; Shao
+                                                                       4.1. Surprisingly Popular Aggregation
+et al., 2024), majority voting is optimal.
+Corollary 3.3. When agents are homogeneous, i.e., x1 =                 A seminal work of Prelec et al. (2017) introduced a method
+x2 = · · · = xN , majority voting is the Bayesian optimal              for aggregation based on second-order information, termed
+aggregator.                                                            surprising popularity (SP). For each agent, it estimates the
+                                                                       distribution of other agents’ predictions conditional on its
+It is also interesting to compare the Bayesian optimal aggre-          own prediction. The option whose actual frequency exceeds
+gation algorithm OW with the best single agent. Excluding              the estimated frequency, i.e., the “surprisingly popular” op-
+extreme cases, Algorithm 1 is strictly better than any agent           tion, is then selected.
+used in aggregation. As shown in Theorem 3.4, this extreme
+case becomes harder to achieve as N or K increases.                    We begin by following their framework. Mathematically,
+                                                                       for every agent i and candidate label s, we calculate the
+Proposition 3.4. For any P, let fi denote the aggrega-                 average probability that other agents believe agent i will
+tor that simply follows agent i’s prediction.PThen fOW is              predict s, defined as the score
+                                     −1                −1
+strictly more accurate than fi if σK    (xi ) < j̸=i σK   (xj ).
+In other words, unless there exists    an exceptionally strong                              1       X
+                     −1                  −1
+                                                                           SSP (s, i) =                 P(Ai = s|Aj = aj ).
+                                                                                         N −1
+                                P
+model such that σK      (xi ) ≥    j̸=i σK (xj ), namely                                           j∈[N ]\{i}
+
+                      (K − 1)N −2 j∈[N ]\{i} xj
+                                   Q
+                                                                       Then, SP selects the label that exhibits the largest positive
+xi ≥                                                           ,       gap relative to its predicted score:
+         (K − 1)N −2 j∈[N ]\{i} xj + j∈[N ]\{i} (1 − xj )
+                        Q                 Q
+
+Algorithm 1 strictly outperforms any individual agent.                       fSP (a1 , . . . , aN ) =
+                                                                                          N                     N
+                                                                                                                               !
+                                                                                          X                     X
+                                                                              arg max           1{ai = s} −           SSP (s, i) .
+4. Leveraging Second-order Information                                            s
+                                                                                          i=1                   i=1
+One challenge of using first-order information is the need             We call the objective maximized by fSP the advantage
+to estimate accuracies from the ground truth label S ∗ . How-          function:
+ever, knowing S ∗ is often unrealistic. For example, in gen-                              XN              N
+                                                                                                          X
+eralized unsupervised learning like automated data annota-                    AdvSP (s) =     1{ai = s} −   SSP (s, i).
+tion (Li, 2024), the true label is never revealed.                                           i=1                  i=1
+
+In practice, the cost of generating outputs from LLMs is neg-              that the advantage function satisfies: |AdvSP (s)| ≤ N
+                                                                       NoteP
+ligible compared to human annotation. Thus, we can easily              and s∈S AdvSP (s) = 0. Intuitively, a larger AdvSP (s∗ )
+
+                                                                   4
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+for the true label s∗ implies stronger distinguishing power          Algorithm 2 Inverse Surprising Popularity (ISP) Algorithm
+of SP.                                                                1: Input:    Second-order information after shuffling
+In Prelec et al. (2017), they show the power of SP when we               P(Ai = sk |Aj = sl ) for every (i, j, k, l).
+have infinite homogeneous agents, that SP can always output           2: Pre-processing: Randomly shuffle candidate labels, ob-
+the right label in that setting. But it is unclear how SP will           taining the shuffle mapping π.
+perform in finite, heterogeneous settings. We then compare            3: Observe predictions a1 , ..., aN .
+SP and the straightforward method, majority voting, finding           4: Compute advantage AdvISP using Equations (4)
+that SP is actually not better than MV in our scenario.                  and (5).
+                                                                      5: Aggregate via
+For fM V defined in Equation (1), we similarly define the
+advantage function as                                                          fISP (a1 , · · · , aN ) = arg max AdvISP (s).
+                                                                                                            s∈S
+                           N
+                           X           N                              6: Output:    Map back using π −1                     and return
+           AdvM V (s) =     1{ai = s} − ,                                 −1
+                                                                         π (fISP (a1 , · · · , aN )).
+                        i=1
+                                       K
+                                     P
+which also satisfies boundedness and s∈S AdvM V (s) =
+0, suggesting a fair comparison between AdvM V (s∗ ) and             Without loss of generality, consider another agent j ̸= i and
+AdvSP (s∗ ). We further show that E[AdvM V (s∗ )] ≥                  assume S ∗ = s1 . Omitting N 1−1 , its expected contribution
+E[AdvSP (s∗ )], rigorously proved in Theorem 4.1. This               to the score is
+implies MV is more effective than SP in our setting.
+                                                                           P(Ai = s1 |Aj = s1 ) P(Aj = s1 |S ∗ = s1 )               (2)
+This result is counterintuitive. In many human-subject set-                 + P(Ai = s1 |Aj = s2 ) P(Aj = s2 |S = s1 ). ∗
+tings, the majority answer is incorrect while the surprisingly
+popular answer coincides with the truth (Palley & Soll, 2019;        Ideally, a smaller score increases the advantage function of
+Hosseini et al., 2021). This is because SP represents a fun-         s∗ . Note that
+damentally different aggregation perspective from MV. MV
+relies on distilling the “wisdom of the crowd”. When most                P(Ai = s2 |Aj = s1 ) = P(Ai = s2 |Aj = s1 )
+individuals vote for one answer, we tend to trust that answer             ≤ P(Ai = s2 |Aj = s2 ) = P(Ai = s1 |Aj = s1 ),
+as correct. In contrast, SP was proposed to correct system-
+atic biases in common wisdom. It suggests that crowds                suggesting that humans tend to assign higher predictions
+tend to underestimate the probability of the ground-truth            to answers that match their own, compared to those that
+answer being chosen, and that by exploiting this bias, one           differ. Based on this, a natural alternative to Equation (2) is
+can recover the correct answer.                                      to consider
+Our setting of multi-agent LLMs, however, differs from that                P(Ai = s1 |Aj = s2 ) P(Aj = s1 |S ∗ = s1 )               (3)
+of human crowds. LLM agents are generally more powerful,                                                                ∗
+so the systematic biases that SP exploits in human settings                 + P(Ai = s1 |Aj = s1 ) P(Aj = s2 |S = s1 ).
+are much less pronounced here. As a result, the room for
+exploiting such bias is smaller, and the potential gain from         Therefore, we can summarize ISP (in Algorithm 2) as con-
+doing so is dominated by the gain from aggregating common            sidering the prediction that would be made when agents
+wisdom. This explains why SP does not outperform MV.                 report the other counterfactual answers, which is intuitively
+                                                                     more biased than the current prediction. Now we formally
+4.2. From Surprisingly Popular to Inverse Surprisingly               define ISP based on Equation (3). Similarly, we first define
+     Popular                                                         the ISP score as
+Motivated by the above explanation for why SP performs                 SISP (s, i) =                                                (4)
+worse than MV, we propose a new scheme to improve SP,
+                                                                         1        X           1      X
+termed Inverse Surprising Popularity (ISP), which builds                                                       P(Ai = s|Aj = a),
+                                                                       N −1                 K −1
+on the intuition of amplifying prediction bias in a controlled                 j∈[N ]\{i}          a∈S\{aj }
+way. We illustrate the intuition in the binary setting S =
+{s1 , s2 } for the simplicity of presentation.                       which yields the ISP aggregator and its advantage as
+
+For SP, consider any agent i. Recall that the predicted score               fISP (a1 , · · · , aN ) = arg max AdvISP (s)            (5)
+for s∗ is                                                                                               s
+                                                                                         N                     N
+                    1
+                                                                                         X                     X
+                                                                                               1{ai = s} −
+                            X
+   SSP (s∗ , i) =                 P(Ai = s∗ |Aj = aj ).                     = arg max                                SISP (s, i).
+                  N −1                                                             s
+                                                                                         i=1                   i=1
+                         j∈[N ]\{i}
+
+
+                                                                 5
+                         Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Example 1 presents a case of K = 2 where ISP outperforms                         We can naturally employ empirical conditional probabilities
+MV, which in turn outperforms SP. We will later prove                            to estimate, that is,
+theoretically that this ordering of performance holds for
+general cases in expectation.                                                         b i = sk |Aj = sl ) = #{Ai = sk , Aj = sl } .
+                                                                                      P(A
+                                                                                                               #{Aj = sl }
+Example 1. We assume there are 4 agents with accuracies
+x1 = x2 = 1 and x3 = x4 = 0.5. For MV, we break                                  Although P b and A1 , ..., AN are not independent, we still
+ties randomly. We assume the true label after shuffling                          have the following theorem after random shuffling, showing
+is s1 without loss of generality owing to symmetry. The                          that when data size M is sufficiently large, the empirical
+results are in Table 1. We notice that MV aggregates the                         advantage of ISP remains greater than that of MV.
+correct prediction with probability 78 , while SP is correct
+with probability 34 . ISP, however, always obtains the correct                   Theorem 4.2. Under Theorem 2.2, when there are M
+prediction. We give another Example 3 in Section E.2 for                         i.i.d. questions, it holds that for every question, with prob-
+                                                                                 ability  at least 1 − δ, E[Advd ISP (s∗ ) − AdvM V (s∗ )] ≳
+arbitrary ways of tie breaking.                                                  PN P                                 2    q
+                                                                                          j∈[N ]\{i} (Kxi −1)(Kxj −1)
+                                                                                     i=1
+                                                                                          (N −1)K(K−1)      3            O( 1 log( 1 )), where
+                                                                                                                        −e  M      δ
+        Table 1. Aggregation results of MV, SP and ISP.
+                                                                                 O(·)
+                                                                                  e    suppresses some logarithmic factors in M . The
+ (A1 , A2 , A3 , A4 )      Prob            MV                  SP   ISP          expectation is only taken over predictions A1 , ..., AN to
+                            1                                                                        d ISP (s∗ ) = PN 1{ai = s∗ } −
+  (s1 , s1 , s1 , s1 )      4               s1                 s1    s1          this question and Adv                 i=1
+                            1
+  (s1 , s1 , s1 , s2 )                      s1                 s1    s1          PN      1
+                                                                                             P       1
+                                                                                                        P                   ∗
+                            4                                                                             a∈S\{aj } P(Ai = s |Aj = a).
+                                                                                                                    b
+                            1                                                       i=1 N −1   j̸=i K−1
+  (s1 , s1 , s2 , s1 )      4               s1                 s1    s1
+                            1       1          1
+  (s1 , s1 , s2 , s2 )      4       2 ◦ s 1 + 2 ◦ s2           s2    s1
+                                                                                 5. Experiments
+                                                                                 We organize our experiments as follows. In Section 5.1, we
+Note that MV, SP and ISP all select the candidate with                           use simulations to demonstrate the advantages of ISP over
+maximum advantage, that is, they respectively maximize                           MV and SP. Section 5.2 introduces our methodology, show-
+AdvM V , AdvSP and AdvISP . Since for all three, the sum                         ing how second-order information inspires the estimation
+of advantages over all labels is zero by probability normal-                     of optimal weights in OW for unavailable accuracies. In
+ization, effective aggregation requires the correct label s∗ to                  Sections 5.3 and 5.4, we apply our methods to reinforce-
+attain the largest advantage. This observation provides the                      ment learning with human feedback (RLHF) and healthcare
+foundation for our subsequent theorem.                                           datasets, showing that both OW and ISP in practice improve
+Theorem 4.1. Under Theorem 2.2, ISP in Algorithm 2 out-                          upon MV in an efficient, robust, and statistically significant
+performs MV, which in turn outperforms SP, in expectation.                       manner.
+That is,
+                                                                                 5.1. Evaluation on Simulated Data
+  E[AdvISP (s∗ )] ≥ E[AdvM V (s∗ )] ≥ E[AdvSP (s∗ )].
+                                                                                 We simulate a setting with N = 4 agents whose accuracies
+More specifically,            holdsP that E[AdvISP (s ) −
+                           it P                                     ∗            are fixed at 0.6, 0.7, 0.8, and 0.9, respectively, to mimic
+           ∗
+                                  N
+                                  i=1       j∈[N ]\{i} (Kxi −1)(Kxj −1)
+                                                                       2         LLM performance heterogeneity. We randomly generate
+AdvM V (s )]   =                             (N −1)K(K−1)3               ,       M = 10, 000 questions and vary the number of answer
+                   ∗
+and     E[AdvM V (s )              −            AdvSP (s∗ )]            =        choices K ∈ {2, 4, 6, 8, 10}. For MV, ties are broken uni-
+P N P                                   2
+  i=1   j∈[N ]\{i} (Kxi −1)(Kxj −1)                                              formly at random. For SP and ISP, we leverage empirical
+         (N −1)K(K−1)2                      .
+                                                                                 second-order information to compute the advantage; for
+In Theorem 4.1, ISP’s advantage over MV scales as                                example, in Algorithm 2, we input P(A b i = sk |Aj = sl ) =
+                                                                                 #{Ai =sk ,Aj =sl }
+Θ(1/K), reflecting the natural cost of exploration when                              #{Aj =sl }     within the dataset. We present our results
+the number of options become larger. In contrast, MV con-                        in Table 2. We use OPT to denote the Bayesian optimal
+sistently outperforms SP by a margin of Θ(1) with respect                        algorithm OW with clairvoyant access to the best weights,
+to K. In standard settings with limited options, ISP provides                    and Single Best to represent the strongest agent.
+stronger guarantees and is desirable to use.
+                                                                                 We clearly observe that ISP outperforms MV, which in turn
+                                                                                 outperforms SP, across distinct values of K, and the gap
+4.3. Practical Estimation of Second-order Information
+                                                                                 between ISP and MV vanishes as K increases (cf. Figure 1
+We now return to the practical setting, where only finitely                      in Section F.1), empirically validating Theorem 4.1. More-
+many samples are available, say a dataset consisting of                          over, we find that ISP consistently outperforms the single
+M questions and corresponding responses from N LLM                               best agent, showing that our LLM aggregation approach
+agents, to estimate the second-order information P(Ai |Aj ).                     improves prediction accuracy beyond any individual model
+
+                                                                             6
+                       Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Table 2. Experimental Results: We report the overall accuracy for different values of K. In the tables, the best results are highlighted in
+bold, and the second-best results are underlined.
+
+                                      Accuracy      K=2      K=4         K=6         K=8          K = 10
+                                         MV         85.13%   92.64%      94.22%      94.85%       95.54%
+                                          SP        79.94%   90.52%      92.68%      93.66%       94.40%
+                                      Single Best   90.34%   89.94%      90.31%      89.95%       90.05%
+                                      ISP (ours)    90.48%   94.45%      95.78%      96.23%       96.49%
+                                         OPT        91.37%   94.94%      96.05%      96.46%       96.81%
+
+
+by exploiting higher-order information among agents.                     5.3. Real-world Datasets
+                                                                         Models. We employ four distinct families of large lan-
+5.2. Adapted Optimal Weight Algorithm Without
+                                                                         guage models, and within each family select one relatively
+     Ground Truth
+                                                                         strong and one relatively weak model. Specifically, we use
+The challenge of OW is that, in practice, we lack access to              GPT = {GPT-4o-2024-11-20, GPT-35-turbo-0125} (Hurst
+the accuracies of LLM agents. Second-order information                   et al., 2024), Qwen = {Qwen2.5-Instruct-14B, Qwen2.5-
+not only enables the design of an alternative algorithm, ISP,            Instruct-3B} (Qwen et al., 2025), Llama = {Llama3.1-8B-
+but also inspires us to estimate accuracies in an unsupervised           Instruct, Llama3.2-1B-Instruct} (Dubey et al., 2024), and
+manner. We employ two approaches to leverage second-                     Phi = {Phi-4, Phi-4-mini-instruct} (Abdin et al., 2024),
+order information as input to the OW algorithm, thereby                  yielding in total 16 combinations.
+improving LLM aggregation accuracy.                                      We note that while model sizes vary significantly across
+1) We note that the true second-order information is a func-             these models (e.g., GPT vs. others), recent advancements in
+tion of the accuracies x1 , ..., xN . By exploiting empirical            post-training have resulted in comparable reasoning capa-
+second-order information, we can apply empirical risk mini-              bilities across the selected models. For example, across the
+mization to learn the true accuracies. After estimating the              three datasets we evaluate, GPT-4o achieves accuracies of
+accuracies, we can implement Algorithm 1 using the esti-                 73%, 91% and 85%, while Qwen2.5-Instruct-14B achieves
+                           −1                                            72%, 89% and 85%. Thus, in terms of model ability, the
+mated optimal weights σK       (b
+                                xi ). We denote this OW with
+the learning pipeline by OW-L. Mathematically,                           models are well balanced despite differences in parameter
+                       X                                                 counts. Additional comparisons can be found in Figure 2
+x
+b1 , ..., x
+          bN = arg min       (P(Ai = sk |Aj = sl )[x1 , ..., xN ]        of Section F.4. Moreover, our methods remain robust even
+               x1 ,...,xN                                                when combining models with unbalanced abilities.
+                            i,j,k,l
+
+                P(Ai = sk |Aj = sl ))2 .
+               −b                                              (6)
+                                                                         Datasets. We first utilize two widely adopted fine-tuning
+The expanded expressions are presented in Section F.2.                   datasets for large language models, UltraFeedback (Cui
+2) Another approach is to use ISP to obtain aggregated pre-              et al., 2023) and MMLU (Hendrycks et al., 2020). For Ul-
+dictions for each question. We then treat these predictions              traFeedback, we consider the case of K = 2. We leverage
+as pseudo ground truth to estimate the accuracies, and sub-              LLMs to predict preferences, and our results demonstrate
+sequently construct the optimal weights based on them. We                that LLM agents can automatically provide labels for prefer-
+denote this method as OW-I to distinguish it. Mathemati-                 ence datasets with high accuracy. This substantially reduces
+cally,                                                                   the reliance on costly human annotation and offers a new
+                                                                         perspective for scaling RLHF with LLMs. Each question
+              #{fISP (a1 , ..., aN ) = ai }                              in MMLU contains K = 4 choices. The LLM agents are
+       x
+       bi =                                 for every i.
+                         M                                               required to select the best answer, which mimics real-world
+                                                                         scenarios where LLMs must make decisions within a finite
+In the next section, we implement OW-L and OW-I on real
+                                                                         action space. This setting highlights that our OW and ISP
+datasets without access to ground truth. While differing
+                                                                         algorithms can substantially improve upon majority voting
+in estimation details, both methods leverage second-order
+                                                                         when handling queries with a finite set of options.
+information and employ the same weighting formula (Al-
+gorithm 1). Theoretically, as shown in Theorem 4.2, both                 We further apply our LLM aggregation framework in collab-
+converge to the same optimal weights as N and M increase.                oration with the non-profit organization ARMMAN (Mate
+Our experiments confirm this alignment: even with small N ,              et al., 2022). Motivated by recent work on the promise
+the two estimators yield similar performance, demonstrating              of LLMs in predicting human behavior (Martinson et al.,
+their robustness and consistency.                                        2025), the task is to predict which pregnant and postpartum
+
+                                                                     7
+                      Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+ Table 3. Experimental Results: We report the overall accuracy on three datasets. In the tables, the best results are highlighted in bold.
+
+                       Accuracy          OW-L (ours)       OW-I (ours)       ISP (ours)      MV         Single Best
+                     UltraFeedback        73.66%            73.66%            73.26%        72.21%        73.14%
+                        MMLU              90.37%            90.37%            90.01%        89.32%        91.02%
+                      ARMMAN              85.78%            85.78%            85.78%        85.24%        85.32%
+
+
+women are at risk of dropping out from call-based mater-                algorithm can only potentially improve accuracy on these
+nal health information programs, corresponding to the case              questions, and on these subsets, our method respectively
+of K = 2. The goal is to improve program retention and,                 yields absolute accuracy gains of 2.78%, 3.36% and 1.16%
+ultimately, maternal health outcomes. This illustrates the              over MV. Given the strong performance of LLMs, if we
+potential of our algorithms to facilitate multi-agent LLM               consider only the remaining headroom for improvement,
+reasoning in critical healthcare settings. Additional details           our algorithm correctly answers 5.22% of the questions that
+(e.g., computational resources and runtime) and prompts are             MV fails to solve on UltraFeedback, 9.83% on MMLU,
+provided in Section F.3.                                                and 3.66% on ARMMAN. Moreover, when selecting the
+                                                                        strongest model from each family, our aggregation methods
+5.4. Evaluation Results on Real-World Datasets                          outperform all participating models on both UltraFeedback
+                                                                        and ARMMAN. This result indicates LLM aggregation can
+In this section, we present experimental results on Ultra-              extend the boundary of model capabilities and highlights
+Feedback, MMLU and ARMMAN to investigate the roles                      the substantial potential of multi-agent LLM reasoning.
+of first-order and second-order information in our frame-
+work. Note that we also report the performance of the single            To statistically rigorously quantify the value of incorporating
+best model in each combination. However, we emphasize                   higher-order information over standard zero-order aggrega-
+that “Single Best” is a clairvoyant oracle, not a fair base-            tion, we conduct hypothesis testing comparing our methods
+line (so excluded from comparison), as identifying the best             against MV (c.f. Table 10 in Section F.4). The resulting
+model requires access to ground truth labels, which are                 t-statistics are 12.53 for UltraFeedback, 23.39 for MMLU,
+unavailable in our unsupervised setting.                                and 3.22 for ARMMAN, and all corresponding p-values are
+                                                                        less than 0.001. It indicates that our aggregation methods
+We compare our proposed methods, OW-L, OW-I and ISP,                    are significantly better than MV.
+against the widely used MV baseline. We discuss several
+additional baselines in Section F.4, e.g., the classical SP             We further evaluate the robustness of our framework across
+method and approaches that do not account for the infor-                all 16 distinct model ensembles (detailed in Tables 7 to 9
+mation hierarchy. Recall that our method performs single-               in Section F.4). We observe a clear dominance of higher-
+round, training-free aggregation over fixed model outputs.              order aggregation: OW-L outperforms MV in 97.92% of the
+Beyond generation, aggregation finishes in several CPU                  cases, while OW-I and ISP outperform MV in 95.83% of
+seconds, making it lightweight and practical for individuals            the cases. MV never achieves the best performance in any
+and small organizations that can run inference (e.g., via               case, and the absolute improvement in accuracy ranges from
+APIs) but lack large-scale training compute. Our aggrega-               0.54% to 14.20%. The best-performing algorithm some-
+tor is orthogonal to gradient-dependent, compute-heavy ap-              times varies by case. Accounting for ties where multiple
+proaches (Du et al., 2023; Subramaniam et al., 2025). Since             methods achieve the same accuracy, OW-L attains the high-
+many such pipelines (Li, 2024; Elumar et al., 2025) ulti-               est accuracy in 66.67% of the cases, OW-I in 72.92%, and
+mately use MV for final consensus, our method can serve as              ISP in 12.50%. This demonstrates that leveraging higher-
+a drop-in MV replacement to further improve performance.                order information enables effective aggregation of LLM
+                                                                        responses without any labels, providing a practical solution
+We select one model in each family and obtain 16 possible               for multi-LLM reasoning in real-world settings.
+ensembles. In Table 3, we report aggregated results for the
+strongest model within each family, namely GPT-4o-2024-
+11-20, Qwen2.5-Instruct-14B, Llama3.1-8B-Instruct and                   6. Robustness and Ablation Studies
+Phi-4, leaving the remaining combinations to Section F.4.               We also conduct experiments about the potential position
+When using the four strong models, all three of our algo-               bias. Our experiments demonstrate that, while our theory
+rithms outperform majority voting. Furthermore, on the                  relies on random shuffling to induce symmetric informa-
+UltraFeedback, MMLU and ARMMAN datasets, the four                       tion structure, the empirical performance of our aggregation
+models provided different answers for 52.09%, 31.29% and                methods remains robust to position bias in practice. Specifi-
+46.52% of the questions, respectively. Any aggregation                  cally, for the binary-choice ARMMAN dataset (which is not
+                                                                        seen by LLMs, hence it avoids any potential data leakage),
+
+                                                                    8
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+we measure positional bias by examining answer distribu-                 Table 6. Experimental Results with All Eight Models.
+tions, as shown below.                                                 Accuracy       Ultrafeedback     MMLU        ARMMAN
+                                                                         MV              70.23%         87.19%        84.40%
+  Table 4. Ratio of Choosing Option A for Different Models.          OW-I (ours)         72.44%         88.64%        84.94%
+             Model               Ratio of Choosing A                 OW-L (ours)         72.44%         88.49%        85.10%
+      Llama3.2-1B-Instruct             62.17%                         ISP (ours)         71.18%         87.92%        84.79%
+      Llama3.1-8B-Instruct             56.38%
+        Phi4-mini-instruct             50.95%
+                                                                    7. Conclusion and Discussion
+              Phi4                     49.33%
+      Qwen2.5-Instruct-3B              21.26%                       In this paper, we study how higher-order information can im-
+      Qwen2.5-Instruct-14B             51.40%                       prove the performance of multi-agent LLM reasoning. Us-
+       GPT-35-turbo-0125               76.15%                       ing first-order information, we propose a Bayesian-optimal
+       GPT-4o-2024-11-20               49.73%                       aggregation scheme. For the unsupervised setting without
+                                                                    any ground-truth labels, we show that leveraging second-
+                                                                    order information across models can provably improve upon
+                                                                    the widely used majority voting. Through simulations, LLM
+For stronger models, the selection frequency of option A
+                                                                    post-training datasets and real-world healthcare data, we
+is close to 50%, consistent with our random shuffling as-
+                                                                    demonstrate that our OW and ISP algorithms consistently
+sumption. For weaker models, positional bias emerges (also
+                                                                    dominate majority voting and other baselines. Our results
+observed on Ultrafeedback and MMLU). Despite this, Ta-
+                                                                    provide new insights into the role of information in multi-
+bles 7 to 9 show that our methods consistently perform well
+                                                                    agent LLM reasoning, with implications for applications
+across both strong and weak models, without any debiasing.
+                                                                    such as LLM debates (Subramaniam et al., 2025).
+Thus, while our theory relies on structural assumptions, it
+remains practically effective abd robust beyond these condi-        Questions naturally arise for future exploration. How can
+tions. Notably, gains can be even larger for weaker models          contextual learning be leveraged to assign more fine-grained,
+(e.g., over 9% with four weak models).                              prompt-specific weights based on expected accuracy? How
+                                                                    to derive optimal weights for open-ended questions? Can
+We further add an ablation focusing on strong distractors.
+                                                                    incorporating even higher-order information provide addi-
+Using four strong models on MMLU, we construct a subset
+                                                                    tional insights to further improve aggregation performance?
+(13,886 questions) where at least two models choose the
+                                                                    To what extent might integrating our aggregation framework
+same incorrect option, capturing concentrated error on “hard”
+                                                                    with LLM post-training push the boundaries of LLM ca-
+distractors. On this subset, we re-run MV and our methods.
+                                                                    pabilities (Cheng et al., 2024)? We leave these interesting
+Our method achieves a larger gain over MV (over 7%) than
+                                                                    questions as potential next steps.
+on the full dataset, suggesting that leveraging higher-order
+information is particularly beneficial in more challenging
+settings.
+
+
+        Table 5. Experimental Results on MMLU-hard.
+
+                Accuracy        MMLU-hard
+                   MV            17.23%
+               OW-L (ours)       24.79%
+               OW-I (ours)       24.79%
+                ISP (ours)       18.66%
+
+
+We finally evaluate larger and possibly correlated ensembles
+(see more in Tables 11 to 13). Specifically, we use all eight
+LLMs together on all three datasets. Since some of these
+models come from the same family, this setting may violate
+our theoretical assumptions. Nevertheless, we find that our
+methods consistently outperform majority voting, further
+demonstrating their effectiveness and robustness to larger
+and more correlated ensembles.
+
+                                                                9
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Impact Statement                                                     Chen, X., Aksitov, R., Alon, U., Ren, J., Xiao, K., Yin, P.,
+                                                                       Prakash, S., Sutton, C., Wang, X., and Zhou, D. Univer-
+This paper presents work whose goal is to advance the field            sal self-consistency for large language model generation.
+of machine learning, specifically in the area of multi-agent           arXiv preprint arXiv:2311.17311, 2023b.
+large language model (LLM) reasoning and information ag-
+gregation. We provide a principled framework aggregating             Chen, Y.-C., Mueller-Frank, M., and Pai, M. M. The wisdom
+collective decisions from heterogeneous models.                        of the crowd and higher-order beliefs. arXiv preprint
+Societal and Ethical Considerations:                                   arXiv:2102.02666, 2021.
+
+Democratic and Robust Aggregation: By moving beyond                  Chen, Z., Li, J., Chen, P., Li, Z., Sun, K., Luo, Y., Mao,
+simple majority voting (MV), our methods better account                Q., Yang, D., Sun, H., and Yu, P. S. Harnessing multiple
+for model correlation and varying expertise. This has poten-           large language models: A survey on llm ensemble. arXiv
+tial positive implications for the fairness and robustness of          preprint arXiv:2502.18036, 2025.
+automated consensus-building systems, such as automated
+data annotation and prediction markets.                              Cheng, R., Ma, H., Cao, S., Li, J., Pei, A., Wang, Z., Ji,
+                                                                       P., Wang, H., and Huo, J. Reinforcement learning from
+Reliability in Critical Domains: Our research demonstrates             multi-role debates as feedback for bias mitigation in llms.
+performance gains on real-world datasets, including ARM-               arXiv preprint arXiv:2404.10160, 2024.
+MAN, a maternal healthcare dataset. Enhancing the accu-
+racy of LLM-based systems in healthcare can lead to more             Chiang, W.-L., Zheng, L., Sheng, Y., Angelopoulos, A. N.,
+reliable decision-making aids, though it also underscores              Li, T., Li, D., Zhu, B., Zhang, H., Jordan, M., Gonzalez,
+the critical need for human-in-the-loop oversight to ensure            J. E., et al. Chatbot arena: An open platform for evaluat-
+patient safety.                                                        ing llms by human preference. In Forty-first International
+                                                                       Conference on Machine Learning, 2024.
+Future Risks: As with all advances in LLM capabilities, im-
+proved aggregation could be used to enhance the efficiency           Choi, H. K., Zhu, X., and Li, Y. Debate or vote: Which
+of generating misinformation or persuasive content. We                 yields better decisions in multi-agent large language mod-
+encourage the responsible use of these algorithms within               els? arXiv preprint arXiv:2508.17536, 2025.
+frameworks that prioritize ethical output and transparency.
+                                                                     Cui, G., Yuan, L., Ding, N., Yao, G., Zhu, W., Ni, Y., Xie, G.,
+                                                                       Liu, Z., and Sun, M. Ultrafeedback: Boosting language
+References                                                             models with high-quality feedback. 2023.
+Abdin, M., Aneja, J., Behl, H., Bubeck, S., Eldan, R.,
+  Gunasekar, S., Harrison, M., Hewett, R. J., Javaheripi,            Dai, D., Deng, C., Zhao, C., Xu, R., Gao, H., Chen, D., Li,
+  M., Kauffmann, P., et al. Phi-4 technical report. arXiv              J., Zeng, W., Yu, X., Wu, Y., et al. Deepseekmoe: To-
+  preprint arXiv:2412.08905, 2024.                                     wards ultimate expert specialization in mixture-of-experts
+                                                                       language models. In Proceedings of the 62nd Annual
+Arieli, I., Babichenko, Y., and Smorodinsky, R. Robust fore-           Meeting of the Association for Computational Linguistics
+  cast aggregation. Proceedings of the National Academy               (Volume 1: Long Papers), pp. 1280–1297, 2024.
+  of Sciences, 115(52):E12135–E12143, 2018.
+                                                                     Dawid, A. P. and Skene, A. M. Maximum likelihood es-
+Arieli, I., Babichenko, Y., Talgam-Cohen, I., and Zabarnyi,            timation of observer error-rates using the em algorithm.
+  K. A random dictator is all you need. American Economic              Journal of the Royal Statistical Society: Series C (Applied
+  Journal: Microeconomics, 17(1):66–96, 2025.                          Statistics), 28(1):20–28, 1979.
+
+Austen-Smith, D. and Banks, J. S. Information aggregation,           De Oliveira, H., Ishii, Y., and Lin, X. Robust merg-
+  rationality, and the condorcet jury theorem. American                ing of information. In Proceedings of the 22nd ACM
+  political science review, 90(1):34–45, 1996.                         Conference on Economics and Computation, EC ’21,
+                                                                       pp. 341–342, New York, NY, USA, 2021. Associa-
+Bradley, R. A. and Terry, M. E. Rank analysis of incom-                tion for Computing Machinery. ISBN 9781450385541.
+  plete block designs: I. the method of paired comparisons.            doi: 10.1145/3465456.3467533. URL https://doi.
+  Biometrika, 39(3/4):324–345, 1952.                                   org/10.1145/3465456.3467533.
+
+Chen, J. C.-Y., Saha, S., and Bansal, M. Reconcile:                  Du, Y., Li, S., Torralba, A., Tenenbaum, J. B., and Mordatch,
+  Round-table conference improves reasoning via consen-                I. Improving factuality and reasoning in language models
+  sus among diverse llms. arXiv preprint arXiv:2309.13007,             through multiagent debate. In Forty-first International
+  2023a.                                                               Conference on Machine Learning, 2023.
+
+                                                                10
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Dubey, A., Jauhri, A., Pandey, A., Kadian, A., Al-Dahle,              Karger, E., Bastani, H., Yueh-Han, C., Jacobs, Z., Halawi,
+ A., Letman, A., Mathur, A., Schelten, A., Yang, A., Fan,               D., Zhang, F., and Tetlock, P. E. Forecastbench: A dy-
+ A., et al. The llama 3 herd of models. arXiv e-prints, pp.             namic benchmark of ai forecasting capabilities. arXiv
+  arXiv–2407, 2024.                                                     preprint arXiv:2409.19839, 2024.
+
+Elumar, E. C., Tekin, C., and Yagan, O. Cost-aware                    Khan, A., Hughes, J., Valentine, D., Ruis, L., Sachan, K.,
+  llm-based online dataset annotation. arXiv preprint                   Radhakrishnan, A., Grefenstette, E., Bowman, S. R.,
+  arXiv:2505.15101, 2025.                                               Rocktäschel, T., and Perez, E. Debating with more persua-
+                                                                        sive llms leads to more truthful answers. arXiv preprint
+Fang, C., Li, X., Fan, Z., Xu, J., Nag, K., Korpeoglu, E.,              arXiv:2402.06782, 2024.
+  Kumar, S., and Achan, K. Llm-ensemble: Optimal large
+  language model ensemble method for e-commerce prod-                 Kong, Y. Peer expectation in robust forecast aggre-
+  uct attribute value extraction. In Proceedings of the 47th            gation: The possibility/impossibility. arXiv preprint
+  International ACM SIGIR Conference on Research and                    arXiv:2402.06062, 2024.
+  Development in Information Retrieval, pp. 2910–2914,                Kong, Y., Li, Y., Zhang, Y., Huang, Z., and Wu, J. Eliciting
+  2024.                                                                 thinking hierarchy without a prior. Advances in Neural
+Frongillo, R., Chen, Y., and Kash, I. Elicitation for aggrega-          Information Processing Systems, 35:13329–13341, 2022.
+  tion. In Proceedings of the AAAI Conference on Artificial           Kwon, W., Li, Z., Zhuang, S., Sheng, Y., Zheng, L., Yu,
+  Intelligence, volume 29, 2015.                                       C. H., Gonzalez, J., Zhang, H., and Stoica, I. Efficient
+                                                                       memory management for large language model serving
+Fu, Y., Wang, X., Tian, Y., and Zhao, J. Deep think with
+                                                                       with pagedattention. In Proceedings of the 29th sym-
+  confidence. arXiv preprint arXiv:2508.15260, 2025.
+                                                                       posium on operating systems principles, pp. 611–626,
+Guo, X. and Vosoughi, S. Serial position effects of large lan-         2023.
+  guage models. arXiv preprint arXiv:2406.15981, 2024.                Levy, G. and Razin, R. Combining forecasts in the pres-
+Guo, Y., Hartline, J. D., Huang, Z., Kong, Y., Shah, A., and            ence of ambiguity over correlation structures. Journal of
+ Yu, F.-Y. Algorithmic robust forecast aggregation. In                  Economic Theory, 199:105075, 2022.
+  Proceedings of the 26th ACM Conference on Economics                 Li, J. A comparative study on annotation quality of crowd-
+  and Computation, pp. 1110–1129, 2025.                                 sourcing and llm via label aggregation. In ICASSP
+Hendrycks, D., Burns, C., Basart, S., Zou, A., Mazeika,                 2024-2024 IEEE International Conference on Acoustics,
+  M., Song, D., and Steinhardt, J. Measuring mas-                       Speech and Signal Processing (ICASSP), pp. 6525–6529.
+  sive multitask language understanding. arXiv preprint                 IEEE, 2024.
+  arXiv:2009.03300, 2020.                                             Lin, T. and Chen, Y. Sample complexity of forecast ag-
+                                                                        gregation. Advances in Neural Information Processing
+Hosseini, H., Mandal, D., Shah, N., and Shi, K. Surprisingly
+                                                                        Systems, 36:36053–36093, 2023.
+  popular voting recovers rankings, surprisingly! arXiv
+  preprint arXiv:2105.09386, 2021.                                    Liu, A., Feng, B., Wang, B., Wang, B., Liu, B., Zhao, C.,
+                                                                        Dengr, C., Ruan, C., Dai, D., Guo, D., et al. Deepseek-v2:
+Hurst, A., Lerer, A., Goucher, A. P., Perelman, A., Ramesh,             A strong, economical, and efficient mixture-of-experts
+  A., Clark, A., Ostrow, A., Welihinda, A., Hayes, A.,                  language model. arXiv preprint arXiv:2405.04434, 2024.
+  Radford, A., et al. Gpt-4o system card. arXiv preprint
+  arXiv:2410.21276, 2024.                                             Lu, J., Pang, Z., Xiao, M., Zhu, Y., Xia, R., and Zhang, J.
+                                                                        Merge, ensemble, and cooperate! a survey on collabora-
+Jacobs, R. A., Jordan, M. I., Nowlan, S. J., and Hinton, G. E.          tive strategies in the era of large language models. arXiv
+  Adaptive mixtures of local experts. Neural computation,               preprint arXiv:2407.06089, 2024.
+  3(1):79–87, 1991.
+                                                                      Martinie, M., Wilkening, T., and Howe, P. D. Using meta-
+Jiang, A. Q., Sablayrolles, A., Roux, A., Mensch, A., Savary,          predictions to identify experts in the crowd when past
+   B., Bamford, C., Chaplot, D. S., Casas, D. d. l., Hanna,            performance is unknown. Plos one, 15(4):e0232058,
+   E. B., Bressand, F., et al. Mixtral of experts. arXiv               2020.
+   preprint arXiv:2401.04088, 2024.
+                                                                      Martinson, S., Kong, L., Kim, C. W., Taneja, A., and Tambe,
+Jiang, D., Ren, X., and Lin, B. Y. Llm-blender: Ensembling             M. Llm-based agent simulation for maternal health in-
+   large language models with pairwise ranking and genera-             terventions: Uncertainty estimation and decision-focused
+   tive fusion. arXiv preprint arXiv:2306.02561, 2023.                 evaluation. arXiv preprint arXiv:2503.22719, 2025.
+
+                                                                 11
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Mate, A., Madaan, L., Taneja, A., Madhiwalla, N., Verma,             Santhosh, G., De Vita, F., Bruneo, D., Longo, F., and Pu-
+ S., Singh, G., Hegde, A., Varakantham, P., and Tambe,                 liafito, A. Towards trustless prediction-as-a-service. In
+ M. Field study in deploying restless multi-armed ban-                 2019 IEEE International Conference on Smart Comput-
+ dits: Assisting non-profits in improving maternal and                 ing (SMARTCOMP), pp. 317–322. IEEE, 2019.
+ child health. In Proceedings of the AAAI Conference
+ on Artificial Intelligence, volume 36, pp. 12017–12025,             Schoenebeck, G. and Tao, B. Wisdom of the crowd voting:
+ 2022.                                                                 Truthful aggregation of voter information and preferences.
+                                                                       Advances in neural information processing systems, 34:
+Neyman, E. and Roughgarden, T. Are you smarter than a                  1872–1883, 2021.
+  random expert? the robust aggregation of substitutable
+                                                                     Shao, Z., Wang, P., Zhu, Q., Xu, R., Song, J., Bi, X., Zhang,
+  signals. In Proceedings of the 23rd ACM Conference on
+                                                                       H., Zhang, M., Li, Y., Wu, Y., et al. Deepseekmath: Push-
+  Economics and Computation, pp. 990–1012, 2022.
+                                                                       ing the limits of mathematical reasoning in open language
+Ouyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C.,            models. arXiv preprint arXiv:2402.03300, 2024.
+  Mishkin, P., Zhang, C., Agarwal, S., Slama, K., Ray, A.,
+                                                                     Subramaniam, V., Du, Y., Tenenbaum, J. B., Torralba, A.,
+  et al. Training language models to follow instructions
+                                                                       Li, S., and Mordatch, I. Multiagent finetuning: Self im-
+  with human feedback. Advances in neural information
+                                                                       provement with diverse reasoning chains. arXiv preprint
+  processing systems, 35:27730–27744, 2022.
+                                                                       arXiv:2501.05707, 2025.
+Palley, A. B. and Satopää, V. A. Boosting the wisdom of            Team, Q. Qwen2 technical report.             arXiv preprint
+  crowds within a single judgment problem: Weighted av-                arXiv:2407.10671, 2, 2024.
+  eraging based on peer predictions. Management Science,
+  69(9):5128–5146, 2023.                                             Tekin, S. F., Ilhan, F., Huang, T., Hu, S., and Liu, L. Llm-
+                                                                       topla: Efficient llm ensemble by maximising diversity.
+Palley, A. B. and Soll, J. B. Extracting the wisdom of crowds          arXiv preprint arXiv:2410.03953, 2024.
+  when information is shared. Management Science, 65(5):
+  2291–2309, 2019.                                                   Tullock, G. Problems of majority voting. Journal of political
+                                                                       economy, 67(6):571–579, 1959.
+Pan, Y., Chen, Z., and Kong, Y. Robust decision aggregation
+  with second-order information. In Proceedings of the               Wainwright, M. J. High-dimensional statistics: A non-
+  ACM Web Conference 2024, pp. 77–88, 2024.                           asymptotic viewpoint, volume 48. Cambridge university
+                                                                      press, 2019.
+Peng, H., Miao, X., Zhang, J., Gao, Y., Deng, S., and Yin,
+                                                                     Wang, J., Liu, Y., and Chen, Y. Forecast aggregation via
+  J. Cost-aware prediction service pricing with incomplete
+                                                                      peer prediction. In Proceedings of the AAAI conference
+  information. The VLDB Journal, 34(3):28, 2025.
+                                                                      on human computation and crowdsourcing, volume 9, pp.
+Penrose, L. S. The elementary statistics of majority voting.          131–142, 2021.
+  Journal of the Royal Statistical Society, 109(1):53–57,
+                                                                     Wang, J., Wang, J., Athiwaratkun, B., Zhang, C., and Zou,
+  1946.
+                                                                      J. Mixture-of-agents enhances large language model
+                                                                      capabilities. arXiv preprint arXiv:2406.04692, 2024.
+Prelec, D. A bayesian truth serum for subjective data. sci-
+  ence, 306(5695):462–466, 2004.                                     Wang, X., Wei, J., Schuurmans, D., Le, Q., Chi, E., Narang,
+                                                                      S., Chowdhery, A., and Zhou, D. Self-consistency im-
+Prelec, D., Seung, H. S., and McCoy, J. A solution to the
+                                                                      proves chain of thought reasoning in language models.
+  single-question crowd wisdom problem. Nature, 541
+                                                                      arXiv preprint arXiv:2203.11171, 2022.
+  (7638):532–535, 2017.
+                                                                     Whitehill, J., Wu, T.-f., Bergsma, J., Movellan, J., and Ru-
+Qwen, :, Yang, A., Yang, B., Zhang, B., Hui, B., Zheng,               volo, P. Whose vote should count more: Optimal in-
+ B., Yu, B., Li, C., Liu, D., Huang, F., Wei, H., Lin, H.,            tegration of labels from labelers of unknown expertise.
+ Yang, J., Tu, J., Zhang, J., Yang, J., Yang, J., Zhou, J.,           Advances in neural information processing systems, 22,
+ Lin, J., Dang, K., Lu, K., Bao, K., Yang, K., Yu, L.,                2009.
+ Li, M., Xue, M., Zhang, P., Zhu, Q., Men, R., Lin, R.,
+ Li, T., Tang, T., Xia, T., Ren, X., Ren, X., Fan, Y., Su,           Wilkening, T., Martinie, M., and Howe, P. D. Hidden ex-
+ Y., Zhang, Y., Wan, Y., Liu, Y., Cui, Z., Zhang, Z., and             perts in the crowd: Using meta-predictions to leverage
+ Qiu, Z. Qwen2.5 technical report, 2025. URL https:                   expertise in single-question prediction problems. Man-
+ //arxiv.org/abs/2412.15115.                                          agement Science, 68(1):487–508, 2022.
+
+                                                                12
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Zhao, J., Plaza-del Arco, F. M., Genchel, B., and Curry, A. C.
+  Language model council: Democratically benchmarking
+  foundation models on highly subjective tasks. arXiv
+  preprint arXiv:2406.08598, 2024.
+
+
+
+
+                                                                 13
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+A. Omitted Details in Section 1
+A.1. Related Works
+Multi-agent LLM reasoning. Unlike LLM mixture-of-experts (MoE) (Jacobs et al., 1991; Jiang et al., 2024; Team, 2024;
+Liu et al., 2024; Dai et al., 2024), which is primarily motivated by engineering considerations, LLM aggregation focuses on
+ensembling the answers of different LLM agents in order to improve accuracy. Li (2024); Elumar et al. (2025); Subramaniam
+et al. (2025) simply use majority voting to aggregate. Du et al. (2023); Lu et al. (2024); Wang et al. (2024) assign distinct
+roles to different LLMs, and then improve performance by exchanging response information among them. Other lines of
+work instead focus on how to select among candidate outputs (Jiang et al., 2023). Moreover, Chen et al. (2023a); Fu et al.
+(2025) demonstrate that aggregation of model outputs using confidence scores leads to significant improvements in accuracy,
+while Tekin et al. (2024) tries to maximize model diversity. Fang et al. (2024) applies LLM aggregation to the e-commerce
+setting and learns optimal LLM weights based on product attributes. For a comprehensive overview, interested readers
+can refer to Chen et al. (2025), which surveys reasoning approaches with multiple LLMs. However, our work considers a
+different unsupervised learning setting, where no true labels are available, e.g., using different LLM agents to automatically
+annotate datasets. We propose a multi-agent LLM reasoning framework that leverages higher-order information structures,
+and we theoretically show that both first- and second-order information can effectively improve over zero-order majority
+voting, yielding optimal aggregation for one-round reasoning.
+
+Information aggregation. Information aggregation concerns how to combine noisy judgments in order to recover the
+truth. This line of work ranges from simple mechanisms like averaging and majority voting (Penrose, 1946; Tullock,
+1959), to more recent algorithmic perspectives (Lin & Chen, 2023; Guo et al., 2025). Arieli et al. (2018) further develops
+a framework for identifying robust aggregators that perform well in the worst case without knowledge of the underlying
+information structure. Neyman & Roughgarden (2022) extends this setting to continuous domains and shows that, under
+certain families, simple averaging is sufficiently good. De Oliveira et al. (2021); Levy & Razin (2022); Arieli et al. (2025)
+focus on environments with unknown correlations but known marginal distributions. A complementary line of research
+leverages second-order information—agents’ beliefs about others’ answers—to improve aggregation. This thread originates
+with Bayesian Truth Serum (Prelec, 2004) and the “surprisingly popular” rule (Prelec et al., 2017), and has since expanded
+to incorporate second- (and higher-) order signals in finite and potentially heterogeneous groups, both through theoretical
+analyses (Palley & Soll, 2019; Chen et al., 2021; Palley & Satopää, 2023; Kong, 2024; Pan et al., 2024) and empirical
+studies (Wang et al., 2021; Martinie et al., 2020; Wilkening et al., 2022). Our work extends this literature to the setting of
+heterogeneous LLM experts by designing aggregation rules that exploit both first- and second-order information, thereby
+broadening the scope of information aggregation research beyond human judgments.
+
+B. Omitted Details in Section 2
+B.1. Justification of Random Shuffling
+For the simplicity of presentation, we use K = 2 with S = (s1 , s2 ) to show the result, and then discuss how to extend it
+easily to a general K.
+Define two function families: Flarge is the original function family of all possible aggregation rules f : S N → ∆(S);
+Fsmall ⊆ Flarge denotes all functions f satisfying
+
+                            f (a1 , · · · , aN ) + f (1 − a1 , · · · , 1 − aN ) = 1,       for all a1 , · · · , aN .
+
+Note that f can be randomized, so we slightly abuse notation and use f (a1 , · · · , aN ) to denote the probability that f outputs
+s1 .
+We use Plarge to denote a large joint distribution family that satisfies:
+
+   • Ordering Independence: For all i, P(Ai = s1 | S ∗ = s1 ) = P(Ai = s2 | S ∗ = s2 ).
+                                                                QN
+   • Conditional Independence: P(A1 , · · · , AN | S ∗ ) =         i=1 P(Ai | S
+                                                                                  ∗
+                                                                                      ).
+
+We use Psmall ⊆ Plarge to denote those P that also satisfy the balance condition P(S ∗ = s1 ) = P(S ∗ = s2 ) = 1/2.
+
+                                                                   14
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Assume we only know that the information structure P ∈ Plarge and we hope to find a good aggregator. We hope to consider
+the worst-case scenario since we have no extra knowledge. The performance is
+                                                       min       max L(f, P),
+                                                     f ∈Flarge P∈Plarge
+
+where L(f, P) is the error probability of f under P:
+                                 L(f, P) = E(S ∗ ,A1 ,··· ,AN )∼P 1{f (A1 , · · · , AN ) ̸= S ∗ }.
+
+If we perform a random shuffle, the performance is analyzed as
+                                                       min       max L(f, P).
+                                                     f ∈Flarge P∈Psmall
+
+
+For any aggregation function f (a1 , · · · , aN ), define the symmetric function
+                                        f¯(a1 , · · · , aN ) = 1 − f (1 − a1 , · · · , 1 − aN ).
+Equivalently, random shuffling can be seen as using f with probability 1/2 and f¯ with probability 1/2. The resulting
+symmetrized rule lies in Fsmall , so we can also write the objective under random shuffling as
+                                                       min       max L(f, P).
+                                                     f ∈Fsmall P∈Plarge
+
+
+Since Fsmall ⊆ Flarge and Psmall ⊆ Plarge , we always have
+                     min      max L(f, P) ≥            min       max L(f, P) ≥           min       max L(f, P).
+                   f ∈Fsmall P∈Plarge                f ∈Flarge P∈Plarge                f ∈Flarge P∈Psmall
+
+On the other hand, viewing random shuffling as mixing f and f¯ shows that optimizing over Fsmall against Plarge is
+equivalent with Flarge against Psmall . Combining these observations yields
+                     min      max L(f, P) =            min       max L(f, P) =           min       max L(f, P).
+                   f ∈Fsmall P∈Plarge                f ∈Flarge P∈Plarge                f ∈Flarge P∈Psmall
+
+Therefore, in the worst case, there is no loss from considering random shuffling.
+For general K, perform a random shuffle over all permutations m of the labels {s1 , · · · , sK }. For any permutation m, define
+                                 fm (a1 , · · · , aN ) = m−1 f m(a1 ), · · · , m(aN ) ,
+                                                                                         
+
+and draw m uniformly at random; the aggregator then uses fm for aggregation. The same symmetrization argument applies
+as in the K = 2 case.
+For general K, a similar ordering independent and symmetric condition is: for all i and all j ̸= k,
+                                                                                                   1 − xi
+                            P(Ai = sj | S ∗ = sj ) = xi ,           P(Ai = sk | S ∗ = sj ) =              .
+                                                                                                   K −1
+
+We need to assume the original distribution has this property at the question level. This roughly says that each agent has the
+same accuracy for all questions, which might not hold in the real world, but is a reasonable approximation when we cannot
+estimate per-question accuracies and instead only have overall accuracies xi for each agent i. Importantly, this symmetry is
+only needed for the justification here. After random shuffling, it holds by construction.
+
+C. Extension: Beyond Conditional Independence
+A major reason that Theorem 2.2 may fail is the heterogeneity in question difficulty: when questions are easy, LLM agents
+all perform well, whereas their performance drops simultaneously when questions are difficult. This induces positive
+correlations across agents. In this section, we relax Theorem 2.2 and show that all of our theoretical results extend naturally
+to a more general setting.
+Instead of assuming conditional independence among the whole dataset, we only assume conditional independence for a
+single question, which is quite natural in real settings.
+
+                                                                  15
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Assumption C.1. Given a single question, the outputs of agents are conditionally independent.
+
+Instead of using a single accuracy xi to summarize agent i’s performance, we introduce a question difficulty level α ∈ R>0
+and agent ability parameters β1 , . . . , βN ∈ R>0 , inspired by settings in Whitehill et al. (2009); Li (2024). Here, a larger α
+indicates an easier question, and a larger β indicates a stronger LLM agent. For each agent i with ability βi and question
+difficulty α, we assume that for true label s∗ ,
+                                                 eαβi                           1
+               P (Ai = s∗ ) = σK (αβi ) =             αβ
+                                                          and P (Ai = s) =              for any s ̸= s∗ .
+                                              K −1+e    i                  K − 1 + eαβi
+For K = 2, this reduces to the logistic function P (Ai = S ∗ ) = 1+e1−αβi .
+We use a difficulty distribution D(α) to quantify difficulty levels in the dataset, where D(α) can be any distribution over
+α ∈ R>0 . Let PD(α) denote the underlying joint distribution over the ground-truth label S ∗ and all N agents’ outputs.
+Therefore, under Theorem C.1
+                                                                                               αβi
+                                                                                    Q
+                                                                                           ∗ e
+                       PD(α) (A1 = a1 , · · · , AN = aN |S = s ) = Eα∼D(α) QN i:ai =s
+                                                          ∗     ∗
+                                                                                                        .
+                                                                                                  αβi )
+                                                                                  i=1 (K − 1 + e
+
+Notice that when the Q  dataset contains questions of varying difficulty, Theorem 2.2 no longer holds here. In other words,
+                          N
+P(A1 , ..., AN |S ∗ ) ̸= i=1 P(Ai |S ∗ ) in the population (cf. Example 2). This observation breaks a fundamental assumption
+made in many works on information aggregation (Prelec et al., 2017; Arieli et al., 2018; Schoenebeck & Tao, 2021; Kong,
+2024; Pan et al., 2024), thereby extending the theoretical frontier and offering new insights for the development of the
+aggregation literature.
+Example 2. Consider a case when N = K = 2, we assume α = 0 with probability 0.3 and α = ∞ with probability 0.7.
+Then, it holds that in the population,
+                                              P(A1 , A2 |S ∗ ) ̸= P(A1 |S ∗ )P(A2 |S ∗ ).
+
+Proof of Example 2. We now prove the statement in Example 2. We consider the probability in the population of the
+whole dataset, and we are going to show that even for each question, the output answers are independent, the conditional
+independence will be broken in the whole population. When α = 0, every LLM agent has an accuracy of only 0.5, reflecting
+a hard question. On the other hand, for α = ∞, the accuracy becomes 1, representing an easy question. In this extreme case,
+it holds that
+                               P(A1 = s1 , A2 = s1 |S ∗ = s1 ) = 0.3 ∗ 0.52 + 0.7 = 0.775,
+while
+                        P(A1 = s1 , A2 = s2 |S ∗ = s1 ) = P(A1 = s2 , A2 = s1 |S ∗ = s1 )
+                                                          = P(A1 = s2 , A2 = s2 |S ∗ = s1 ) = 0.075.
+In the meantime, it holds that
+                          P(A1 = s1 |S ∗ = s1 ) = P(A2 = s1 |S ∗ = s1 ) = 0.3 ∗ 0.5 + 0.7 = 0.85.
+Therefore, it holds that in the population,
+             P(A1 = s1 , A2 = s1 |S ∗ = s1 ) = 0.775 ̸= P(A1 = s1 |S ∗ = s1 )P(A2 = s1 |S ∗ = s1 ) = 0.7225,
+which ends the proof.
+
+We can then naturally extend Algorithm 1 by setting the weight for agent i directly to βi , see the details in Algorithm 3.
+Notably, this extension does not require any knowledge of D(α). The Bayesian optimality of Algorithm 3 still holds.
+Theorem C.2. Under Theorem C.1, for any D(α), fEOW defined in Algorithm 3 is the Bayesian optimal aggregator.
+
+For second-order information, we prove that even without knowing α, Algorithm 2 still outperforms majority voting. More
+formally, we establish the following theorem.
+Theorem C.3. Under Theorem C.1, for any D(α), ISP in Algorithm 2 outperforms MV, which in turn outperforms SP, in
+expectation. That is, E[AdvISP (s∗ )] ≥ E[AdvM V (s∗ )] ≥ E[AdvSP (s∗ )].
+
+The proofs of Theorems C.2 and C.3 are delayed to Section G.
+
+                                                               16
+                     Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Algorithm 3 Extended Optimal Weight (EOW) Algorithm
+ 1: Input: Agent ability parameters β1 , ..., βN .
+ 2: Pre-processing: Randomly shuffle candidate labels, obtaining the shuffle mapping π.
+ 3: Observe predictions a1 , ..., aN .                PN
+ 4: Aggregate via fEOW (a1 , · · · , aN ) = arg maxs∈S i=1 βi 1{ai = s}.
+ 5: Output: Map back using π −1 and return π −1 (fEOW (a1 , · · · , aN )).
+
+
+D. Omitted Details in Section 3
+D.1. Proof of Theorem 3.1
+We first design a bijection between accuracies and a new vector β which represents agents’ ability. We assume xi =
+              eβi
+σK (βi ) = K−1+e  βi for any xi . When the accuracy xi increases, the agent’s corresponding ability βi will be up as well.
+                                                                                                   βi
+                                                                                                     ∗
+Then, due to the random shuffle, it’s equivalent to assume that P(Ai = S ∗ ) = K−1+e
+                                                                                 e                         K−1
+                                                                                     βi and P(Ai ̸= S ) = K−1+eβi .
+
+
+It then holds that
+                                                    P(A1 = a1 , ..., AN = aN |S ∗ = si )P(S ∗ = si )
+            P(S ∗ = si |A1 = a1 , ..., AN = aN ) =
+                                                            P(A1 = a1 , ..., AN = aN )
+                                                  ∝ P(A1 = a1 , ..., AN = aN |S ∗ = si )
+                                                      N
+                                                      Y
+                                                  =         P(Aj = aj |S ∗ = si )
+                                                      j=1
+                                                      N
+                                                      Y       eβj                        1
+                                                  =       [         βj
+                                                                       1{aj = si } +             1{aj ̸= si }]
+                                                      j=1
+                                                          K − 1 + e                  K − 1 + eβj
+                                                      N
+                                                      Y   eβj ·1{aj =si }+0·1{aj ̸=si }
+                                                  =
+                                                      j=1
+                                                                 K − 1 + e βj
+                                                                P
+                                                                    {j:aj =si } βj
+                                                            e
+                                                  = QN
+                                                                                     βj )
+                                                        j=1 (K − 1 + e
+                                                       P
+                                                         {j:a =s } βj
+                                                  ∝e            j      i     .
+The second formula holds as P(S ∗ = si ) = K 1
+                                                and P(A1 , ..., AN ) is independent of si . The second equation holds
+due to Theorem 2.2, and we have the third equation as agents are homogeneous with respect to incorrect options, say
+                 1                      ∗
+P(Ai = si ) = K−1+e βi for every si ̸= s .
+
+                                                                   ∗
+        PBayesian optimal aggregator chooses sb = arg maxs P(S = s|A1 = a1 , ..., AN = aN ), we only need to compare
+Since the
+among {i:ai =s} βi for all labels. It’s equivalent to aggregate as
+                                                   X                  X
+                                                                          −1
+                                  sb = arg max           βi = arg max   σK     (xi ),
+                                             s                               x
+                                                  {i:ai =s}                            {i:ai =s}
+
+which finishes our proof.
+
+D.2. Proof of Theorem 3.2
+When K = 2, from the proof of Theorem 3.1, we immediately know that the optimal weight is ωi = σ2−1 (xi ). Note that
+           ex
+σ2 (x) = 1+e  x which is exactly the logistic function σ(x). It yields that the optimal weights are proportional to the logits of
+
+the accuracies, and closes off the proof.
+
+D.3. Proof of Theorem 3.3
+Recall that Theorem 3.1 proves that the optimal weights are proportional to the logits of the accuracies. When all agents
+are homogeneous, say x1 = x2 = · · · = xN , every weight becomes the same. Since the result of arg max is invariant to
+
+                                                                      17
+                        Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+scaling, it’s equivalent to set all weights to 1, aligned with majority voting. Therefore, we prove that majority voting is the
+optimal strategy for homogeneous agents, justifying the use of majority voting for reasoning with a single model.
+
+D.4. Proof of Theorem 3.4
+From Theorem 3.1, we already show that fOW is Bayesian optimal. Therefore, when comparing fOW and fi (a1 , · · · , aN ) =
+ai , we only need to figure out whether fi is Bayesian optimal.
+From Section D.1, it holds that
+                                                                                                                    P
+                                                                                                                                  β
+                                                                 P(S ∗ = s)                 e {j:aj =s} j
+                P(S ∗ = s | A1 = a1 , · · · , AN = aN ) =                               × QN                 ,                        (7)
+                                                          P(A1 = a1 , · · · , AN = aN )                   βj
+                                                                                           j=1 (K − 1 + e )
+
+            −1
+where βi = σK  (xi ) for all i ∈ [N ].
+If fi is Bayesian optimal, for any a1 , · · · , aN , s, it holds that
+
+                         P (S ∗ = ai | A1 = a1 , · · · , AN = aN ) ≥ P (S ∗ = s | A1 = a1 , · · · , AN = aN ).
+
+Taking back to Equation (7), we obtain
+
+                                    P(S ∗ = ai )            P
+                                                            {j:aj =ai } βj
+                                                                                       P(S ∗ = s)              P
+                                                                                                               {j:aj =s} βj
+                               QN                       e                    ≥ QN                          e                  .
+                                 j=1   (K − 1 + eβj )                               j=1   (K − 1 + eβj )
+
+Because P(S ∗ = s) = K
+                     1
+                       , it is then equivalent to
+                                                                X                   X
+                                                                          βj ≥                βj
+                                                            {j:aj =ai }           {j:aj =s}
+
+for any a1 , · · · , aN , s.
+Let s be any label except ai , and aj = s ̸= ai for all j ̸= i. It holds that
+                                                                 X
+                                                           βi ≥      βi ,
+                                                                             j̸=i
+
+which concludes the proof.
+
+E. Omitted Details in Section 4
+E.1. Basic Properties of Second-order Information
+Proposition E.1. After random shuffling, the second-order information has the following propositions.
+
+   • Exchangability: P(Ai |Aj ) = P(Aj |Ai ) for every (i, j);
+   • Symmetry: P(Ai = sk |Aj = sk ) = P(Ai = sl |Aj = sl ) for every (i, j, k, l);
+
+                      ei ≥ xi , it holds that P(A
+   • Monotonicity: If x                         ei = sk |Aj = sk ) ≥ P(Ai = sk |Aj = sk ) for every (i, j, k);
+                               1                                        1
+   • Null information: If xi = K , it holds that P(Ai = sk |Aj = sl ) = K for every (i, j, k, l).
+
+Proof of Theorem E.1. From Theorem 2.1, we have P(S ∗ = si ) = K
+                                                               1
+                                                                 , P(Ai = sj |S ∗ = sj ) = xi and P(Ai = sk |S ∗ =
+       1−xi
+sj ) = K−1 for every sk ̸= sj .
+For exchangability, it holds that if ai = aj , we’d have
+
+                                                                                                    (1 − xi )(1 − xj )
+                               P(Ai = ai |Aj = aj ) = P(Aj = aj |Ai = ai ) = xi xj +                                   .
+                                                                                                         K −1
+
+                                                                             18
+                      Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+If ai ̸= aj , it holds that
+
+                                                                xi (1 − xj ) + (1 − xi )xj   (K − 2)(1 − xi )(1 − xj )
+          P(Ai = ai |Aj = aj ) = P(Aj = aj |Ai = ai ) =                                    +                           .
+                                                                         K −1                      (K − 1)2
+
+Hence, it holds that P(Ai = ai |Aj = aj ) = P(Aj = aj |Ai = ai ).
+For symmetry, it holds that
+                                                                           (1 − xi )(1 − xj )
+                                        P(Ai = sk |Aj = sk ) = xi xj +                        .
+                                                                                K −1
+Note that this probability is independent of label sk ; therefore, we prove the property of symmetry.
+For monotonicity, we know that when agent i has accuracy xi , the required probability is
+
+                                                                           (1 − xi )(1 − xj )
+                                        P(Ai = sk |Aj = sk ) = xi xj +                        .
+                                                                                K −1
+
+It then holds that
+                                            ∂P(Ai = sk |Aj = sk )        1 − xj
+                                                                  = xj −        ≥ 0.
+                                                   ∂xi                   K −1
+                                  1
+The inequality holds because xj ≥ K . Therefore, the monotonicity holds automatically.
+For null information, there are two different cases. When sk = sl , it holds that
+
+                                                               (1 − xi )(1 − xj )   xj   1 − xj  1
+                              P(Ai = sk |Aj = sl ) = xi xj +                      =    +        = .
+                                                                    K −1            K      K     K
+
+On the other hand, when sk ̸= sl , it holds that due to exchangability,
+
+                                               xi (1 − xj ) + (1 − xi )xj   (K − 2)(1 − xi )(1 − xj )  1
+                     P(Ai = sk |Aj = sl ) =                               +                           = .
+                                                        K −1                      (K − 1)2             K
+
+It then finishes our proof.
+
+E.2. Proof of Example 1
+With some calculations, we notice that in the first 3 cases, the advantage of label s1 is larger compared to s2 for both SP and
+ISP . However, for the last case that (A1 , A2 , A3 , A4 ) = (s1 , s1 , s2 , s2 ), SP’s advantage of s1 is − 13 , so SP will output s2 .
+On the other hand, ISP’s advantage of s1 is 13 . Therefore, ISP will output s1 correctly. As MV breaks the tie uniformly, with
+probability 12 , it will output correctly in case 4, while with another probability of 12 , the prediction will be wrong. Therefore,
+we know that the accuracies are 78 , 34 and 1 for MV, SP and ISP, respectively.
+We now give another example with an odd number of agents.
+Example 3. We assume there are 9 agents with accuracies x1 = x2 = x3 = x4 = 1 and x5 = x6 = x7 = x8 = x9 = 0.5
+with K = 2 candidates. We assume the true label after shuffling is s1 without loss of generality because of symmetry.
+Since there are odd agents, there is no tie. Only in the case when A5 = A6 = A7 = A8 = A9 = s2 , MV will
+                                             1
+get a wrong aggregation with probability 32    . For SP, when there are either 4 or 5 s1 , the total score is the same as
+P9                   21                                                                  3
+       S
+   i=1 SP 1(s , i) =  4 > 5. Therefore, the probability of giving a wrong prediction is 16 . For ISP, however, the total score
+        15
+is only 4 < 4. Hence, ISP will output the correct prediction with probability 1 as there are at least 4 s1 .
+
+E.3. Proof of Theorem 4.1
+After random shuffling, we know that the prior over labels is a uniform distribution. Notice that AdvM V (s∗ ) =
+                                                                                                                          P
+                                                                                                                             i 1{ai =
+s∗ } − K
+       N
+         . It holds that
+                                                        X          N    X           1
+                                   E[AdvM V (s∗ )] =         xi −     =      (xi − ).
+                                                         i
+                                                                   K      i
+                                                                                   K
+
+                                                                  19
+                        Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Let’s consider the first agent with accuracy x1 , its contribution to E[AdvM V (s∗ )] is x1 − K1
+                                                                                                 := q1 . Similarly, we can
+                   ∗
+rephrase AdvISP (s ). We first assume there are only two agents. When there are more than two agents, we need to take the
+average over the agents’ predictions that we condition on. It holds with some calculations that
+                                                                        (1 − x1 )(1 − x2 )
+                                      P(A1 = s∗ |A2 = s∗ ) = x1 x2 +                       ,
+                                                                             K −1
+and for any s ̸= s∗ ,
+                                          1                   1                 K −2
+              P(A1 = s∗ |A2 = s) =           x1 (1 − x2 ) +      (1 − x1 )x2 +          (1 − x1 )(1 − x2 ).
+                                        K −1                K −1               (K − 1)2
+Since for all s ̸= s∗ we have the same conditional probability, we use P(A1 = s∗ |A1 = ¬s∗ ) to represent this probability
+with a little abuse of notations.
+Therefore, the first agent has a contribution q2 of
+                                                        1                         K −2
+       x1 − x2 P(A1 = s∗ |A2 = ¬s∗ ) − (1 − x2 )[          P(A1 = s∗ |A2 = s∗ ) +      P(A1 = s∗ |A2 = ¬s∗ )].
+                                                      K −1                        K −1
+With probability x2 , the second agent will predict as s∗ . So, the corresponding conditional probability is P(A1 = s∗ |A2 =
+¬s∗ ). On the other hand, with probability 1 − x2 , the second agent will output another wrong answer. Then, within the
+K − 1 possible exploration events, one is P(A1 = s∗ |A2 = s∗ ) while the other K − 2 are P(A1 = s∗ |A2 = ¬s∗ ).
+                                                                         1         1
+We then calculate the gap between q1 and q2 . We notice that either x1 = K or x2 = K will lead to zero gap due to
+Theorem E.1. It then holds that
+                                                  1             1
+                                    q2 − q 1 =          (x1 − )(Kx2 − 1)2 .
+                                               (K − 1)3         K
+Therefore, when there are more than two agents, the weight of each agent in the contribution q2 is N 1−1 , which yields that
+the difference between agent 1’s contributions to ISP and MV is now
+              N                                           N
+              X     1      1           1             2
+                                                         X 1          1
+                               3
+                                 (x1 −   )(Kx i − 1)   =                   3
+                                                                             (Kx1 − 1)(Kxi − 1)2 .
+              i=2
+                  N − 1 (K − 1)        K                 i=2
+                                                             N − 1 K(K − 1)
+
+Recall that the total advantage is the sum of every agent’s contribution. It then holds that
+                                                           PN P                                   2
+                                     ∗              ∗         i=1   j∈[N ]\{i} (Kxi − 1)(Kxj − 1)
+                        E[AdvISP (s ) − AdvM V (s )] =                                              ,
+                                                                      (N − 1)K(K − 1)3
+due to the linearity of the expectation.
+For any fixed accuracies x1 , ..., xN , we notice that the numerator is proportional to Θ(N 2 K 3 ) and the denominator is
+roughly Θ(N K 4 ). Therefore, we know that E[AdvISP (s∗ ) − AdvM V (s∗ )] ≂ Θ( K          N
+                                                                                            ). Since the advantage is the sum
+of every agent’s contribution, it’s reasonable to be proportional to N . More notably, the advantage of ISP over MV is
+                  1
+proportional to K   . In other words, as the number of options K increases, the performance gap between them diminishes.
+This is because ISP motivates agents to reflect on alternative options in order to explore the unknown environment. However,
+as K grows, since we only conduct a single round of uniform reflection, i.e., computing the conditional probability given
+                                                                  1
+¬Ai , the probability of reaching the correct answer is roughly K   if the original prediction is wrong. As a result, the benefit
+of ISP relative to MV is most significant in the region of a few options. For tasks with many possible options or open-ended
+problems, such as text generation, we may need to design additional reflection or exploration mechanisms, which we leave
+for future work.
+For SP, we also presume there are N = 2 agents. So, the contribution of the first agent is now
+                             x1 − x2 P(A1 = s∗ |A2 = s∗ ) − (1 − x2 )P(A1 = s∗ |A2 = ¬s∗ ) := q3 .
+This is because agent 2 will predict s∗ with probability x2 and answer mistakenly with another probability 1 − x2 . Hence,
+we only need to compute the gap between q1 and q3 that
+                                                          (Kx1 − 1)(Kx2 − 1)2
+                                              q1 − q3 =                       .
+                                                              K(K − 1)2
+
+                                                              20
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+When there are more than two agents, the gap would become
+                                                      PN
+                                  1           ∗           (Kx1 − 1)(Kxi − 1)2
+                                      − SSP (s , 1) = i=2                     .
+                                  K                      (N − 1)K(K − 1)2
+Therefore, adding the difference of all agents yields
+                                                          PN P                                     2
+                                    ∗              ∗        i=1    j∈[N ]\{i} (Kxi − 1)(Kxj − 1)
+                       E[AdvM V (s ) − AdvSP (s )] =                                                   .
+                                                                    (N − 1)K(K − 1)2
+
+Unlike the gap between ISP and MV, this gap is Θ(N ) with increasing option number K for any fixed x1 , ..., xN . This
+shows that SP is consistently weaker than MV by a constant factor. The reason is that when each agent answers incorrectly
+with some fixed probability, it tends to get stuck on the wrong option, rather than reflecting on how other agents would
+behave under alternative predictions as ISP does. As a result, its performance can be even worse than simple majority voting.
+This demonstrates that the surprising popularity mechanism, originally designed for incentive settings, is not suitable for
+LLM aggregation scenarios, where agents have no incentive to deliberately provide incorrect answers.
+We further observe that as model accuracy xi improves, both gaps increase accordingly. Nevertheless, because higher
+model accuracy inherently elevates the likelihood that all three methods converge to the correct prediction, the relative
+improvement of ISP over MV may exhibit a more nuanced and non-monotonic behavior. We leave a deeper characterization
+of this phenomenon to future work.
+                                                                                    1
+Finally, since we know that every agent is better than a random predictor, say xi ≥ K , it holds that
+
+                                   E[AdvISP (s∗ )] ≥ E[AdvM V (s∗ )] ≥ E[AdvSP (s∗ )],
+
+which ends the proof. Note that, due to symmetry, whenever s∗ has a larger advantage, other labels s ∈ ¬s∗ must necessarily
+have smaller advantages. Therefore, compared to MV and SP, ISP is more likely to identify that label s∗ possesses the
+greater advantage, and thus aggregate toward the correct prediction of the ground truth label.
+
+E.4. Proof of Theorem 4.2
+We notice that after a random shuffle, the expectation of the advantage of ISP equals
+                                                                                                           
+                             N
+                            X                   1             X        X              X
+        E[AdvISP (s∗ )] =       xi −                               E[    1{aj = s}     P(Ai = s∗ |Aj = se)] ,
+                            i=1
+                                         (N − 1)(K   − 1)              s
+                                                          j∈[N ]\{i}                  e∈¬s
+                                                                                      s
+
+
+                                                                                                      P(Ai = s∗ |Aj = se)]
+due to the linearity of expectation. Therefore, we only need to bound the distance between E[1{aj = s}b
+and P(Aj = s|S ∗ = s∗ )P(Ai = s∗ |Aj = se) for any pair (s, se).
+We know that E[1{aj = s}] = P(Aj = s|S ∗ = s∗ ) when the true label is s∗ , so the only issue is that 1{aj = s} and
+P(Ai = s∗ |Aj = se) are correlated. Assuming we have M i.i.d. questions, we now consider the aggregation for the m-th
+b
+question, and we use the subscript −m to represent all questions except the m-th one. P
+                                                                                      b−m means that we exclude the m-th
+question when computing the empirical conditional probability. Therefore, it holds that
+                       b i = s∗ |Aj = se)] − P(Aj = s|S ∗ = s∗ )P(Ai = s∗ |Aj = se)|
+           |E[1{aj = s}P(A
+                       P(Ai = s∗ |Aj = se)] − E[1{aj = s}P
+          ≤|E[1{aj = s}b                                 b−m (Ai = s∗ |Aj = se)]|
+                          b−m (Ai = s∗ |Aj = se)] − P(Aj = s|S ∗ = s∗ )P(Ai = s∗ |Aj = se)|
+            + |E[1{aj = s}P
+            b i = s∗ |Aj = se) − P
+          ≤|P(A                  b−m (Ai = s∗ |Aj = se)|
+            + |P(Aj = s|S ∗ = s∗ )b
+                                  P−m (Ai = s∗ |Aj = se) − P(Aj = s|s∗ )P(Ai = s∗ |Aj = se)|
+            b i = s∗ |Aj = se) − P
+          ≤|P(A                   b−m (Ai = s∗ |Aj = se)| + |P
+                                                             b−m (Ai = s∗ |Aj = se) − P(Ai = s∗ |Aj = se)|.
+
+The first inequality holds due to the triangle inequality, while the second one holds as 0 ≤ 1{aj = s} ≤ 1 and Aj is
+               b−m . The third inequality holds due to P(Aj = s|S ∗ = s∗ ) ≤ 1.
+independent of P
+
+                                                             21
+                    Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+                                                                                                                      ∗
+              b i = s∗ |Aj = se) − P
+For the term |P(A                                                       b i = s∗ |Aj = se) = #{Ai =s ,Aj =es} and
+                                   b−m (Ai = s∗ |Aj = se)|, recall that P(A
+                                                                                                        s}
+                                                                                                  #{Aj =e
+                                     ∗
+b−m (Ai = s∗ |Aj = se) = #−m {Ai =s ,Aj =es} . Using Hoeffding’s inequality (Wainwright, 2019), it holds that with
+P                                  #−m {Aj =e
+                                            s}
+probability at least 1 − O(δ),
+                                                                                       r
+                                        ∗                           ∗                            1
+                           |#{Ai = s , Aj = se} − M P(Ai = s , Aj = se)| ≲ O(              M log( )),                      (8)
+                                                                                                 δ
+and                                                                          r
+                                                                                       1
+                                     |#{Aj = se} − M P(Aj = se)| ≲ O(            M log( )).                                (9)
+                                                                                       δ
+In addition, we know that |#{Ai = s∗ , Aj = se} − #−m {Ai = s∗ , Aj = se}| ≤ 1 and |#{Aj = se} − #−m {Aj = se}| ≤ 1.
+It then holds that
+                               b i = s∗ |Aj = se) − P
+                              |P(A                   b−m (Ai = s∗ |Aj = se)| ≲ O( 1 ),
+                                                                                    M
+when M ≳ Ω(log( 1δ )).
+                     b−m (Ai = s∗ |Aj = se) − P(Ai = s∗ |Aj = se)|, by replacing #{Ai = s∗ , Aj = se} and #{Aj = se}
+For the second term |P
+                  ∗
+with #−m {Ai = s , Aj = se} and #−m {Aj = se} respectively in Inequalities 8 and 9, it then holds that
+                                                                              r
+                                      ∗                     ∗                    1       1
+                        |P−m (Ai = s |Aj = se) − P(Ai = s |Aj = se)| ≲ O(
+                          b                                                         log( )),
+                                                                                 M       δ
+when M is sufficiently large.
+Therefore, we know that with probability at least 1 − Θ(δ), for every question, it holds that
+                                                                           r
+                                              ∗                  ∗            1        1
+                               |E[Adv ISP (s )] − E[Adv ISP (s )]| ≲ O(
+                                  d                                     e         log( )).
+                                                                              M        δ
+
+Here, we have M questions in total, so the cumulative failure probability is polynomial in M . Hence, we use O(·)
+                                                                                                             e to hide
+some logarithmic terms of M in the concentration upper bound.
+Together with Theorem 4.1 and choosing the constant before the failure probability δ elaborately, it yields that
+
+            d ISP (s∗ ) − AdvM V (s∗ )] ≥ E[Adv ISP (s∗ ) − AdvM V (s∗ )] − |E[Adv
+          E[Adv                                                                d ISP (s∗ ) − AdvISP (s∗ )]|
+                                          PN P                                   2
+                                                  j∈[N ]\{i} (Kxi − 1)(Kxj − 1)
+                                                                                       r
+                                            i=1                                            1     1
+                                        ≳                                          − O(
+                                                                                     e       log( )),
+                                                   (N − 1)K(K − 1)3                        M     δ
+
+which ends the proof.
+
+F. Omitted Details in Section 5
+F.1. Omitted Details in Section 5.1
+For the implementation of MV, we break ties randomly, and this procedure has little effect on the overall results. In Figure 1,
+we observe that as the number of choices K increases, the gap between ISP and MV gradually decreases, validating
+Theorem 4.1. At the same time, the gap between MV and SP first decreases and then stabilizes. This initial reduction
+arises because, as K grows, the accuracies of all three algorithms improve, thereby reducing the potential for further gains.
+Decomposing the factors that contribute to the decrease is an interesting direction for future research.
+
+F.2. Omitted Details in Section 5.2
+With some calculations, it holds that
+                                                    (          (1−xi )(1−xj )
+                                                     xi xj +       K−1        ,                       if sk = sl ,
+               P(Ai = sk |Aj = sl )[x1 , ..., xN ] = xi (1−xj )+(1−x  i )xj     (K−2)(1−xi )(1−xj )
+                                                            K−1             +        (K−1)2         , if sk ̸= sl .
+
+                                                               22
+                     Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+
+
+
+                                Figure 1. The performance gap between ISP and MV vanishes as K increases.
+
+
+                                                      #{Ai =sk ,Aj =sl }
+              P(Ai = sk |Aj = sl ) =
+Together with b                                         #{Aj =sl }       , we can use some gradient descent method to solve Equation (6),
+which yields
+                            hX                      (1 − xi )(1 − xj ) #{Ai = sk , Aj = sk } 2
+ x
+ b1 , ..., x
+           bN = arg min             (xi xj +                          −                     )
+               x1 ,...,xN                                K −1             #{Aj = sk }
+                            i,j,k
+                                    X              xi (1 − xj ) + (1 − xi )xj   (K − 2)(1 − xi )(1 − xj ) #{Ai = sk , Aj = sl } 2 i
+                            +                  (                              +                          −                     ) .
+                                                            K −1                      (K − 1)2               #{Aj = sl }
+                                i,j,k,l:k̸=l
+
+We can also explore alternative loss functions rather than squared loss here, which we leave as a direction for future research.
+
+F.3. Omitted Details in Section 5.3
+For the GPT family, we access the models exclusively through the Microsoft Azure API, using the default template with
+temperature=1.0 and top p=1.0. For the other open-source models, we generate responses on a single A100 GPU using
+vLLM (Kwon et al., 2023) with default seed 0. In the experiments, we observe that the relative performance ranking of the
+algorithms is robust to different random seeds.
+The UltraFeedback dataset contains 63,135 questions. We retain only those that comply with OpenAI’s content management
+policy, with 56,380 left. For each retained question, we randomly shuffle the two candidate responses and query different
+LLM agents using the following prompt template. We instruct the LLMs to provide only the final answer without any
+explanation, which facilitates cleaner data processing. While prompt engineering may further improve the accuracy of
+individual model responses, we leave this as an interesting direction for future research.
+
+**UltraFeedback prompt**: You are a helpful assistant.
+
+Original question, e.g., "Prompt: how can i develop a habit of drawing daily".
+
+There are two answers:
+A. One response, e.g., "Developing a daily habit of drawing can be challenging
+but with consistent practice and a few tips, it can become an enjoyable and
+rewarding part of your daily routine. Here are some strategies to help you
+develop the habit of drawing daily..."
+
+B. The other response, e.g., "As an AI language model, I cannot personally
+develop habits for you. But, here are some tips for developing a habit of drawing
+daily..."
+
+Which answer is better? Reply with only ’A’ or ’B’. Do not explain or repeat the
+
+                                                                          23
+                   Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+answers.
+The MMLU dataset contains 115,700 questions. Among them, 109,820 questions are successfully answered by all LLMs.
+For each question, we first randomly shuffle the four answer choices. We then query the models using the following prompt
+template.
+
+**MMLU prompt**: You are a helpful assistant.
+
+Original question, e.g., "A little stress is good, since it helps you keep
+motivated to meet your goals. However, too much stress is bad for your
+health...According to the passage, which of the following is NOT true?"
+
+There are four options.
+A. One option, e.g., "It’s unnecessary for you to do all the tasks by yourself."
+
+B. One option, e.g., "It helps you stay motivated to think about the undone
+tasks."
+
+C. One option, e.g., "It helps if you put your attention to one task at a time."
+
+D. One option, e.g., "It’s better to plan a specific time to do the task."
+
+Which option is correct? Reply with only ’A’, ’B’, ’C’, or ’D’. Do not explain or
+repeat the answer."
+The ARMMAN dataset contains health information and call records for 12,000 women. 11,785 cases are successfully
+answered by all LLMs. We treat a call as valid if its duration exceeds ten seconds. We provide the LLMs with the call
+reception records from the past ten weeks, and then query the models using the following simple prompt template.
+
+**ARMMAN prompt**: You are a helpful assistant.
+
+Brief introduction, e.g., "You are a mother enrolled in the ARMMAN Maternal
+and Child Healthcare Mobile Health program. ARMMAN is a nongovernmental
+organization in India dedicated to reducing maternal and neonatal mortality among
+underprivileged communities..."
+
+Your Background: e.g., "You enrolled in the program during the 9 week of your
+pregnancy. You are 35+ years old...You have had 0 stillbirth(s) and have 2 living
+child(ren)."
+
+Past Behavior: e.g., "The following is a record of your previous listening
+behavior (each representing one week): - Week 1: Listened for 0 seconds, Receive
+an automated voice message...- Week 10: Listened for 0 seconds, Receive an
+automated voice message"
+
+This Week’s Call Type: e.g., "You will receive an automated voice message this
+week."
+
+Task, e.g., "Based on this information, as well as the context of the program and
+on typical behavior of mothers in India, decide whether you will be engaged with
+the next health message..."
+
+Question: e.g., "Will you be engaged with the next health message (listening for
+at least 10 seconds)?"
+
+Instruction, e.g., "Please decide whether you will be engaged with the next
+
+                                                           24
+                   Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+health message: ’##Yes##’ for engagement (listening at least 10 seconds) or
+’##No##’ for lack of engagement (listening less than 10 seconds) in this week."
+
+
+There are two answers:
+A. One option, e.g., "##Yes##"
+
+B. The other option, e.g., "##No##"
+
+Which answer is better? Reply with only ’A’ or ’B’. Do not explain or repeat the
+answers."
+Beyond the generation, all our training-free aggregation steps can be conducted on a personal CPU with negligible
+cost. For instance, executing locally with an Apple M3 Pro CPU, the accuracy-estimation step of OW-L and OW-I on
+UltraFeedback takes only 10.3 and 6.1 seconds, respectively. The second aggregation step only needs around 0.1 seconds.
+Since the dominant cost in modern LLM pipelines typically comes from gradient-based training, our training-free approach
+avoids this bottleneck entirely. Enhancing the reasoning and aggregation stage in this way allows individuals and small
+organizations, who may lack large compute resources but can easily perform inference (e.g., calling APIs), to benefit from
+LLM improvements and contribute more effectively to the community.
+
+F.4. Omitted Details in Section 5.4
+Within each family, we use “S” to denote the strong model and “W” to denote the weak model. Accordingly, we abbreviate
+GPT-4o-2024-11-20, GPT-35-turbo-0125, Qwen2.5-Instruct-14B, Qwen2.5-Instruct-3B, Llama3.1-8B-Instruct, Llama3.2-
+1B-Instruct, Phi-4 and Phi-4-mini-instruct as GS, GW, QS, QW, LS, LW, PS and PW, respectively. We begin by presenting
+in Figure 2 the overall performance of these eight models on UltraFeedback, MMLU, and ARMMAN.
+
+
+
+
+                                Figure 2. Accuracy of different LLMs across the three datasets.
+
+
+We also find that the distribution of answers from the selected models is nearly uniform over the candidates, for example,
+on the ARMMAN Healthcare dataset, GPT-4o-2024-11-20 selects option A 49.7% of the time and option B 50.3% while
+Qwen2.5-Instruct-14B chooses A 51.4% and B 48.6%, indicating minimal position effects. Therefore, we can conclude that
+random shuffling does not affect the model responses significantly.
+We now present the results of the 16 ensembles on UltraFeedback in Table 7, on MMLU in Table 8 and on ARMMAN
+in Table 9. For completeness, we include another two baselines. We will compare with SP, though it’s even weaker than
+MV theoretically, and we also run Dawid-Skene (DS) Algorithm (Dawid & Skene, 1979), which is a variation of the
+Expectation–Maximization (EM) Algorithm. We detail all baselines as follows.
+
+                                                              25
+                     Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Baselines.    We compare our aggregation methods (OW-L, OW-I and ISP) against the following baselines:
+
+   • Majority Voting (MV): The standard zero-order aggregation method that treats all agents equally. This serves as our
+     primary baseline, representing the status quo in most ensemble settings (Li, 2024; Elumar et al., 2025; Subramaniam
+     et al., 2025).
+
+   • Dawid-Skene Algorithm(DS) (Dawid & Skene, 1979): A classic probabilistic method that estimates agent confusion
+     matrices via Expectation-Maximization.
+
+   • Surprising Popularity (SP): The seminal second-order aggregation method (Prelec et al., 2017). Although Theorem 4.1
+     and Table 2 suggest SP is inferior to MV in this specific context, we include it for completeness to demonstrate
+     the baseline performance of traditional second-order methods and to highlight the effectiveness of our proposed
+     counterfactual modification, namely ISP.
+
+We remark that we don’t compare against more complex multi-agent reasoning over multiple rounds or post-training
+frameworks (e.g., LLM debate (Du et al., 2023)). Our method focuses on one-round, training-free aggregation of fixed
+outputs. More complex methods often rely on MV for their final consensus (Li, 2024; Elumar et al., 2025; Subramaniam
+et al., 2025), thus our aggregator is orthogonal to these approaches and can potentially replace MV within their pipelines to
+further boost performance.
+We observe three key trends, which reveal a clear dominance of higher-order aggregation.
+
+   • In every single ensemble configuration across all datasets, the highest accuracy is achieved by our proposed methods.
+     Specifically, OW-L and OW-I yield the best performance in the vast majority of cases, with ISP occasionally achieving
+     the top score.
+
+   • With rare exceptions, all three of our methods (OW-L, OW-I, and ISP) consistently outperform both the standard
+     zero-order baseline (MV) and the traditional second-order method (SP). This confirms that our framework effectively
+     extracts higher-order signals that these baselines miss, regardless of the specific composition of the model ensemble.
+
+   • Furthermore, OW-L and OW-I consistently outperform DS. This indicates that our approaches provide more accurate
+     and robust aggregation methods than classic probabilistic methods in unsupervised LLM aggregation settings. The
+     information hierarchy can essentially improve aggregation performance.
+
+
+Table 7. Experimental Results: We report the overall accuracy for different LLM ensembles on UltraFeedback. In the tables, the best
+results are highlighted in bold.
+
+                         Accuracy            OW-L        OW-I          ISP        SP        MV           DS
+                      (GS, QS, LS, PS)      73.66%      73.66%       73.26%     72.25%     72.21%      73.08%
+                     (GS, QS, LS, PW)       72.64%      72.64%       72.09%     72.07%     69.89%      71.99%
+                     (GW, QS, LS, PS)       70.88%      71.15%       70.78%     70.75%     68.01%      70.82%
+                    (GW, QS, LS, PW)        69.00%      69.00%       67.73%     67.71%     65.11%      67.85%
+                     (GS, QS, LW, PS)       73.66%      73.66%       73.18%     73.07%     72.11%      73.20%
+                    (GS, QS, LW, PW)        72.64%      72.64%       71.57%     71.47%     69.23%      71.88%
+                    (GW, QS, LW, PS)        71.15%      71.15%       70.46%     70.35%     67.20%      70.02%
+                   (GW, QS, LW, PW)         67.10%      67.10%       66.77%     66.68%     64.18%      66.52%
+                     (GS, QW, LS, PS)       71.19%      71.19%       71.74%     71.73%     71.15%      71.12%
+                    (GS, QW, LS, PW)        69.17%      69.17%       68.66%     68.65%     67.81%      68.80%
+                    (GW, QW, LS, PS)        69.87%      69.87%       67.97%     67.96%     66.09%      67.91%
+                   (GW, QW, LS, PW)         63.08%      63.08%       63.90%     63.89%     62.84%      63.01%
+                    (GS, QW, LW, PS)        72.78%      72.78%       70.17%     70.11%     70.23%      71.55%
+                   (GS, QW, LW, PW)         69.17%      69.17%       67.30%     67.26%     66.59%      67.82%
+                    (GW, QW, LW, PS)        68.33%      68.33%       66.45%     66.39%     64.75%      66.22%
+                   (GW, QW, LW, PW)         63.32%      63.32%       62.41%     62.37%     61.07%      63.05%
+
+
+                                                                26
+                     Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Table 8. Experimental Results: We report the overall accuracy for different LLM ensembles on MMLU. In the tables, the best results are
+highlighted in bold.
+
+                         Accuracy             OW-L         OW-I         ISP         SP        MV           DS
+                      (GS, QS, LS, PS)       90.37%       90.37%      90.01%      88.26%     89.32%      90.10%
+                     (GS, QS, LS, PW)        89.59%       89.74%      89.26%      84.54%     87.09%      89.18%
+                     (GW, QS, LS, PS)        87.62%       87.57%      87.08%      84.61%     86.06%      87.15%
+                    (GW, QS, LS, PW)         85.36%       85.36%      83.33%      81.47%     82.60%      83.79%
+                     (GS, QS, LW, PS)        90.42%       90.51%      90.20%      86.59%     89.57%      89.98%
+                    (GS, QS, LW, PW)         89.63%       89.61%      88.99%      82.57%     86.82%      87.63%
+                    (GW, QS, LW, PS)         87.90%       87.91%      87.23%      82.56%     86.01%      86.45%
+                   (GW, QS, LW, PW)          84.72%       84.75%      82.88%      78.27%     81.38%      82.97%
+                     (GS, QW, LS, PS)        89.03%       89.03%      88.57%      86.28%     87.49%      88.05%
+                    (GS, QW, LS, PW)         87.27%       87.27%      85.14%      83.11%     84.26%      86.17%
+                    (GW, QW, LS, PS)         84.58%       84.58%      83.92%      82.90%     83.57%      83.61%
+                   (GW, QW, LS, PW)          80.82%       80.77%      80.45%      79.36%     79.98%      80.33%
+                    (GS, QW, LW, PS)         89.35%       89.38%      88.64%      83.86%     87.55%      88.05%
+                   (GS, QW, LW, PW)          86.73%       86.77%      84.75%      79.70%     83.26%      85.23%
+                    (GW, QW, LW, PS)         84.49%       84.80%      84.03%      79.94%     82.89%      83.11%
+                   (GW, QW, LW, PW)          80.10%       80.39%      79.40%      75.62%     78.18%      79.64%
+
+Table 9. Experimental Results: We report the overall accuracy for different LLM ensembles on ARMMAN. In the tables, the best results
+are highlighted in bold.
+
+                         Accuracy             OW-L         OW-I         ISP         SP         MV           DS
+                      (GS, QS, LS, PS)       85.78%       85.78%      85.78%      84.60%      85.24%      85.49%
+                     (GS, QS, LS, PW)        85.38%       85.35%      85.35%      81.03%      83.41%      85.05%
+                     (GW, QS, LS, PS)        84.30%       84.57%      82.77%      82.69%      78.96%      82.90%
+                    (GW, QS, LS, PW)         77.92%       81.04%      79.50%      79.42%      75.74%      77.60%
+                     (GS, QS, LW, PS)        85.78%       85.78%      85.78%      72.1%       84.83%      85.20%
+                    (GS, QS, LW, PW)         85.35%       85.35%      85.35%      69.50%      82.55%      84.76%
+                    (GW, QS, LW, PS)         84.30%       84.59%      82.32%      72.82%      78.76%      82.51%
+                   (GW, QS, LW, PW)          74.48%       77.46%      77.37%      77.36%      74.99%      76.69%
+                     (GS, QW, LS, PS)        84.89%       84.89%      85.18%      77.26%      81.33%      82.83%
+                    (GS, QW, LS, PW)         85.32%       81.16%      80.64%      80.60%      78.08%      80.05%
+                    (GW, QW, LS, PS)         84.30%       73.36%      73.31%      72.19%      72.72%      73.20%
+                   (GW, QW, LS, PW)          74.48%       68.85%      68.82%      68.54%      69.06%      68.62%
+                    (GS, QW, LW, PS)         84.63%       84.58%      83.66%      74.06%      78.00%      82.85%
+                   (GS, QW, LW, PW)          85.32%       79.75%      80.06%      71.46%      74.73%      79.98%
+                    (GW, QW, LW, PS)         84.30%       68.53%      72.16%      64.36%      70.10%      71.15%
+                   (GW, QW, LW, PW)          74.48%       74.48%      67.06%      61.89%      65.35%      68.89%
+
+
+We further run some statistical tests. Using the four strong models (GS,QS,LS,PS) as an example, we find that the advantage
+of our second-order method over the zero-order method MV is statistically significant. We first provide a per-question
+comparison in Table 10. We now show the details on how to calculate the t-statistics. For strictness, we even consider
+the correlation among different questions. Assuming independence or using other combinations will yield similar results.
+For the i-th question, we use xi ∈ {0, 1} to indicate whether OW-L outputs the correct answer, and yi is for MV. For
+UltraFeedback, we know that among the xi − yi values, 2,545 equal 1, 1,727 equal -1, and 52,108 equal 0. Therefore, the
+variance of xi − yi is 0.0756 and the corresponding t-statistic is
+
+                                                              2545 − 1727
+                                            t-statistic = √                  ≈ 12.53.
+                                                              56380 ∗ 0.0756
+
+The computation process for MMLU and ARMMAN is the same. These t-tests show that our algorithm consistently
+outperforms MV and provide statistically rigorous evidence of its superiority.
+
+                                                                 27
+                     Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+                    Table 10. Per-question Comparison: MV wrong → Ours correct / Ours wrong → MV correct.
+
+                              Discrepancy Counts       UltraFeedback             MMLU            ARMMAN
+                                    OW-L                2545 / 1727             1821 / 659        264 / 195
+                                     OW-I               2545 / 1727             1821 / 659        264 / 195
+                                      ISP               2369 / 1762             1522 / 667        264 / 195
+
+
+We further add a stress test for correlated models by selecting two model families and including both strong and weak variants
+from each, inducing shared error patterns. Across all three datasets, ISP, OW-L and OW-I still significantly outperform MV,
+with even larger gains (up to 7.7%) than in mixed-family settings as shown in Tables 11 to 13. This highlights the robustness
+and general effectiveness of our methods.
+
+Table 11. Experimental Results for Correlated LLM Ensembles on UltraFeedback. In the tables, the best results are highlighted in bold.
+
+                                    Accuracy              MV            OW-L         OW-I              ISP
+                               (QS, QW, GS, GW)          71.25%        73.13%       72.38%           73.13%
+                               (QS, QW, LS, LW)          66.56%        71.12%       71.12%           68.22%
+                               (QS, QW, PS, PW)          69.88%        71.16%       71.37%           70.89%
+                               (GS, GW, LS, LW)          63.58%        65.22%       65.22%           66.44%
+                               (GS, GW, PS, PW)          69.37%        71.21%       71.21%           70.92%
+                                (LS, LW, PS, PW)         64.34%        66.60%       68.03%           66.60%
+
+   Table 12. Experimental Results for Correlated LLM Ensembles on MMLU. In the tables, the best results are highlighted in bold.
+
+                                    Accuracy              MV            OW-L         OW-I              ISP
+                               (QS, QW, GS, GW)          88.37%        89.77%       89.77%           89.79%
+                               (QS, QW, LS, LW)          82.64%        85.23%       85.23%           83.95%
+                               (QS, QW, PS, PW)          86.60%        87.96%       87.96%           87.88%
+                               (GS, GW, LS, LW)          81.97%        84.59%       84.59%           83.34%
+                               (GS, GW, PS, PW)          86.80%        88.42%       88.42%           88.45%
+                                (LS, LW, PS, PW)         78.99%        81.11%       81.11%           80.47%
+
+
+G. Omitted Details in Section C
+G.1. Proof of Theorem C.2
+For any a1 , · · · , aN , s, We now have
+                                                     P(A1 = a1 , · · · , AN = aN | S ∗ = s)P(S ∗ = s)
+        P(S ∗ = s | A1 = a1 , · · · , AN = aN ) =
+                                                             P(A1 = a1 , · · · , AN = aN )
+                                                                            eαβi
+                                                                   Q
+                                                                                                 P(S ∗ = s)
+                                                   = Eα∼D(α) QN i:ai =s                ×
+                                                               i=1 (K − 1 + e
+                                                                                 αβi )   P(A1 = a1 , · · · , AN = aN )
+                                                                            eαβi
+                                                                   Q
+                                                                                                 P(S ∗ = s)
+                                                   = Eα∼D(α) QN i:ai =s                ×
+                                                               i=1 (K − 1 + e
+                                                                                 αβi )   P(A1 = a1 , · · · , AN = aN )
+                                                                            P
+                                                                       eα   i:ai =s βi
+                                                                                                            P(S ∗ = s)
+                                                   = Eα∼D(α) QN                                  ×                                 .
+                                                                   i=1 (K − 1 + e
+                                                                                         αβi )       P(A1 = a1 , · · · , AN = aN )
+                                                                    ∗
+               P optimal aggregator chooses sb = arg maxs P(S = s|A1 = a1 , ..., AN = aN ), we then only need to
+Since the Bayesian
+compare among i:ai =s βi for all s. It is equivalent to aggregate as
+                                                                N
+                                                                X
+                                                 sb = arg max          βi 1{ai = s},
+                                                         s∈S    i=1
+
+which concludes the proof.
+
+                                                                  28
+                       Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+ Table 13. Experimental Results for Correlated LLM Ensembles on ARMMAN. In the tables, the best results are highlighted in bold.
+
+                                      Accuracy           MV            OW-L         OW-I      ISP
+                                 (QS, QW, GS, GW)       81.67%        85.32%       85.14%   85.35%
+                                 (QS, QW, LS, LW)       76.27%        78.74%       83.97%   79.90%
+                                 (QS, QW, PS, PW)       83.15%        84.82%       84.82%   84.58%
+                                 (GS, GW, LS, LW)       74.63%        82.18%       78.88%   77.28%
+                                 (GS, GW, PS, PW)       82.34%        84.76%       84.76%   84.72%
+                                  (LS, LW, PS, PW)      78.48%        82.63%       80.44%   80.44%
+
+
+G.2. Proof of Theorem C.3
+We now show that, with the existence of α, it still holds that ISP outperforms MV, which in turn outperforms SP. Note that
+we assume we don’t know the difficulty level α for each question; otherwise, we can always group questions with the same
+α. We study the case where there are only two labels. We use xi (α) to denote the accuracy under difficulty α.
+First, we have the following equations,
+
+                                          x1 (α)(1 − x2 (α)) + (1 − x1 (α))x2 (α)    K −2
+      P(A1 = si |A2 = sj ) = ED(α)                                                +          (1 − x1 (α))(1 − x2 (α)),
+                                                          K −1                      (K − 1)2
+
+for any si ̸= sj and
+                                                                               (1 − x1 (α))(1 − x2 (α))
+                              P(A1 = si |A2 = si ) = ED(α) x1 (α)x2 (α) +                               .
+                                                                                        K −1
+
+Recall that for any question, we use s∗ to denote the true label. For this question, due to the linearity of the expectation, we
+only need to prove that for any α and α′ , it holds that
+
+                    x1 (α′ )(1 − x2 (α′ )) + (1 − x1 (α′ ))x2 (α′ )     K −2
+ g(β1 , β2 ) =x2 (α)[                                               +           (1 − x1 (α′ )(1 − x2 (α′ )))]
+                                         K −1                          (K − 1)2
+                1 − x2 (α)                      (1 − x1 (α′ ))(1 − x2 (α′ ))
+              +             [x1 (α′ )x2 (α′ ) +                              ]
+                   K −1                                   K −1
+                              K − 2 x1 (α′ )(1 − x2 (α′ )) + (1 − x1 (α′ ))x2 (α′ )     K −2
+              + (1 − x2 (α))          [                                             +            (1 − x1 (α′ )(1 − x2 (α′ )))]
+                              K −1                        K −1                        (K − 1)2
+                 1
+              −     ≤ 0.
+                K
+                        αβi
+Recall that xi = eαβei +K−1 for any α. Therefore, it holds that
+
+                                            ′      ′
+                                       eα β1 + eα β2 + K − 2                      eαβ2           K −2
+                   g(β1 , β2 ) =              α′ β               α′ β
+                                                                         (                 αβ
+                                                                                               +      )
+                                   (K − 1 + e      1 )(K − 1 + e      2 ) (K − 1)(K − 1 + e ) K − 1
+                                                                                             2
+
+                                                                               ′
+                                                      1                eα (β1 +β2 ) + K − 1   1
+                                    +              ′β                (                      )− .
+                                                  α             αβ
+                                        (K − 1 + e 2 )(K − 1 + e 2 )     K − 1 + eα′ β1       K
+
+Notice that when β1 = 0, we have g(0, β2 ) = 0. We now calculate the partial derivative of g with respect to β1 . It holds that
+                                                        ′                          ′
+                                 ∂g             α′ eα β1 (eαβ2 − 1)(1 − eα β2 )
+                                     =                                                    ≤ 0.
+                                 ∂β1   (K − 1 + eαβ2 )(K − 1 + eα′ β2 )(K − 1 + eα′ β1 )2
+
+Therefore, we know that g(β1 , β2 ) ≤ g(0, β2 ) = 0 as β1 ≥ 0 holding for any difficulties α and α′ . By symmetry, it suffices
+to average over the other agents, which does not alter the fact that the expected advantage of ISP remains greater than that of
+MV. We hence conclude that E[AdvISP (s∗ )] ≥ E[AdvM V (s∗ )] similar as the proof of Theorem 4.1.
+
+                                                                 29
+                     Beyond Majority Voting: LLM Aggregation by Leveraging Higher-Order Information
+
+Similarly, when we compare MV with SP, we only need to prove
+
+                                                                  (1 − x1 (α′ ))(1 − x2 (α′ ))
+                          h(β1 , β2 ) =x2 (α)[x1 (α′ )x2 (α′ ) +                               ]
+                                                                            K −1
+                                                          x1 (α )(1 − x2 (α )) + (1 − x1 (α ))x2 (α′ )
+                                                               ′            ′                 ′
+                                          + (1 − x2 (α))[
+                                                                              K −1
+                                              K −2                                    1
+                                          +           (1 − x1 (α )(1 − x2 (α′ )))] −
+                                                                  ′
+                                                                                          ≥ 0.
+                                            (K − 1)2                                  K
+
+It then holds that
+                                                                   ′
+                                             eαβ2           eα (β1 +β2 ) + K − 1
+                          h(β1 , β2 ) =
+                                          K − 1 + eαβ2 (K − 1 + eα′ β1 )(K − 1 + eα′ β2 )
+                                                                       ′    ′
+                                                 K −1         eα β1 + eα β2 + K − 2          1
+                                          +                                                 − .
+                                              K − 1 + e 2 (K − 1 + eα′ β1 )(K − 1 + eα′ β2 ) K
+                                                       αβ
+
+
+Notice that when β1 = 0, it holds that h(0, β2 ) = 0 for all β2 . In addition, with some calculations, it holds that
+                                                    ′                           ′
+                              ∂h         α′ eα β1 (K − 1)(eαβ2 − 1)(eα β2 − 1)
+                                  =                                                    ≥ 0.
+                              ∂β1   (K − 1 + eαβ2 )(K − 1 + eα′ β2 )(K − 1 + eα′ β1 )2
+
+Therefore, we know that h(β1 , β2 ) ≥ h(0, β2 ) = 0 for all β2 ≥ 0, yielding E[AdvSP (s∗ )] ≤ E[AdvM V (s∗ )] due to the
+linearity of expectation.
+Despite the difficulty of questions being unknown in general LLM reasoning settings, ISP still enjoys a larger expected
+advantage compared to majority voting. This demonstrates the robustness of our approach in more general scenarios and
+highlights its broad applicability.
+
+
+
+
+                                                                30
+

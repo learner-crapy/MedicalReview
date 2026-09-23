@@ -1,0 +1,1508 @@
+                                                              Auditing Multi-Agent LLM Reasoning Trees
+                                                             Outperforms Majority Vote and LLM-as-Judge
+
+                                                                  Wei Yang* , Shixuan Li* , Gengshuo Liu, Heng Ping
+                                                                    Peiyu Zhang, Paul Bogdan† , Jesse Thomason†
+                                                                           University of Southern California
+                                                                 {wyang930,sli97750,pbogdan,jessetho}@usc.edu
+
+
+                                                              Abstract                                        "Following the
+                                                                                                              herd off a cliff."
+                                                                                                                                          "The road less
+                                                                                                                                            traveled."
+
+
+
+                                            Multi-agent systems (MAS) can substantially
+
+
+
+
+arXiv:2602.09341v2 [cs.AI] 3 Sep 2026
+                                            extend the reasoning capacity of large language                       Decision                   Decision
+
+                                            models (LLMs). Most MAS frameworks ag-
+                                            gregate agent outputs via simple majority vot-                    Majorit y Voting             AgentAuditor
+                                            ing, discarding the evidential structure of rea-
+                                            soning traces. Majority voting is brittle under          Figure 1: Majority voting vs. AGENTAUDITOR. Left:
+                                            confabulation consensus, where agents share              Majority voting leads to an incorrect consensus. Right:
+                                            correlated biases and converge on the same in-           AGENTAUDITOR audits localized branch evidence on a
+                                            correct rationale. We introduce AGENTAUDI -              reasoning tree to select the correct minority answer.
+                                            TOR , which moves beyond frequency-based
+                                            aggregation by organizing agent traces into
+                                            a Reasoning Tree that explicitly represents              2023; Zhu et al., 2025).
+                                            agreements and divergences in their reason-
+                                                                                                        Despite rich upstream interaction, the final de-
+                                            ing. AGENTAUDITOR resolves conflicts by
+                                            comparing branch-level evidence at critical di-          cision is often reduced to majority voting (Hong
+                                            vergence points, turning global adjudication             et al., 2023; Ning et al., 2023). Diverse reason-
+                                            into efficient, localized verification. We further       ing traces, intermediate evidence, and agent-level
+                                            propose Anti-Consensus Preference Optimiza-              disagreements are compressed into context-free an-
+                                            tion (ACPO), which trains the adjudicator with           swer counts (Xie et al., 2023; Zhang et al., 2024d).
+                                            evidence-verified preference supervision to re-
+                                                                                                        This compression is problematic because LLM
+                                            duce conformity to misleading majority cues.
+                                            Across four MAS frameworks and multiple rea-             agents are not independent voters: they often share
+                                            soning benchmarks, AGENTAUDITOR consis-                  pretraining distributions, alignment biases, and
+                                            tently improves aggregation performance over             prompt-induced anchors. As a result, multiple
+                                            majority voting, with gains of up to 5% abso-            agents may reinforce the same erroneous rationale,
+                                            lute accuracy while remaining token-efficient.           producing a confabulation consensus in which an-
+                                                                                                     swer frequency no longer reliably tracks validity.
+                                        1   Introduction                                             We focus on majority-failure cases, where the ma-
+                                        Multi-agent systems (MAS) built on large language            jority answer is wrong but at least one minority
+                                        models (LLMs) are becoming an increasingly                   trace contains the correct reasoning path.
+                                        common paradigm for complex problem-solving                     We propose AGENTAUDITOR, a structure-aware
+                                        tasks (Zhang et al., 2024a; Qiao et al., 2024; Han           auditing framework for evidence-based aggrega-
+                                        et al., 2025). By orchestrating multiple LLM agents          tion in MAS. AGENTAUDITOR targets cases where
+                                        through debate and critique (Du et al., 2023; Liu            the correct reasoning path is present but outnum-
+                                        et al., 2024), dynamic computation graphs (Zhang             bered by a correlated erroneous majority (Figure 1),
+                                        et al., 2024c; Han et al., 2025), and structured             and organizes collective reasoning traces into a
+                                        communication topologies (Gabriel et al., 2024;              Reasoning Tree where agreements form shared pre-
+                                        Li et al., 2025a), modern MAS can expand rea-                fixes and disagreements become explicit branch
+                                        soning beyond single-pass generation (Park et al.,           points. A Structure-Adaptive Auditor then per-
+                                            *
+                                                                                                     forms localized adjudication at Critical Divergence
+                                              Equal contribution.
+                                            †
+                                              Corresponding authors.
+                                                                                                     Points (CDPs), converting global trace evaluation
+                                            1
+                                              Code: https://github.com/weiyang930/AgentAuditor.git   into targeted branch-level comparison. The core
+framework can be used with a frozen auditor, and         2023; Chen et al., 2024; Wei et al., 2025), whose
+we further introduce Anti-Consensus Preference           reliability is closely tied to the assumption that indi-
+Optimization (ACPO), which fine-tunes the auditor        vidual errors are sufficiently independent (Austen-
+with evidence-verified preference supervision to         Smith and Banks, 1996). This assumption is fragile
+reduce conformity to popular-but-wrong branches.         in LLM-based MAS: agents often share pretraining
+The main contributions of this work are:                 distributions, alignment preferences, and prompt-
+   • We identify confabulation consensus as a crit-      induced anchors, making their errors correlated
+     ical failure mode of multi-agent aggregation,       rather than independent (Jiang et al., 2023; Qiao
+     where correlated reasoning errors make major-       et al., 2024). Such dependencies can produce con-
+     ity voting suppress correct minority evidence.      fabulation consensus, where multiple agents repeat
+   • We propose AGENTAUDITOR, a Reasoning                the same unsupported rationale and converge on a
+     Tree-based auditing framework for localized         plausible but incorrect answer (Mahaut et al., 2024;
+     evidence comparison, together with ACPO, a          Coeckelbergh, 2025).
+     training strategy that reduces conformity to           To improve reliability, recent work explores ref-
+     misleading majority cues in the Auditor.            eree agents, debate adjudication, and peer-review
+   • Extensive experiments across multiple MAS           style evaluation of reasoning trajectories (Ab-
+     frameworks and reasoning benchmarks show            delnabi et al., 2023; Du et al., 2023; Wang et al.,
+     that AGENTAUDITOR consistently improves             2025). These approaches move beyond raw an-
+     over majority voting, with particularly strong      swer counting, but they typically evaluate whole
+     gains in majority-failure cases where correct       traces or single-agent outputs rather than localizing
+     answers appear only in minority branches.           the specific disagreement that separates competing
+                                                         multi-agent reasoning paths (Lambert et al., 2024;
+2     Related Work                                       Setlur et al., 2024). This motivates structure-aware
+                                                         adjudication mechanisms that compare branch-
+2.1    LLM-based Multi-Agent Reasoning
+                                                         level evidence at decision-critical divergences in-
+LLM-based multi-agent systems (MAS) have be-             stead of relying solely on answer frequency or full-
+come a common strategy for improving complex             trace judging. A fuller related-work taxonomy and
+reasoning by enabling distributed exploration, cri-      comparisons appear in Appendix C.2.
+tique, and coordination (Hong et al., 2023; Chen
+et al., 2023a; Wu et al., 2024; Zhang et al., 2024c;     3   Problem setup.
+Ning et al., 2023; Qiao et al., 2024; Pan et al.,
+2024). Prior work spans (i) pre-structured inter-        Given a query q, a multi-agent system produces
+action protocols such as debate-style exchanges          a set of agent outputs O = {o1 , . . . , oN }, where
+or fixed topologies that regulate information flow       each output contains a reasoning trace and a final
+and verification (Du et al., 2023; Liu et al., 2024),    answer ŷ(oi ). An aggregator maps these outputs to
+and (ii) self-organizing paradigms that dynamically      a single prediction, ŷ = f (O, q). Majority voting
+route, prune, or evolve collaboration graphs for         instantiates f by selecting the most frequent final
+efficiency and diversity (Hu et al., 2024; Zhuge         answer, but this can fail when correlated agents sup-
+et al., 2024; Zhang et al., 2024c). While these          port the same erroneous hypothesis while a correct
+methods primarily optimize how agents interact,          solution appears only in a minority trace. We call
+they often leave the final adjudication rule compar-     this regime confabulation consensus. Our goal is to
+atively under-specified, which can make the collec-      design an aggregator that is robust to answer mul-
+tive outcome vulnerable when agent errors are cor-       tiplicity while remaining sensitive to branch-level
+related (Wei et al., 2025; Jiang et al., 2025; Alsadat   evidence. Appendix F.1 provides the full formal
+and Xu, 2024; Lin et al., 2025). A more compre-          setup and objective.
+hensive discussion is provided in Appendix. C.1.
+                                                         4   Methodology
+2.2    Evaluation and Adjudication in MAS                In this section, we describe the main components
+A central challenge in multi-agent reasoning is con-     and overall workflow of AGENTAUDITOR, whose
+verting diverse reasoning traces into a reliable final   architecture is illustrated in Figure 2. We intro-
+decision. Many systems still rely on majority vot-       duce the Reasoning Tree construction, localized
+ing or simple ensembling heuristics (Chan et al.,        evidence auditing, and the subsequent aggregation
+                                                                                                                                                   2
+                                                                                                                                                        Steps Embedding
+                                                                                                                             ...                            Similarit y
+                                                                                                                                                                                                                            Initialization
+                                                                                                                                                                                                                                                    Bif urcation Processing
+                                                                                                                                                                                          Question
+  Solve for x:                                                                                                                                                                                                                                                                  ...
+                                             Generation                                                                                                          Step a,1                                                                        Sn,1            Sn,2                               Sn,L
+   2sin² (x) +                                                                                 Reasoning Segmentation + Fallback                                                                      Node Structure
+
+                                                                                                                                                                                                                                              divergence node
+  3cos(x) = 0 ,                                                                        S 1,1                  S 2,1                       S L,1                                                       {" Support_agents" : [1, 2,..,L]
+                                             Ref lection
+                                                                                                                                                                                               S1
+                                                                                                                                                                             Threshold
+                                                                                                                                                                                                      " Node_embedding_centroid" : ...
+   w here x ?              Actor                             Ref lector               S 1,2                   S 2,2
+                                                                                                                            ...
+                                                                                                                                          S L,2                  Step b,1
+
+                                                                                                                                                                                                      "Answer_distribution_hint" : ...
+                                                                                                                                                                                                                                                context_steps (Node
+                                                                                                                                                                                                                                                                                         Sn- 1,1
+                                                                                                                                                                                                                                                   shared prefix)
+      [0, ?]                                                                          S 1,3                   S 2,3                       S L,3                                                       " Evidence_cache" :[S1,S3,...,Sn]}
+
+                                                                                        ...                       ...                      ...                                                 S2
+                                             Ref lection
+                                                                                      S 1,n 1                S 2,n 2                     S L,nL        Context-Aware
+                                                                                                                                                                                                                                               evidence_steps (Each
+                                                                                                                                                        Adjudication                                                                               node' s suffix)
+                                                                                                                                                                                                                                                                                  Sn+1,1 . . . Sn+k,1
+  Solve for x:                                               Round1
+
+  ? (2x + 3) +                                               Round2
+                                                                                                                                Encoder
+                                                                                                                                                                            S3                ...                      S3
+                                                                                                                                                                                                                                             Agent Input
+
+
+      x=9                                                                             Step- level segmentation and Encoding                               Correct                                                             Wrong
+    A) x = 3                                                                                                                                              Branch                                                              Branch
+    B) x = 6                                                                     ? Evidence-Verif ied
+                                                                                   Correct Branch
+                                                                                                                            Evidence-Verif ied
+                                                                                                                           Incorrect Branch                                 S4                                         S4                       Factual                  Logical                     Other
+
+    C) x = 7                                                                                                                                                                                                                                   Accuracy                 Soundness                   Rubrics
+
+
+    D) x = 11                                                                              Sn                         Sn                   Sn
+                                               Debate
+                                                                                                                                                            S5              S5           S5               S5                     S5
+                                                                                      ACPO Input
+                                                                                                                                                                                                                                                  Sn,1            Sn,2           ...                Sn,L
+  A train travels
+                                                                                 Pos label:
+                                                                                 Step1: Reliable Reasoning
+                                                                                                                                Gradient
+                                                                                                                                Backpropagation
+                                                                                                                                                                                                    ...
+                                                 Expert1
+    180 km in 2                                                                  Neg label:
+                                                                                                                                                                            BEAM
+                                                                                                                                                                                                                                 S6
+                                                                                 Step1: Hallucination Reasoning
+  hours. How f ar                                                                Step2: False Reasoning                                                  beam_size: K                         Sn       Sn
+                                                                                                                                                         Input: [Sn,Sn , .. ,Sn]
+   does it travel        Expert2                                       Expert3
+                                                                                                                                                                                                                        Final Audit
+                                                                                                                                                                                                                                              {" winner_branch ": [Sn,1]
+                                                                                                                                                         Output: [Sn, Sn]
+   in 5 hours at                                                                                             Loss- ACPO                                                                                                                       " reasons": {Sn,1: ... , Sn,2:..., ... , Sn,L:... }
+                                                                                                                                                         Function: Select                                        Output:
+     the same                                Communication                                                                                               Likely Steps under                                      Final Choice                 " fatal ": {Sn,1: True, Sn,2: False, ... , Sn,L: False} }
+                                                                                                                                                         Ambiguity
+      speed?
+                                   Expert4                   Expert5
+                                                                                                                                                                                                                                                                Auditor_output.json
+                                                                                                                                                         Ambiguit y Safet y Valve
+
+
+        ...                             Societ y of Mind
+                                                                                                Anti- Consensus Preference
+                                                                                                                                                                                                                                                        The Process Auditor Agent
+                                                                                                   Optimization (ACPO)
+
+
+                    Multi- Agent Sy stem Paradigm Requiring
+      Questions                                                                                                                  AgentAuditor: Agentic Structure- Adaptive Auditing Framew ork
+                        Eventual Collective Consensus
+
+
+
+
+Figure 2: Overall architecture of AGENTAUDITOR framework. Given a multi-agent slate of reasoning traces,
+AGENTAUDITOR performs structural semantic deduplication to construct a compact Reasoning Tree of distinct
+hypotheses. It then audits only decision-critical Divergence Points by comparing localized branch evidence
+and selecting plausible reasoning paths for final aggregation. For learnable auditing, we train the Auditor with
+Anti-Consensus Preference Optimization on consensus-trap instances.
+
+
+procedure.                                                                                                                                        4.1.2 Reasoning Tree Generation
+                                                                                                                                                  We construct a Reasoning Tree F = (V, E) by
+4.1       Epistemic Structure Construction                                                                                                        incrementally inserting the atomized traces T =
+AGENTAUDITOR operates on a structured abstrac-                                                                                                    {T1 , . . . , TN } into a shared representation space.
+tion of multi-agent reasoning. Given free-form                                                                                                    Each node v ∈ V represents a cluster of aligned
+traces, we construct a Reasoning Tree that clus-                                                                                                  reasoning steps and maintains a support set Sv
+ters semantically equivalent reasoning steps and                                                                                                  recording which agents traverse it. All traces are
+exposes disagreements as branch points. Nodes cor-                                                                                                inserted from a virtual root node, which provides
+respond to recurring atomic reasoning steps, edges                                                                                                a common starting point for tree construction but
+encode step-to-step progression, and branches ex-                                                                                                 does not correspond to any agent-generated reason-
+pose substantive divergences, providing a compact                                                                                                 ing step.
+substrate for localized auditing under shared con-
+                                                                                                                                                  Semantic alignment and branching. Let u be
+text.
+                                                                                                                                                  the current node and si,j the step to be inserted. We
+4.1.1         Trace Atomization                                                                                                                   compute a representation h(si,j ) and compare it
+                                                                                                                                                  with the existing children C(u) of u using a simi-
+Let the raw output of agent ai ∈ A be oi = (ri , ŷi ),
+                                                                                                                                                  larity function. Let
+where ri is a trace text and ŷi is the final answer.
+Because direct comparison across agents is brittle                                                                                                                                       v ∗ = argmax sim(si,j , v)                                                                                           (2)
+                                                                                                                                                                                                          v∈C(u)
+under lexical variation, we segment ri into shorter
+text spans representing local reasoning steps. We                                                                                                 denote the best matching child. Given a similar-
+use a decomposition function Φ : ri → Ti to obtain                                                                                                ity threshold τ , if sim(si,j , v ∗ ) ≥ τ , we integrate
+                                                                                                                                                  si,j into the corresponding node. Otherwise, we
+              Ti = Φ(ri ) = ⟨si,1 , si,2 , . . . , si,Li ⟩,                                                                     (1)               instantiate a new child for si,j , creating a new rea-
+                                                                                                                                                  soning branch. When multiple steps are merged
+where each step si,j is intended to capture a single                                                                                              into the same node, its representation is updated
+logical operation, factual assertion, or calculation.                                                                                             as the running mean of their step representations.
+This abstraction provides a common unit for cross-                                                                                                In our implementation, similarity is computed over
+agent alignment.                                                                                                                                  the step representations using cosine similarity.
+Node attribution. When inserting trace Ti , if              Auditing rubric. The Auditor evaluates candi-
+step si,j is assigned to node v, we add the source          date branches under a structured rubric R cov-
+agent ai to v’s support set:                                ering Factual Accuracy (RFACT ), which verifies
+                                                            arithmetic, stated facts, and checkable claims;
+                  Sv ← Sv ∪ {ai }.                   (3)    Logical Soundness (RLOG ), which checks deduc-
+                                                            tive validity and coherence with the shared prefix
+Thus, Sv records the agent support associated with          Hu ; Constraint Adherence (RCON ), which enforces
+each reasoning branch. Support frequency is not             problem-specific constraints; Assumption Valid-
+treated by the local Auditor as direct evidence of          ity (RASSUMP ), which checks whether introduced
+correctness, although majority support may later            assumptions are explicit and well supported; and
+be used as auxiliary information during inference.          Trace Hygiene (RHYG ), which favors concise and
+4.2   Structure-Adaptive Evidence Auditing                  evidence-dense reasoning without unnecessary or
+                                                            unsupported steps.
+Given the Reasoning Tree, AGENTAUDITOR in-
+troduces an external Auditor to adjudicate among            Discriminative output. The Auditor returns a
+competing branches. The Auditor receives local-             selected branch v ∗ :
+ized evidence extracted from the tree and selects
+the branch that is best supported by the shared                              v ∗ = fθ (Ψu ; R).               (5)
+context. Thus, AGENTAUDITOR resolves disagree-
+                                                            This design decouples generation from verification:
+ments through structure-adaptive auditing rather
+                                                            instead of re-solving the task from scratch, the Au-
+than evaluating entire traces in isolation. The key
+                                                            ditor compares the local evidence that separates
+idea is to localize adjudication to the points where
+                                                            competing branches.
+reasoning paths diverge, so the Auditor compares
+                                                               Starting from the root, AGENTAUDITOR itera-
+branch-specific evidence under a shared context.
+                                                            tively traverses the tree and invokes fθ (Ψu ) at each
+4.2.1 Divergence Packet Construction                        CDP. The selected branch determines the primary
+We traverse the Reasoning Tree F from the root              traversal path, while an optional beam-preservation
+and mark a node u as a Critical Divergence Point            mechanism can retain additional plausible branches
+(CDP) when it has at least two children, i.e.,              to reduce the risk of irreversible early pruning.
+|C(u)| ≥ 2. For each CDP u, we construct a Di-              4.3   Adaptive Inference via Conditional Beam
+vergence Packet that contains the shared context                  Search
+before the split and compact branch-specific ev-
+idence after it. Let Hu = ⟨h1 , . . . , hm ⟩ be the         Because a single early mis-adjudication can irre-
+sequence of representative step texts on the path           versibly prune the correct lineage, we introduce
+from the root to u. For each child v ∈ C(u), let            a lightweight conditional beam mechanism that
+Ev = ⟨ev,1 , . . . , ev,ℓv ⟩ be the next ℓv ≤ k represen-   can preserve alternative reasoning paths when ad-
+tative step texts along that branch, truncated earlier      ditional protection against early pruning is desired.
+if another CDP is reached. The packet is                    At a CDP u, AGENTAUDITOR can optionally ac-
+                                                            tivate a beam-preservation mechanism instead of
+              D                                 E
+       Ψu = Hu , {(Ev , Sv ) | v ∈ C(u)} . (4)              immediately committing to a single branch. When
+                                                            enabled, multiple plausible outgoing branches can
+Here, Hu and Ev are text sequences, and Sv ⊆                be retained as active candidates and propagated
+A records the agents whose traces pass through              through subsequent divergences, providing addi-
+branch v as auxiliary support information. This             tional protection against irreversible early pruning.
+packet focuses the Auditor on the immediate log-            When disabled, AGENTAUDITOR simply follows
+ical consequence of the divergence, rather than             the branch selected by the Auditor. If the surviv-
+downstream verbosity or full-trace noise.                   ing lineages eventually yield the same final answer,
+                                                            that answer is returned directly. When their final
+4.2.2 Context-Aware Adjudication                            answers differ, the Auditor performs a final adjudi-
+Given Ψu , the Auditor acts as a discriminative             cation over the surviving candidates, either by com-
+function fθ that selects the most reliable outgo-           paring their branch-level evidence or by indepen-
+ing branch based on contextual evidence, rather             dently solving the original problem and matching
+than judging isolated final answers.                        its derived answer. Otherwise, AGENTAUDITOR
+falls back to the majority-supported candidate as a     triplets (x, yw , yl ) with x = Ψdiv , where yw se-
+conservative default.                                   lects bgt and yl selects berr . We balance branch
+                                                        presentation across preference examples to reduce
+5     Anti-Consensus Preference                         positional and support-related shortcuts, encourag-
+      Optimization                                      ing the Auditor to discriminate branches based on
+Structure-adaptive auditing (Sec. 4) localizes where    their evidence rather than support frequency.
+disagreements should be resolved, but the Au-           5.3    Optimization Objective
+ditor must also remain evidence-driven when
+support counts are misleading. We therefore             We fine-tune the Auditor policy πθ from a fixed
+propose Anti-Consensus Preference Optimization          reference model πref using DPO on Dtrap . For each
+(ACPO), which constructs preference supervision         triplet (x, yw , yl ), where yw is the correct choice
+from evidence-verified cases and trains the Auditor     and yl is the incorrect choice under the same audit
+to decouple branch validity from majority support.      input x, we optimize:
+                                                                                "
+5.1    The Sycophancy Challenge in                                                              πθ (yw | x)
+                                                           LACPO = −EDtrap log σ β log
+       Adjudication                                                                            πref (yw | x)
+                                                                                                         !#
+When a divergence packet Ψu contains branches                                               πθ (yl | x)
+with highly imbalanced support, e.g., |Smaj | ≫                                   − β log                   .
+                                                                                           πref (yl | x)
+|Smin |, an instruction-tuned Auditor may prefer the
+                                                                                                             (7)
+majority branch even when its evidence is weaker.
+                                                        Here β controls the strength of the implicit KL reg-
+We characterize this sycophancy bias as:
+                                                        ularization to πref . Training on evidence-verified
+      Pπref (ymaj | Ψu ) > Pπref (ymin | Ψu ) ,         preferences reduces support-driven shortcuts and
+                                                  (6)   encourages evidence-grounded auditing.
+                       even when ymaj ̸= y ⋆ ,
+                                                        6     Experiments
+where y ⋆ denotes the ground-truth answer when
+available. Generic preference tuning may not ex-        We evaluate AGENTAUDITOR on six math-
+plicitly correct this bias when support frequency       intensive and general reasoning benchmarks
+remains correlated with correctness in the training     GSM8K, MATH, AMC, MMLU, MuSiQue
+data, allowing the model to use support count as a      and TriviaQA. We compare against representa-
+shortcut for validity.                                  tive single-agent baselines (Vanilla, CoT, Self-
+                                                        Consistency) and widely used multi-agent col-
+5.2    Constructing the “Consensus Trap”                laboration frameworks (LLM-Debate, DyLan,
+       Dataset                                          GPTSwarm and AgentPrune). AGENTAUDITOR is
+To counter majority-induced priors, we construct        integrated as a drop-in adjudication module that re-
+a targeted preference dataset Dtrap from evidence-      places only the final aggregation stage for fair com-
+verifiable cases with competing correct and incor-      parison. All models are instantiated using publicly
+rect branches. Rather than restricting supervision to   available instruction-tuned checkpoints Llama3-
+majority-failure cases, we include different support    3B/8B, Qwen2.5-3B/7B (Dubey et al., 2024; Bai
+configurations so that branch correctness cannot        et al., 2023). The full experimental setup is pro-
+be inferred from support frequency alone. Given         vided in Appendix D.1.
+multi-agent traces with ground truth y ⋆ , we retain
+instances in which correct and incorrect reasoning      6.1    RQ1: Does AGENTAUDITOR consistently
+branches coexist and can be reliably distinguished             improve MAS aggregation?
+using the ground-truth outcome. For each retained       Results in Table 1 demonstrate that AGENTAU -
+instance, we build its Reasoning Tree, locate the       DITOR consistently outperforms Majority Voting
+earliest relevant divergence separating competing       (MV) and LLM-as-Judge across four MAS archi-
+outcomes, and identify a branch bgt leading to          tectures and four reasoning benchmarks. Across
+y ⋆ and a branch berr leading to an incorrect an-       these settings, AGENTAUDITOR achieves an aver-
+swer. We then extract a divergence packet Ψdiv          age absolute improvement of approximately 3.2%
+containing the shared context, short branch evi-        over MV, with particularly clear gains on challeng-
+dence, and support statistics, and form preference      ing benchmarks such as AMC and GSM8K. These
+Table 1: Main Results (%) on Reasoning Benchmarks. We compare AGENTAUDITOR against standard Majority
+Voting (MV) across four different Multi-Agent System (MAS) architectures. Baseline results for single-agent
+methods are provided for reference. Values in parentheses indicate absolute improvement over the MV baseline.
+Additional results on the two QA benchmarks are reported in Appendix G.
+
+      Category       Method                  GSM8K          AMC            MATH           MMLU            Average
+                     Vanilla                 72.76          8.03           42.85          57.99           45.41
+      Single-Agent   CoT                     74.22          11.65          46.93          61.57           48.59
+                     SC (Self-Consistency)   80.79          12.45          51.28          68.30           53.21
+                     w/ MV                   83.52          19.28          54.85          67.59           56.31
+      LLM-Debate     w/ LLM-as-Judge         83.17          18.07          55.20          67.02           55.87
+                     w/ AGENTAUDITOR         87.43 (+3.9)   24.65 (+5.3)   57.93 (+3.1)   69.65 (+2.1)    59.92 (+3.6)
+                     w/ MV                   82.03          19.68          55.32          66.85           55.97
+      DyLan          w/ LLM-as-Judge         83.85          16.87          54.27          67.13           55.53
+                     w/ AGENTAUDITOR         87.58 (+5.5)   23.53 (+3.9)   58.12 (+2.8)   68.37 (+1.5)    59.40 (+3.4)
+                     w/ MV                   84.89          15.66          56.69          69.67           56.73
+      GPTSwarm       w/ LLM-as-Judge         82.64          18.07          53.53          68.34           55.65
+                     w/ AGENTAUDITOR         88.15 (+3.3)   21.38 (+5.7)   58.81 (+2.1)   70.75 (+1.1)    59.77 (+3.0)
+                     w/ MV                   84.38          16.47          54.37          69.09           56.08
+      AgentPrune     w/ LLM-as-Judge         83.39          19.28          54.23          67.84           56.19
+                     w/ AGENTAUDITOR         87.34 (+2.9)   20.56 (+4.1)   57.05 (+2.7)   70.12 (+1.0)    58.77 (+2.7)
+
+
+
+results highlight a fundamental limitation of MV:           Table 2: Percent correctness under Majority-Correct
+by collapsing reasoning traces into context-free            (MajC) and Minority-Correct (MinC) regimes. We
+                                                            evaluate aggregation and adjudication methods on two
+answer counts, it allows a frequent but flawed ra-
+                                                            complementary subsets: MajC (majority answer is cor-
+tionale to override a correct minority solution. In         rect) and MinC (majority answer is wrong but a cor-
+contrast, AGENTAUDITOR constructs a Reason-                 rect minority exists; the “hard” majority-failure regime
+ing Tree to expose substantive divergences and              targeted by confabulation consensus). AGENTAUDI -
+performs localized evidence audits at Critical Di-          TOR substantially improves robustness on MinC while
+vergence Points (CDPs), allowing aggregation to             largely preserving performance on MajC.
+depend on the quality of branch-level reasoning
+                                                                                   GSM8K       GSM8K         AMC         AMC
+rather than answer frequency alone. The consistent            Method                 MajC        MinC        MajC        MinC
+improvements across diverse MAS architectures                 MV                     100.00        0.00     100.00        0.00
+further suggest that structure-aware auditing and             LLM-as-Judge            89.60        6.70      83.33       72.73
+ACPO provide a general aggregation mechanism                  LLM-as-Solver           76.87       34.65      75.00        3.64
+                                                              AGENTAUDITOR            97.28       65.35      91.67       81.82
+that is robust to different forms of consensus and
+reasoning errors.
+                                                            tured disagreement in the slate and adjudicating us-
+6.2   RQ2: Performance under Majority                       ing branch-level evidence rather than support cues.
+      Failure (Minority Correct)                            This also explains why LLM-as-Solver is substan-
+Table 2 focuses on the regime that most clearly             tially weaker on MinC: re-solving from scratch is
+exposes confabulation consensus: MinC instances             less reliable than auditing the localized evidence
+where the majority answer is wrong even though              that separates competing hypotheses. Importantly,
+a correct minority hypothesis exists. This setting          AGENTAUDITOR remains strong on MajC cases
+directly breaks frequency-based aggregation, so             (97.28% on GSM8K; 91.67% on AMC), indicating
+MV deterministically achieves 0% on MinC by                 that improved minority recovery does not come
+construction, reflecting that increased multiplic-          from broadly sacrificing standard consensus in-
+ity of an erroneous hypothesis cannot be voted              stances, but from selectively correcting the hard
+away. In contrast, AGENTAUDITOR recovers a                  majority-wrong failures that voting fundamentally
+large fraction of these majority-wrong cases, reach-        cannot address.
+ing 65.35% on GSM8K and 81.82% on AMC, the
+best results among all methods and substantially            6.3     RQ3: Is AGENTAUDITOR
+outperforming LLM-as-Judge. This margin sug-                        Token-Efficient?
+gests that generic judging is insufficient. Resolving       Table 3 shows that AGENTAUDITOR improves the
+majority-wrong cases requires exploiting the struc-         accuracy-cost trade-off by auditing only localized
+Table 3: Per-sample token cost averaged across tasks.    Table 4: Performance (%) of AGENTAUDITOR across
+AGENTAUDITOR uses substantially fewer total tokens       different LLM backbones on GSM8K. AGENTAUDI -
+by auditing only decision-critical divergences, while    TOR yields consistent improvements over all baselines,
+LLM-as-Solver incurs high output cost from re-solving.   demonstrating strong generalization across model scales
+                                                         and architectures.
+      Method          In Tkns Out Tkns Total
+      LLM-as-Judge       1698         64   1762          Model                LLaMA-3B Qwen-3B         Qwen-7B
+      LLM-as-Solver      1559        487   2046          Vanilla              46.85       83.37        90.88
+      AGENTAUDITOR        868        105    973          CoT                  50.14       84.56        90.98
+                                                         SC                   54.21       88.60        92.95
+                                                         LLM-Debate w/ MV 75.84           87.14        93.63
+                                                         w/ AGENTAUDITOR 79.53 (+3.7)     88.73 (+1.6) 94.08 (+0.4)
+evidence rather than regenerating full solutions.
+                                                         DyLan w/ MV     76.47            88.10        93.15
+Concretely, AGENTAUDITOR uses only 973 total             w/ AGENTAUDITOR 79.81 (+3.3)     88.93 (+0.8) 93.63 (+0.5)
+tokens per sample, which is a 44.8% reduction            GPTSwarm w/ MV 69.19             86.78        92.27
+relative to LLM-as-Judge (1762) and a 52.4% re-          w/ AGENTAUDITOR 73.28 (+4.1)     88.09 (+1.3) 92.84 (+0.6)
+duction relative to LLM-as-Solver (2046). The            AgentPrune w/ MV 65.02           86.43        92.44
+savings primarily come from inputs. AGENTAU -            w/ AGENTAUDITOR 68.65 (+3.6)     87.92 (+1.5) 93.15 (+0.7)
+DITOR consumes 868 input tokens, roughly half
+of LLM-as-Judge and LLM-as-Solver, because it
+audits only decision-critical divergence packets in-     and AgentPrune further suggests that the method is
+stead of re-feeding entire multi-agent traces. Out-      robust to differences in how multi-agent reasoning
+put cost further differentiates the approaches. LLM-     trajectories are generated and coordinated. More-
+as-Solver spends 487 output tokens to reconstruct        over, the persistent gains under stronger backbones
+solutions from scratch, which is expensive and of-       indicate that structure-aware adjudication remains
+ten redundant because the multi-agent slate has          useful even when the underlying agents already
+already surfaced the competing hypotheses. By            achieve high standalone reasoning accuracy. These
+contrast, AGENTAUDITOR remains discriminative            results indicate that AGENTAUDITOR behaves as a
+and generates only 105 output tokens to resolve lo-      backbone-agnostic plug-in for multi-agent aggre-
+cal disagreements, so computation is concentrated        gation, replacing frequency-driven selection with
+on the minimal evidence needed for selection. As         evidence-based branch auditing.
+the number or length of agent traces grows, avoid-
+ing repeated full-trace inspection also provides a
+natural advantage for scaling aggregation to larger      6.5   RQ5: Do AGENTAUDITOR Modules All
+reasoning slates.                                              Contribute?
+
+6.4   RQ4: Does AGENTAUDITOR Generalize
+                                                         Figure 3 isolates three design choices in AGEN -
+      Across LLM Backbones?
+                                                         TAUDITOR : conditional beam search, the step-
+Table 4 evaluates AGENTAUDITOR under differ-             splitting module, and the embedding encoder. Re-
+ent backbone LLMs. Across all tested backbones           moving the beam search consistently degrades per-
+and MAS protocols, replacing majority voting with        formance, indicating that maintaining alternative
+AGENTAUDITOR consistently improves the corre-            lineages helps prevent irreversible commitment er-
+sponding MV baseline, indicating that the gains          rors from brittle early decisions. Conversely, re-
+come from the adjudication mechanism rather than         placing the step splitter with an LLM-based alterna-
+being tied to a particular generator family. The         tive yields only marginal changes, suggesting that
+improvements are most pronounced on the weaker           structure-aware auditing is robust to segmentation
+backbone (LLaMA-3B), where AGENTAUDITOR                  heuristics as long as coarse semantic boundaries
+yields roughly +3.3% to +4.1% points over MV             are preserved. Finally, using LLM-based embed-
+across protocols. As the backbone strengthens            dings provides a small but consistent gain in step
+to Qwen-3B and Qwen-7B, the MV baselines ap-             alignment and divergence detection. These results
+proach saturation and the remaining errors concen-       indicate that while higher-fidelity representations
+trate on harder cases, so the absolute gains shrink      help, the primary performance gains stem from the
+while remaining uniformly positive. The same             core structure-aware auditing and anti-consensus
+trend across LLM-Debate, DyLan, GPTSwarm,                training rather than specific upstream components.
+                                                                            The cheese pizza is cut into 12 slices
+                                                                            and the pepperoni pizza is cut into 8                                                                Reasoning
+                                                                            slices. If Kate?s 6 f riends each eat 6
+                                                                                                                                            Q
+                                                                            cheese pizza slices and 4 pepperoni
+                                                                             pizza slices, how many pizza pies
+                                                                                                                                                                                  process
+                                                                                   does she need to buy ?
+
+                                                                                                                                                                 Calculate the total slices first.
+
+                                                                                                                                                           Agent 1: we need to calculate the
+                                                                                                                                                               total number of slices...
+                                                                                                                                                          Agent 2: We need to find the total
+                                                                                                                                            S1            number of slices each friend eats.
+                                                                                       Agent 1         Agent 2    Agent 3                                 Agent 3: we need to determine the
+                                                                                                                                                                total number of slices.
+                                                                                                  Shared Step 1
+                                                                                                                        Branch 0                      Branch 1
+                                                              Calculate the cheese/ pepperoni
+                                                                     slices separately.                                                                                                   Combine the two flavors
+
+
+                                                          Agent 1: ?- Cheese pizza slices eaten: 6                                                                                       Agent 2: Total slices per
+                                                          friends * 6 slices per friend = 36 slices?                                                                                      friend = 6 (cheese) + 4
+                                                           ?- Pepperoni pizza slices eaten: 6
+                                                          friends * 4 slices per friend = 24 slices?             S2                                              S2                     (pepperoni) = 10 slices per
+                                                                                                                                                                                                  friend. ...
+                                                          Agent 3: ?- Total cheese pizza slices
+                                                          eaten by her friends = 6 friends * 6
+                                                          slices = 36 slices?
+
+Figure 3: Key module ablations. Removing beam
+search hurts performance; splitting and embedding vari-              Agent 1        Agent 3
+                                                                                                 Branch 0                   Branch 1
+                                                                                                                                                                                                     Agent 2
+
+
+                                                                                                                                                                                      Auditor selected Branch 0 .
+
+ants have smaller effects.                                                                                                                                Ignored                     Reason: Branch 1 has a f atal
+                                                                                                                                                                                      unit- mismatch: it treats
+                                                                                                                                                                                      combined slices as divisible
+                                                                                                                                                                                      by both 12 and 8 as if they
+                                                                                         S3                                 S3                                   S3                   were the same type.
+
+                                                                      Agent 1                                                               Agent 3
+
+6.6    RQ6: Case Study                                                                                                                                   Kate was mistakenly included
+
+
+                                                           Agent 1: ?- Cheese pizzas                                                                   Agent 3: Since Kate also eats
+                                                           needed: 36 slices / 12 slices                                          Ignored             the same amount as her friends,
+
+Figure 4 shows an example where Majority Vot-              per pizza = 3 pizzas?
+                                                           ?- Pepperoni pizzas
+                                                           needed: 24 slices / 8 slices
+                                                                                                                                                      we need to multiply the amounts
+                                                                                                                                                           by 7 (6 friends + Kate).
+
+                                                                                                                                        S4
+ing fails under confabulation consensus. Although          per pizza = 3 pizzas?
+
+
+                                                                  Divide by taste
+                                                                                                                                                                      Auditor selected Branch 0 .
+
+                                                                                                                                                                      Reason: Select Branch 0 for
+the agents share a plausible high-level plan, their                                    Final correct answer
+                                                                                                                                                                      cleaner trace hygiene and higher
+                                                                                                                                                                      coherence. Branch 1 introduces
+                                                                                                                                                                      an unnecessary aggregation
+
+traces diverge at decision-critical steps. Rather                                Agent 1: ?3 (cheese pizzas) + 3
+                                                                                 (pepperoni pizzas) = 6 pizzas?
+                                                                                                                                                                      step that weakens constraint/
+                                                                                                                                                                      consistency.
+
+                                                                                  ?So, Kate needs to buy 6 pizzas.?
+                                                                                                                                            S5
+than counting final answers or judging full traces,                                                                     Agent 1
+
+
+
+AGENTAUDITOR audits local branch evidence un-
+der the shared prefix. The Auditor flags one branch       Figure 4: Case Study. Majority Voting selects an incor-
+                                                          rect consensus, while AGENTAUDITOR detects a unit
+for mixing flavor-specific quantities across differ-
+                                                          mismatch and an unsupported population assumption,
+ent pizza sizes and rejects another for introducing       identifies the invalid reasoning branches, and recovers
+an unsupported entity (“Kate”) into the headcount.        the correct minority path.
+These errors are locally plausible and can therefore
+survive answer-level aggregation, even though they
+violate basic unit and scope constraints once the         highlighting the value of localized evidence-based
+relevant reasoning steps are compared directly. By        aggregation. These results suggest that modeling
+exposing these semantic incompatibilities, AGEN -         where reasoning paths diverge is more informative
+TAUDITOR converts global aggregation into local-          than relying only on agreement at the final-answer
+ized verification and recovers the correct minority       level. Future work will explore tool-augmented
+path. The example also illustrates why the tree           verification and broader agentic tasks.
+representation is useful beyond simple answer dis-
+agreement: it reveals where otherwise fluent rea-         Limitations
+soning paths become incompatible, allowing the
+Auditor to focus on the evidence responsible for the      AGENTAUDITOR is most effective in majority-
+final disagreement. The local audits therefore con-       failure settings where multiple agents produce
+centrate verification on the precise failure points       meaningfully different reasoning paths and a cor-
+rather than repeatedly re-evaluating complete rea-        rect minority hypothesis exists among them. If the
+soning trajectories.                                      traces are nearly identical, all agents follow the
+                                                          same incorrect reasoning, or the correct solution
+7     Conclusion                                          is absent from the candidate set, structural audit-
+                                                          ing has little evidence with which to recover the
+This paper introduces AGENTAUDITOR, a                     answer. Likewise, when the underlying LLM or
+structure-aware framework for multi-agent LLM             MAS framework is already very strong and major-
+aggregation. By organizing reasoning traces               ity voting is close to saturation, the remaining head-
+into a Reasoning Tree and auditing Critical               room for improvement can be limited. Therefore,
+Divergence Points, the framework can recover              the method should not be expected to improve ev-
+correct minority paths that majority voting may           ery instance or every multi-agent system; its main
+suppress. Experiments across MAS frameworks,              advantage lies in cases of confabulation consen-
+reasoning benchmarks, and LLM backbones                   sus, where an incorrect majority coexists with a
+show consistent gains with lower token cost,              distinguishable correct minority path.
+Acknowledgments                                             series with large language models. arXiv preprint
+                                                            arXiv:2509.11575.
+The authors acknowledge the support by the Na-
+tional Science Foundation (NSF) under the NSF             Junzhe Chen, Xuming Hu, Shuodi Liu, Shiyu Huang,
+Award 2243104 under the Center for Complex Par-             Wei-Wei Tu, Zhaofeng He, and Lijie Wen. 2024. Ll-
+                                                            marena: Assessing capabilities of large language
+ticle Systems (COMPASS), the CAREER Award                   models in dynamic multi-agent environments. arXiv
+CPS-1453860, NSF Mid-Career Advancement                     preprint arXiv:2402.16499.
+Award BCS-2527046, the U.S. Army Research Of-
+                                                          Weize Chen, Yusheng Su, Jingwei Zuo, Cheng Yang,
+fice (ARO) under Grant No. W911NF-23-1-0111,
+                                                           Chenfei Yuan, Chen Qian, Chi-Min Chan, Yujia Qin,
+the Defense Advanced Research Projects Agency              Yaxi Lu, Ruobing Xie, and 1 others. 2023a. Agent-
+(DARPA) Young Faculty Award and DARPA Di-                  verse: Facilitating multi-agent collaboration and ex-
+rector Fellowship Award under Grant Number                 ploring emergent behaviors in agents. arXiv preprint
+N66001-17-1-4044, Intel Faculty Awards, and a              arXiv:2308.10848, 2(4):6.
+Northrop Grumman grant. P.B. is also grateful to          Xinyun Chen, Renat Aksitov, Uri Alon, Jie Ren, Ke-
+the National Institutes of Health (NIH) for Grants          fan Xiao, Pengcheng Yin, Sushant Prakash, Charles
+R01 AG079957, “Interpretable machine learning to            Sutton, Xuezhi Wang, and Denny Zhou. 2023b. Uni-
+                                                            versal self-consistency for large language model gen-
+synergize brain age estimation and neuroimaging
+                                                            eration. arXiv preprint arXiv:2311.17311.
+genetics,” and RF1 AG082201, “Neurovascular cal-
+cification and ADRD in two nonindustrial Native           Yiqun Chen, Jinyuan Feng, Wei Yang, Meizhi
+American populations,” and is grateful for the won-         Zhong, Zhengliang Shi, Rui Li, Xiaochi Wei,
+                                                            Yan Gao, Yi Wu, Yao Hu, and 1 others. 2026a.
+derful experience of developing and receiving these         Self-compression of chain-of-thought via multi-
+two grants. The views, opinions, and/or findings in         agent reinforcement learning.    arXiv preprint
+this article are those of the authors and should not        arXiv:2601.21919.
+be interpreted as official views or policies of the
+                                                          Yiqun Chen, Qi Liu, Yi Zhang, Weiwei Sun, Xinyu Ma,
+Department of Defense, the National Institutes of           Wei Yang, Daiting Shi, Jiaxin Mao, and Dawei Yin.
+Health, or the National Science Foundation.                 2025. Tourrank: Utilizing large language models for
+                                                            documents ranking with a tournament-inspired strat-
+                                                            egy. In Proceedings of the ACM on Web Conference
+References                                                  2025, pages 1638–1652.
+Sahar Abdelnabi, Amr Gomaa, Sarath Sivaprasad, Lea        Yiqun Chen, Wei Yang, Erhan Zhang, Shijie Wang,
+  Schönherr, and Mario Fritz. 2023. Llm-deliberation:       Qi Liu, Zechun Niu, Bin Zhang, Haitao Li, Rui
+  Evaluating llms with interactive multi-agent negotia-     Li, Lingyong Yan, and 1 others. 2026b. Unitymas-
+  tion games. arXiv preprint arXiv:2310.01444.              o: A general rl optimization framework for
+                                                            llm-based multi-agent systems. arXiv preprint
+Shayan Meshkat Alsadat and Zhe Xu. 2024. Multi-             arXiv:2605.26646.
+  agent reinforcement learning in non-cooperative
+  stochastic games using large language models. IEEE      Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian,
+  Control Systems Letters.                                  Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias
+David Austen-Smith and Jeffrey S Banks. 1996. Infor-        Plappert, Jerry Tworek, Jacob Hilton, Reiichiro
+  mation aggregation, rationality, and the condorcet        Nakano, and 1 others. 2021. Training verifiers
+  jury theorem. American political science review,          to solve math word problems. arXiv preprint
+  90(1):34–45.                                              arXiv:2110.14168.
+
+Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang,     Mark Coeckelbergh. 2025. Llms, truth, and democ-
+   Xiaodong Deng, Yang Fan, Wenbin Ge, Yu Han, Fei         racy: an overview of risks. Science and Engineering
+   Huang, and 1 others. 2023. Qwen technical report.       Ethics, 31(1):4.
+   arXiv preprint arXiv:2309.16609.
+                                                          Yilun Du, Shuang Li, Antonio Torralba, Joshua B Tenen-
+Chi-Min Chan, Weize Chen, Yusheng Su, Jianxuan Yu,           baum, and Igor Mordatch. 2023. Improving factual-
+  Wei Xue, Shanghang Zhang, Jie Fu, and Zhiyuan              ity and reasoning in language models through multia-
+  Liu. 2023. Chateval: Towards better llm-based eval-        gent debate. In Forty-first International Conference
+  uators through multi-agent debate. arXiv preprint          on Machine Learning.
+  arXiv:2308.07201.
+                                                          Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey,
+Ching Chang, Yidan Shi, Defu Cao, Wei Yang, Jee-            Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman,
+  hyun Hwang, Haixin Wang, Jiacheng Pang, Wei               Akhil Mathur, Alan Schelten, Amy Yang, Angela
+  Wang, Yan Liu, Wen-Chih Peng, and 1 others. 2025.         Fan, and 1 others. 2024. The llama 3 herd of models.
+  A survey of reasoning and agentic systems in time         arXiv e-prints, pages arXiv–2407.
+Xueyang Feng, Zhi-Yuan Chen, Yujia Qin, Yankai Lin,      Shawn Li, Chenxiao Yu, Han Wang, Wei Yang, Ryan
+  Xu Chen, Zhiyuan Liu, and Ji-Rong Wen. 2024.             Rossi, Franck Dernoncourt, Xiyang Hu, Philip Yu,
+  Large language model-based human-agent collab-           Chaowei Xiao, Huan Zhang, and 1 others. 2026.
+  oration for complex task solving. arXiv preprint         Fortis: Benchmarking over-privilege in agent skills.
+  arXiv:2402.12914.                                        arXiv preprint arXiv:2605.09163.
+Adrian Garret Gabriel, Alaa Alameer Ahmad, and           Shixuan Li, Wei Yang, Peiyu Zhang, Xiongye Xiao,
+  Shankar Kumar Jeyakumar. 2024. Advancing agentic         Defu Cao, Yuehan Qin, Xiaole Zhang, Yue Zhao, and
+  systems: Dynamic task decomposition, tool integra-       Paul Bogdan. 2025b. Climatellm: Efficient weather
+  tion and evaluation using novel metrics and dataset.     forecasting via frequency-aware large language mod-
+  arXiv preprint arXiv:2410.22457.                         els. arXiv preprint arXiv:2502.11059.
+Ai Han, Junxing Hu, Pu Wei, Zhiqian Zhang,               Muhan Lin, Shuyang Shi, Yue Guo, Vaishnav Tadiparthi,
+  Yuhang Guo, Jiawei Lu, and Zicheng Zhang. 2025.         Behdad Chalaki, Ehsan Moradi Pari, Simon Stepput-
+  Joyagents-r1: Joint evolution dynamics for versatile    tis, Woojun Kim, Joseph Campbell, and Katia Sycara.
+  multi-llm agents with reinforcement learning. arXiv     2025. Speaking the language of teamwork: Llm-
+  preprint arXiv:2506.19846.                              guided credit assignment in multi-agent reinforce-
+                                                          ment learning. arXiv preprint arXiv:2502.03723.
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou,
+  Mantas Mazeika, Dawn Song, and Jacob Steinhardt.       Tongxuan Liu, Xingyu Wang, Weizhe Huang, Wenjiang
+  2020. Measuring massive multitask language under-        Xu, Yuting Zeng, Lei Jiang, Hailong Yang, and Jing
+  standing. arXiv preprint arXiv:2009.03300.               Li. 2024. Groupdebate: Enhancing the efficiency of
+                                                           multi-agent debate using group discussion. arXiv
+Sirui Hong, Mingchen Zhuge, Jonathan Chen, Xiawu
+                                                           preprint arXiv:2409.14051.
+   Zheng, Yuheng Cheng, Jinlin Wang, Ceyao Zhang,
+   Zili Wang, Steven Ka Shing Yau, Zijuan Lin, and       Matéo Mahaut, Laura Aina, Paula Czarnowska, Mom-
+  1 others. 2023. Metagpt: Meta programming for a         chil Hardalov, Thomas Müller, and Lluís Màrquez.
+   multi-agent collaborative framework. In The Twelfth    2024. Factual confidence of llms: on reliability
+   International Conference on Learning Representa-       and robustness of current estimators. arXiv preprint
+   tions.                                                 arXiv:2406.13415.
+Shengran Hu, Cong Lu, and Jeff Clune. 2024. Au-          Xuefei Ning, Zinan Lin, Zixuan Zhou, Zifu Wang,
+  tomated design of agentic systems. arXiv preprint        Huazhong Yang, and Yu Wang. 2023. Skeleton-of-
+  arXiv:2408.08435.                                        thought: Prompting llms for efficient parallel genera-
+Dongfu Jiang, Xiang Ren, and Bill Yuchen Lin. 2023.        tion. arXiv preprint arXiv:2307.15337.
+  Llm-blender: Ensembling large language models          Bo Pan, Jiaying Lu, Ke Wang, Li Zheng, Zhen Wen,
+  with pairwise ranking and generative fusion. arXiv       Yingchaojie Feng, Minfeng Zhu, and Wei Chen. 2024.
+  preprint arXiv:2306.02561.                               Agentcoord: Visually exploring coordination strat-
+Zhouyang Jiang, Bin Zhang, Airong Wei, and Zhiwei          egy for llm-based multi-agent collaboration. arXiv
+  Xu. 2025. Qllm: Do we really need a mixing network       preprint arXiv:2404.11943.
+  for credit assignment in multi-agent reinforcement
+                                                         Joon Sung Park, Joseph O’Brien, Carrie Jun Cai, Mered-
+  learning? arXiv preprint arXiv:2504.12961.
+                                                           ith Ringel Morris, Percy Liang, and Michael S Bern-
+Mandar Joshi, Eunsol Choi, Daniel S Weld, and Luke         stein. 2023. Generative agents: Interactive simulacra
+ Zettlemoyer. 2017. Triviaqa: A large scale distantly      of human behavior. In Proceedings of the 36th an-
+ supervised challenge dataset for reading comprehen-       nual acm symposium on user interface software and
+ sion. In Proceedings of the 55th Annual Meeting of        technology, pages 1–22.
+ the Association for Computational Linguistics (Vol-
+ ume 1: Long Papers), pages 1601–1611.                   Feng Peiyuan, Yichen He, Guanhua Huang, Yuan Lin,
+                                                           Hanchong Zhang, Yuchen Zhang, and Hang Li. 2024.
+Minae Kwon, Sang Michael Xie, Kalesha Bullard, and         Agile: A novel reinforcement learning framework of
+  Dorsa Sadigh. 2023. Reward design with language          llm agents. Advances in Neural Information Process-
+  models. arXiv preprint arXiv:2303.00001.                 ing Systems, 37:5244–5284.
+
+Nathan Lambert, Valentina Pyatkin, Jacob Morrison,       Heng Ping, Arijit Bhattacharjee, Peiyu Zhang, Shixuan
+  LJ Miranda, Bill Yuchen Lin, Khyathi Chandu,             Li, Wei Yang, Anzhe Cheng, Xiaole Zhang, Jesse
+  Nouha Dziri, Sachin Kumar, Tom Zick, Yejin Choi,         Thomason, Ali Jannesari, Nesreen Ahmed, and 1 oth-
+  and 1 others. 2024. Rewardbench: Evaluating re-          ers. 2025a. Verimoa: A mixture-of-agents frame-
+  ward models for language modeling. arXiv preprint        work for spec-to-hdl generation. arXiv preprint
+  arXiv:2403.13787.                                        arXiv:2510.27617.
+Boyi Li, Zhonghan Zhao, Der-Horng Lee, and               Heng Ping, Shixuan Li, Peiyu Zhang, Anzhe Cheng,
+  Gaoang Wang. 2025a. Adaptive graph pruning               Shukai Duan, Nikos Kanakaris, Xiongye Xiao, Wei
+  for multi-agent communication. arXiv preprint            Yang, Shahin Nazarian, Andrei Irimia, and 1 oth-
+  arXiv:2506.02951.                                        ers. 2025b. Hdlcore: A training-free framework for
+  mitigating hallucinations in llm-generated hdl. In      Yuan Wei, Xiaohan Shan, and Jianmin Li. 2025.
+  2025 IEEE International Conference on LLM-Aided           Lero: Llm-driven evolutionary framework with hy-
+  Design (ICLAD), pages 108–116. IEEE.                      brid rewards and enhanced observation for multi-
+                                                            agent reinforcement learning.     arXiv preprint
+Chen Qian, Zihao Xie, Yifei Wang, Wei Liu, Kunlun           arXiv:2503.21807.
+  Zhu, Hanchen Xia, Yufan Dang, Zhuoyun Du, Weize
+  Chen, Cheng Yang, and 1 others. 2024. Scaling           Muyan Weng, Defu Cao, Wei Yang, Yashaswi Sharma,
+  large language model-based multi-agent collabora-        and Yan Liu. 2026. Temporalbench: A benchmark
+  tion. arXiv preprint arXiv:2406.07155.                   for evaluating llm-based agents on contextual and
+                                                           event-informed time series tasks. In Proceedings of
+Shuofei Qiao, Ningyu Zhang, Runnan Fang, Yujie Luo,        the 32nd ACM SIGKDD Conference on Knowledge
+  Wangchunshu Zhou, Yuchen Eleanor Jiang, Chengfei         Discovery and Data Mining V. 2, pages 9997–10008.
+  Lv, and Huajun Chen. 2024. Autoact: Automatic           Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu,
+  agent learning from scratch for qa via self-planning.     Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang,
+  arXiv preprint arXiv:2401.05268.                          Shaokun Zhang, Jiale Liu, and 1 others. 2024. Au-
+                                                            togen: Enabling next-gen llm applications via multi-
+Yuehan Qin, Li Li, Linxin Song, Wei Yang, Jiate Li,         agent conversations. In First Conference on Lan-
+  Yuqing Yang, and Yue Zhao. 2026. Memory re-               guage Modeling.
+  trieval for changing preferences. arXiv preprint
+  arXiv:2606.02976.                                       Yuxi Xie, Kenji Kawaguchi, Yiran Zhao, James Xu
+                                                            Zhao, Min-Yen Kan, Junxian He, and Michael Xie.
+Amrith Setlur, Chirag Nagpal, Adam Fisch, Xinyang           2023. Self-evaluation guided beam search for rea-
+ Geng, Jacob Eisenstein, Rishabh Agarwal, Alekh             soning. Advances in Neural Information Processing
+ Agarwal, Jonathan Berant, and Aviral Kumar.                Systems, 36:41618–41650.
+ 2024. Rewarding progress: Scaling automated pro-
+ cess verifiers for llm reasoning. arXiv preprint         Zhenran Xu, Senbao Shi, Baotian Hu, Jindi Yu, Dong-
+ arXiv:2410.08146.                                          fang Li, Min Zhang, and Yuxiang Wu. 2023. To-
+                                                            wards reasoning in large language models via multi-
+Yu Shang, Yu Li, Keyu Zhao, Likai Ma, Jiahe Liu,            agent peer review collaboration. arXiv preprint
+  Fengli Xu, and Yong Li. 2024. Agentsquare: Au-            arXiv:2311.08152.
+  tomatic llm agent search in modular design space.
+                                                          Bingyu Yan, Zhibo Zhou, Litian Zhang, Lian Zhang,
+  arXiv preprint arXiv:2410.06153.
+                                                            Ziyi Zhou, Dezhuang Miao, Zhoujun Li, Chaozhuo
+                                                            Li, and Xiaoming Zhang. 2025. Beyond self-talk:
+Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot,       A communication-centric survey of llm-based multi-
+  and Ashish Sabharwal. 2022. musique: Multi-               agent systems. arXiv preprint arXiv:2502.14321.
+  hop questions via single-hop question composition.
+  Transactions of the Association for Computational       Wei Yang, Defu Cao, Jiacheng Pang, Muyan Weng,
+  Linguistics, 10:539–554.                                 and Yan Liu. 2026. Adaptive collaboration with hu-
+                                                           mans: Metacognitive policy optimization for multi-
+Ziyu Wan, Yunxiang Li, Xiaoyu Wen, Yan Song,               agent llms with continual learning. arXiv preprint
+  Hanjing Wang, Linyi Yang, Mark Schmidt, Jun              arXiv:2603.07972.
+  Wang, Weinan Zhang, Shuyue Hu, and 1 others.
+  2025. Rema: Learning to meta-think for llms with        Wei Yang, Jiacheng Pang, Shixuan Li, Paul Bogdan,
+  multi-agent reinforcement learning. arXiv preprint       Stephen Tu, and Jesse Thomason. 2025a. Maestro:
+  arXiv:2503.09501.                                        Learning to collaborate via conditional listwise policy
+                                                           optimization for multi-agent llms. arXiv preprint
+Xiao Wang, Jia Wang, Yijie Wang, Pengtao Dang, Sha         arXiv:2511.06134.
+  Cao, and Chi Zhang. 2025. Mars: toward more ef-
+  ficient multi-agent collaboration for llm reasoning.    Wei Yang and Jesse Thomason. 2026. Learning to de-
+  arXiv preprint arXiv:2509.20502.                         liberate: Meta-policy collaboration for agentic llms
+                                                           with multi-agent reinforcement learning. In Proceed-
+                                                           ings of the AAAI Conference on Artificial Intelligence,
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le,
+                                                           volume 40, pages 29820–29828.
+  Ed Chi, Sharan Narang, Aakanksha Chowdhery, and
+  Denny Zhou. 2022. Self-consistency improves chain       Wei Yang, Muyan Weng, Jiacheng Pang, Defu Cao,
+  of thought reasoning in language models. arXiv           Heng Ping, Peiyu Zhang, Shixuan Li, Yue Zhao,
+  preprint arXiv:2203.11171.                               Qiang Yang, Mengdi Wang, and 1 others. 2025b.
+                                                           Toward evolutionary intelligence: Llm-based agen-
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten           tic systems with multi-agent reinforcement learning.
+   Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,          Available at SSRN 5819182.
+   and 1 others. 2022. Chain-of-thought prompting elic-
+   its reasoning in large language models. Advances       Wen Ye, Wei Yang, Defu Cao, Yizhou Zhang, Lum-
+   in neural information processing systems, 35:24824–     ingyuan Tang, Jie Cai, and Yan Liu. 2026. Ts-
+   24837.                                                  reasoner: Domain-oriented time series inference
+  agents for reasoning and automated analysis. Trans-
+  actions on Machine Learning Research.
+Ceyao Zhang, Kaijie Yang, Siyi Hu, Zihao Wang,
+  Guanghe Li, Yihang Sun, Cheng Zhang, Zhaowei
+  Zhang, Anji Liu, Song-Chun Zhu, and 1 others.
+  2024a. Proagent: building proactive cooperative
+  agents with large language models. In Proceedings
+  of the AAAI Conference on Artificial Intelligence,
+  volume 38, pages 17591–17599.
+Erhan Zhang, Yiqun Chen, Zechun Niu, Wei Yang,
+  Xiaochi Wei, Yan Gao, Yi Wu, Yao Hu, and Ji-
+  axin Mao. 2026. Oases: Outcome-aligned search-
+  evaluation co-training for agentic search. arXiv
+  preprint arXiv:2604.03675.
+Guibin Zhang, Yanwei Yue, Zhixun Li, Sukwon Yun,
+  Guancheng Wan, Kun Wang, Dawei Cheng, Jef-
+  frey Xu Yu, and Tianlong Chen. 2024b. Cut
+  the crap: An economical communication pipeline
+  for llm-based multi-agent systems. arXiv preprint
+  arXiv:2410.02506.
+Jiayi Zhang, Jinyu Xiang, Zhaoyang Yu, Fengwei Teng,
+   Xionghui Chen, Jiaqi Chen, Mingchen Zhuge, Xin
+   Cheng, Sirui Hong, Jinlin Wang, and 1 others. 2024c.
+   Aflow: Automating agentic workflow generation.
+   arXiv preprint arXiv:2410.10762.
+
+Wenqi Zhang, Yongliang Shen, Linjuan Wu, Qiuying
+ Peng, Jun Wang, Yueting Zhuang, and Weiming
+ Lu. 2024d. Self-contrast: Better reflection through
+ inconsistent solving perspectives. arXiv preprint
+ arXiv:2401.02009.
+
+Guobin Zhu, Rui Zhou, Wenkang Ji, and Shiyu Zhao.
+  2025. Lamarl: Llm-aided multi-agent reinforcement
+  learning for cooperative policy generation. IEEE
+  Robotics and Automation Letters.
+
+Mingchen Zhuge, Wenyi Wang, Louis Kirsch,
+  Francesco Faccio, Dmitrii Khizbullin, and Jürgen
+  Schmidhuber. 2024. Gptswarm: Language agents
+  as optimizable graphs. In Forty-first International
+  Conference on Machine Learning.
+A     Potential Risks                                    fixed interaction topologies, such as chains, trees,
+                                                         or debate graphs, to orchestrate discussion and ver-
+Although AGENTAUDITOR improves robustness to             ification (Du et al., 2023; Liu et al., 2024; Qian
+misleading majority consensus, it does not guar-         et al., 2024). These designs enhance coherence
+antee correct aggregation. The Auditor may still         but remain bounded by static, human-specified
+make incorrect branch-level judgments, especially        structures that cannot adapt to dynamic task com-
+when the available reasoning traces are highly sim-      plexity. In contrast, self-organizing paradigms dy-
+ilar, contain subtle shared errors, or do not include    namically adjust collaboration graphs through rout-
+a correct hypothesis. Moreover, the structured au-       ing, pruning, or evolutionary mechanisms, exempli-
+diting process may create a stronger appearance          fied by frameworks like DyLan, GPTSwarm, and
+of reliability than simple voting, which could lead      AFLOW (Yang et al., 2025a; Shang et al., 2024;
+users to over-trust the final decision. Its effective-   Zhang et al., 2024b; Zhuge et al., 2024; Zhang
+ness may also depend on the quality and diversity        et al., 2024c; Yang and Thomason, 2026; Chen
+of the candidate reasoning generated by the under-       et al., 2026a). While these approaches improve
+lying multi-agent system. In open-ended or safety-       communication efficiency and diversity, most fo-
+critical domains, locally plausible but incorrect evi-   cus on coordination dynamics rather than epistemic
+dence may remain difficult to detect without exter-      reliability (Wan et al., 2025; Peiyuan et al., 2024;
+nal grounding. Therefore, the framework should           Feng et al., 2024). Their optimization is procedural,
+be used with appropriate caution in high-stakes ap-      determining who speaks or when, rather than epis-
+plications, where additional verification, external      temological, leaving the collective still vulnerable
+tools, or human oversight may be necessary.              to correlated reasoning errors and unverified con-
+                                                         sensus (Wei et al., 2025; Jiang et al., 2025; Weng
+B     Use of AI Assistants
+                                                         et al., 2026; Alsadat and Xu, 2024; Lin et al., 2025).
+We used ChatGPT for limited writing assistance,
+                                                         C.2   Evaluation and Adjudication in
+primarily to improve grammar and presentation
+                                                               Multi-Agent Reasoning
+of the manuscript. We also used Claude for code-
+quality improvement and debugging support during         While multi-agent coordination improves the diver-
+development. All technical content, experimental         sity of reasoning, ensuring the correctness of col-
+results, analyses, and scientific conclusions were       lective outcomes remains a core challenge. Early
+produced, reviewed, and verified by the authors.         systems aggregate results through majority voting
+                                                         or rule-based ensembling (Chan et al., 2023; Chen
+C     Related Work                                       et al., 2024; Wei et al., 2025), assuming that con-
+                                                         sensus approximates truth. In practice, however,
+C.1    LLM-based Multi-Agent Collaboration               agents trained on similar distributions often exhibit
+       for Reasoning                                     correlated errors, causing the majority to converge
+Recent advances in large language models                 on plausible yet incorrect answers, a phenomenon
+(LLMs) (Ping et al., 2025b; Chang et al., 2025;          described as the "tyranny of the majority" (Du
+Ye et al., 2026; Li et al., 2025b; Chen et al.,          et al., 2023; Liu et al., 2024). To improve relia-
+2025; Yang et al., 2025b; Qin et al., 2026) have         bility, recent frameworks introduce referee or re-
+inspired a surge of interest in multi-agent sys-         viewer agents that evaluate peers’ reasoning tra-
+tems (MAS) as a means to extend single-model             jectories (Abdelnabi et al., 2023; Du et al., 2023;
+reasoning capacity (Wu et al., 2024; Chen et al.,        Zhang et al., 2024b). Debate-style protocols ex-
+2026b; Li et al., 2026; Yan et al., 2025; Zhang          change arguments before a third-party judge de-
+et al., 2026; Yang et al., 2026; Ping et al., 2025a).    termines the winner, while self-consistency and
+Early frameworks demonstrate that collective inter-      peer review methods aggregate explanations in-
+action among LLMs can mitigate individual cogni-         stead of final answers (Chen et al., 2023b; Xu
+tive limitations, enabling richer reasoning through      et al., 2023; Wang et al., 2025). Although these
+distributed exploration and mutual critique (Hong        approaches enhance reasoning control, they often
+et al., 2023; Chen et al., 2023a; Jiang et al., 2023;    depend on heuristic templates or task-specific rules
+Ning et al., 2023; Qiao et al., 2024; Pan et al.,        rather than a principled notion of evidence and
+2024). Existing methods largely fall into two            logical soundness. Meanwhile, research in LLM
+paradigms. Prestructured collaboration imposes           evaluation and verification explores automatic rea-
+soning validation through reward modeling (Kwon           open-domain question answering. All evaluation
+et al., 2023; Setlur et al., 2024) and reflective self-   questions are collected from held-out splits, and we
+evaluation (Xie et al., 2023; Zhang et al., 2024d),       explicitly remove overlapping questions when con-
+yet these methods focus on single-agent reflection        structing training data to prevent train–evaluation
+rather than distributed adjudication across agents.       contamination.
+                                                             Across all domains, we follow a unified prefer-
+D     Experiments                                         ence construction procedure. Given multi-agent
+D.1    Experimental Setup                                 reasoning traces, we first organize agent trajecto-
+                                                          ries into a reasoning tree and identify genuine di-
+Tasks and Datasets. We evaluate our framework             vergence points where different branches lead to
+on four representative reasoning benchmarks that          different final answers. We retain only forks where
+collectively assess both domain-specific and gen-         the ground-truth answer is present in at least one
+eral reasoning abilities of large language model          branch, allowing the Auditor to learn branch selec-
+(LLM) agents. GSM8K focuses on grade-school               tion rather than answer generation. This design
+mathematical reasoning through structured word            intentionally targets adjudication failures rather
+problems. MATH and AMC provide competition-               than generation failures, since the Auditor is not
+level problems requiring multi-step symbolic rea-         expected to synthesize missing solutions. The
+soning and algebraic manipulation. To mea-                branch leading to the correct answer is used as
+sure general reasoning competence, we further in-         the preferred response, while the most competi-
+clude the MMLU benchmark, which spans multi-              tive incorrect branch is selected as the rejected re-
+ple academic and professional domains. For all            sponse, forming automatically derived preference
+datasets (Cobbe et al., 2021; Hendrycks et al.,           pairs without additional human annotation.
+2020), we follow the official evaluation splits              To reduce undesirable shortcuts during train-
+and report the standard metrics: Solve Rate for           ing, we further balance the preference data against
+GSM8K, MATH, and AMC, and Accuracy for                    majority-following bias and randomize branch pre-
+MMLU. Besides, we also evaluate on two represen-          sentation order through fork-level augmentation.
+tative open-domain QA datasets: MuSiQue and               This ensures that the learned Auditor is trained to
+TriviaQA (Trivedi et al., 2022; Joshi et al., 2017).      evaluate branch evidence rather than relying on
+Baselines. We compare our framework, AGEN -               answer frequency or fixed branch positions.
+TAUDITOR ,    against a comprehensive suite of
+                                                          Implementation Details. Following common
+single- and multi-agent reasoning paradigms.
+                                                          practice, we employ three agents and three rounds
+Single-agent baselines include the Vanilla prompt-
+                                                          of interaction unless otherwise specified. All
+ing strategy, Chain-of-Thought (CoT) (Wei et al.,
+                                                          models are instantiated from publicly available
+2022), and Self-Consistency (SC) (Wang et al.,
+                                                          instruction-tuned checkpoints, including Llama-
+2022). Multi-agent frameworks encompass debate-
+                                                          3.1-8B-Instruct, Llama-3.2-3B-Instruct, Qwen2.5-
+based and collaborative systems such as LLM-
+                                                          7B-Instruct, and Qwen2.5-3B-Instruct (Dubey
+Debate, and DyLan. We also consider dynamic
+                                                          et al., 2024; Bai et al., 2023). Across all settings,
+workflow architectures, including AgentPrune and
+                                                          we report the mean performance over three random
+GPTSwarm. To ensure a fair comparison, AGEN -
+                                                          seeds. To ensure a fair and reproducible compar-
+TAUDITOR is integrated as a plug-in adjudication
+                                                          ison, we keep the overall experimental pipeline
+module that replaces the final voting stage with
+                                                          aligned with the baselines, including identical eval-
+our selection process, while keeping the upstream
+                                                          uation protocols and consistent prompt formatting.
+candidate generation identical across all methods.
+                                                          Unless explicitly noted, the AGENTAUDITOR mod-
+Data Construction. To train the Auditor, we con-          ule shares the same backbone family as the gener-
+struct preference data from multi-agent reasoning         ator agents and does not require additional super-
+traces generated from the official training splits of     vised training beyond the preference optimization
+each domain. Specifically, we use GSM8K and the           applied in our method variants. Unless otherwise
+Hendrycks MATH training set for mathematical              specified, we report results averaged over three ran-
+reasoning, the auxiliary training split provided by       dom seeds. For a subset of experiments, we report
+MMLU for multiple-choice knowledge tasks, and             results from a single run due to computational cost.
+the official training splits of each QA dataset for          For multi-agent trace generation, we use nucleus
+sampling with top-p = 0.95, while varying the              AGENTAUDITOR Prompt
+decoding temperature within [0.7, 1.0] to encour-
+age diverse but stable reasoning across agents. The       You are a Process Auditor for math
+maximum generation length is searched within 512–         reasoning.
+1024 tokens depending on the task and MAS pro-            You will see multiple candidate
+tocol. The Auditor uses low-temperature decoding          BRANCHES that diverge from a shared
+with T ∈ [0.0, 0.3] to provide stable, single-pass        reasoning prefix.
+adjudication without additional self-consistency or       Select the branch that is most reliable based
+multi-sample voting. For preference optimization,         on PROCESS QUALITY, not popularity.
+we apply LoRA with rank r = 16, scaling factor
+α = 32, and dropout 0.05. We search the learning          Evaluate branches using:
+rate over {1× 10−5 , 5 ×10−5 , 1× 10−4 , 5× 10−4 }        1) Factual integrity: correct arith-
+and train for 1–3 epochs, selecting the configu-          metic/algebra, with no obvious calculation
+ration according to validation performance. For           errors.
+the structural aggregation module, we search the          2) Logical coherence: steps follow with
+reasoning-tree merge threshold τ over a broad             no unsupported leaps or contradictions.
+range within [0.5, 1.0], together with several can-       3) Constraint coverage: respects the
+didate beam sizes and decoding budgets. Across            question, units, bounds, and required
+these settings, we select hyperparameters using           format.
+the same validation criterion and keep the over-          4) Assumption validity: assumptions
+all search budget comparable across methods. All          are explicit and reasonable.
+training experiments are run on 32 NVIDIA A100            5) Trace hygiene: reasoning is concise
+GPUs in total, and we fix all remaining optimiza-         and evidence-dense.
+tion and settings to match the corresponding base-
+line configurations as closely as possible.               Return STRICT JSON only:
+                                                          <outputformat>
+Prompt Templates. To support transparency
+and reproducibility, we document the instruction          Original Problem:
+prompt used by the AGENTAUDITOR module. The               <question>
+prompt casts the model as a process auditor that
+selects the most reliable reasoning branch at a di-       Candidates:
+vergence point. Each candidate branch is provided         <body>
+as a structured packet containing the number of sup-
+porting agents, a shared Context prefix, and local        Candidate Branch Packet Format. Each can-
+Evidence steps from that branch.                        didate in <body> is formatted as follows.
+E Theoretical Analysis: Why Voting Fails                   Candidate Branch Block Format
+  Under Correlated Errors and Why
+  Structure Helps                                         [Branch b]
+                                                          Support: <support>
+This section provides a supporting theoretical per-       Context (shared prefix,       last
+spective on the failure mode we target. Our goal          steps):
+is not to introduce a new theory or claim general         - <ctx_step_1>
+guarantees for arbitrary LLM behaviors. Instead,          - <ctx_step_2>
+we use a simple analytical lens to explain (i) why        ...
+majority voting can fail when agent errors are cor-       Branch evidence (next steps):
+related, leading to confabulation consensus, and (ii)     - <ev_step_1>
+why organizing redundant reasoning into semantic          - <ev_step_2>
+branches enables evidence-based adjudication be-          ...
+yond raw answer frequency. The analysis should            Answer distribution among agents
+be read as an interpretation of the underlying mech-      on this branch (hint only):
+anism rather than a complete characterization of all      <answer_distribution>
+possible deployments.
+E.1   Majority Voting Under Correlated                   branch Bcor and one erroneous branch Berr . Let
+      Correctness                                        the Auditor choose between them using the cor-
+Let Xi ∈ {0, 1} be the correctness indicator from        responding divergence packet containing shared
+Eq. (12), with P(Xi = 1)   = p for all i. Define the     context and branch-specific evidence. Define its
+                      1 PN
+sample mean X̄ = N i=1 Xi and let ρ denote               discrimination accuracy as
+the average pairwise correlation in Eq. (13). Under
+this homogeneous Bernoulli setting,                        q = P(Auditor selects Bcor | Bcor , Berr ) . (10)
+
+                 p(1 − p)              
+                                                         Proposition E.2 (Branch-level auditing reduces di-
+   Var(X̄) =                1 + (N − 1)ρ .        (8)
+                    N                                    rect multiplicity bias). Suppose an observed MAS
+                                                         slate contains nerr outputs supporting an erroneous
+Proposition E.1 (Failure of independence assump-
+                                                         branch Berr and ncor outputs supporting a correct
+tion). If ρ = 0 and p > 1/2, then Var(X̄) =
+                                                         branch Bcor , with nerr > ncor . Under perfect an-
+O(1/N ) and X̄ concentrates around p, recovering
+                                                         swer extraction, majority voting deterministically
+the classical CJT intuition. If ρ > 0 is bounded
+                                                         selects yerr . After the traces are organized into
+away from 0, then Var(X̄) does not vanish as
+                                                         semantic branches, the local decision is no longer
+N → ∞ and approaches p(1 − p)ρ. Thus, increas-
+                                                         determined solely by the number of redundant out-
+ing the number of agents alone does not guarantee
+                                                         puts. In the two-branch toy case, the probability
+increasingly reliable majority decisions under per-
+                                                         that the Auditor selects the correct branch is q from
+sistent positive correlation.
+                                                         Eq. (10). Thus, branch-level auditing can recover
+Interpretation. When errors are correlated, the          consensus-error instances that majority voting nec-
+ensemble can behave like an “echo chamber”: a            essarily misses in this setting; when q > 1/2, the
+shared bias may simultaneously shift many agents         Auditor favors the correct branch more often than
+toward the same incorrect answer. Consequently,          random selection.
+even a large N may provide substantially fewer
+independent signals than the raw number of agents        Interpretation. The key shift is from a purely
+suggests. This motivates aggregation mechanisms          frequency-driven decision (“how many agents said
+that examine the structure and validity of the under-    this?”) toward a validity-sensitive comparison
+lying reasoning rather than relying only on answer       (“which branch is better supported by evidence
+multiplicity.                                            and logic?”). The Reasoning Tree groups redun-
+                                                         dant reasoning while exposing the semantic points
+E.2 Reasoning Trees as Semantic                          at which competing hypotheses diverge, allowing
+       Deduplication and Auditing as                     the Auditor to concentrate verification on these lo-
+       Discrimination                                    calized differences. Support information may still
+Our method organizes the multiset of raw outputs         serve as auxiliary context, but it no longer uniquely
+O = {o1 , . . . , oN } into a set of semantic reasoning  determines the local branch decision. This perspec-
+branches. Abstractly, let                                tive helps explain why the approach is particularly
+                                                         useful in majority-failure settings where correlated
+T : {o1 , . . . , oN } 7→ {B1 , . . . , BK },    K ≤ N, errors inflate the apparent support of an incorrect
+                                                     (9) hypothesis while a distinguishable correct minority
+where each branch Bk represents a distinct rea- remains available.
+soning lineage and may be supported by multiple
+agents. When many agents produce semantically            F Method
+redundant variants of the same trajectory, K can be
+                                                         F.1 Problem Formulation
+substantially smaller than N . The Reasoning Tree
+aligns such redundant reasoning into shared nodes        We study answer aggregation for a single query
+and lineages, reducing the extent to which repeated      (problem) q with a unique ground-truth answer y ⋆ .
+variants are treated as independent evidence.            A multi-agent system (MAS) instantiates N agents
+   At each divergence, the resulting decision can be     A = {a1 , . . . , aN } and produces a set of candidate
+viewed locally as an evidence-based comparison           outputs O = {o1 , . . . , oN }, where each oi contains
+among competing branches. For intuition, con- an agent’s reasoning trace and a final answer. Let
+sider a simplified two-branch case with one correct      ŷ(oi ) denote the final answer extracted from oi .
+Majority voting. A standard aggregator is ma-            G     Additional Experiments on
+jority voting (MV),                                            Open-domain Question Answering
+                      N
+                      X                                While the main experiments evaluate AGEN-
+        ŷMV = argmax   I ŷ(oi ) = y ,          (11)
+                    y                                    TAUDITOR on mathematical and general
+                          i=1
+                                                         reasoning benchmarks, we further investigate
+which estimates the mode of the empirical answer         whether structure-aware auditing can generalize
+distribution. Under the classical Condorcet Jury         to knowledge-intensive question answering
+Theorem (CJT), if each agent is correct with prob-       tasks. Different from mathematical reasoning,
+ability p > 1/2 and the correctness events are           open-domain QA requires agents to resolve factual
+independent, then P(ŷMV = y ⋆ ) → 1 as N → ∞.           inconsistencies, incomplete evidence, and conflict-
+Confabulation consensus (correlated errors).             ing answer hypotheses, providing a complementary
+In LLM-based MAS, agent errors can be highly             testbed for evaluating evidence-based adjudication.
+correlated due to shared pretraining, prompt an-            We conduct additional experiments on two open-
+choring, and interaction dynamics, leading to con-       domain QA benchmarks, MuSiQue and TriviaQA,
+fabulation consensus: many agents converge to the        under a native three-agent collaboration setting.
+same (but incorrect) answer with similar reason-         Given the same set of candidate reasoning traces,
+ing patterns. To formalize this regime, define the       we compare four aggregation strategies: (1) Ma-
+correctness indicator                                    jority Voting (MV), which selects the most fre-
+                                                         quent answer among agents; (2) flat LLM-as-Judge,
+  Xi = I ŷ(oi ) = y ⋆ ,
+                     
+                            i ∈ {1, . . . , N }, (12)
+                                                         which directly ranks candidate answers without
+and the average pairwise correlation                     exploiting reasoning structure; (3) AGENTAUDI-
+            2        X                                   TOR with prompting only; and (4) a trained AGEN-
+  ρ=                        Corr(Xi , Xj ).      (13)    TAUDITOR with branch-level preference supervi-
+        N (N − 1)
+                    1≤i<j≤N
+                                                         sion. All methods operate on the same candidate
+We refer to hard instances as those for which ρ is       set, isolating the effect of the aggregation strategy.
+non-negligible (often ρ > 0), violating the inde-
+pendence assumption in CJT. Equivalently, one can        G.1    Experimental Setup
+view correlated errors as arising from a latent “bias”   Datasets. We evaluate on two representative
+variable Z that, when activated, increases the prob-     open-domain QA datasets: MuSiQue and Trivi-
+ability that many agents produce the same incorrect      aQA. MuSiQue focuses on multi-hop reasoning
+answer yerr ̸= y ⋆ with Z ∼ Bernoulli(π):                over retrieved contexts, while TriviaQA evalu-
+                                                         ates factual question answering over broad knowl-
+                                      
+             P ŷ(oi ) = yerr | Z = 1 ≫
+                                                (14)    edge domains. Unlike mathematical benchmarks
+            P ŷ(oi ) = yerr | Z = 0 .
+                                                         where correctness is primarily determined by for-
+In this regime, MV can be dominated by the mul-          mal derivations, these datasets introduce diverse
+tiplicity of a shared error mode, i.e., ŷMV = yerr      factual hypotheses and naturally occurring dis-
+even when a minority of agents output y ⋆ .              agreements among agents.
+Goal. We seek an aggregation procedure f that               For evaluation, we use alias-aware exact match
+maps a set of candidate outputs O to a single final      (EM) following standard QA evaluation protocols.
+prediction ŷ,                                           Since official test answers are unavailable, we re-
+                  ŷ = f (O, q),               (15)      port results on held-out development questions.
+                                                         We evaluate on the full MuSiQue development set
+such that it is (i) robust to quantity: it does not
+                                                         and a deduplicated TriviaQA subset containing 3k
+automatically privilege an answer solely because
+                                                         unique questions.
+it appears many times, and (ii) sensitive to valid-
+ity: it can recover y ⋆ when the correct reasoning       Multi-agent generation. For each question, we
+exists but is outnumbered by correlated errors. Our      generate responses from three independent LLM
+method operationalizes this goal by (a) structural       agents with different reasoning configurations, pro-
+semantic deduplication of redundant reasoning and        ducing a set of candidate reasoning traces and fi-
+(b) auditing at critical divergence points, moving       nal answers. We use the native K = 3 setting,
+beyond purely frequency-based aggregation toward         where the candidate budget is fixed before aggrega-
+evidence-based discrimination.                           tion. Therefore, Majority Voting over three agents
+(MV@3) serves as the budget-matched baseline.           and performing branch-level comparison is bene-
+   All aggregation methods receive the same can-        ficial even without additional training. Training
+didate set. In particular, AGENTAUDITOR does            further strengthens this behavior by improving the
+not generate additional solutions; instead, it per-     Auditor’s ability to identify evidence-supported
+forms branch-level adjudication over the existing       branches.
+reasoning traces. This setting allows us to evaluate       A similar trend is observed on TriviaQA. The
+whether improved aggregation can recover correct        trained Auditor achieves 63.37% EM accuracy, out-
+answers already present in the multi-agent popula-      performing MV@3 by +3.50 points. Notably, the
+tion.                                                   prompt-only Auditor also surpasses Majority Vot-
+                                                        ing (60.93% vs. 59.87%), demonstrating that the
+Training the fork-based Auditor. To evaluate            structural formulation of adjudication itself pro-
+the benefit of learning evidence-based adjudication,    vides consistent benefits across different QA char-
+we further train the Auditor using disjoint subsets     acteristics.
+from the official training splits of each QA dataset.      In contrast, the flat LLM-as-Judge baseline does
+For each training instance, we construct a Reason-      not consistently improve over Majority Voting. On
+ing Tree over the agent traces and identify divergent   MuSiQue, it only provides a marginal and sta-
+branches leading to different final answers. Using      tistically insignificant improvement (30.45% vs.
+the ground-truth answer, we create preference su-       29.79%, p = 0.368). On TriviaQA, it actually de-
+pervision by selecting the branch that leads to the     creases performance to 58.53% (p = 0.035). This
+correct answer as the preferred response and an         gap indicates that simply asking an LLM to rank
+incorrect branch as the rejected response.              candidate answers is insufficient for reliable multi-
+   This training procedure does not require addi-       agent aggregation. The improvement of AGEN-
+tional human annotation. The preference labels are      TAUDITOR comes from exploiting the interme-
+automatically derived from task-provided ground         diate structure of reasoning traces and evaluating
+truth and answer aliases. The resulting model is        competing branches at their decision-critical diver-
+trained to distinguish evidence-supported branches      gence points, rather than from applying a stronger
+rather than relying on superficial cues such as an-     standalone judge model.
+swer frequency.
+                                                        G.3   Localized Gains on Contested Questions
+Evaluation Protocol. We compare all ap-                 AGENTAUDITOR is designed to resolve disagree-
+proaches under identical candidate sets and report      ments among agents rather than replace reliable
+exact match accuracy. Statistical significance is       consensus. We therefore analyze whether the ob-
+measured using two-sided McNemar tests against          served improvements are concentrated on questions
+MV@3. Unless otherwise specified, all compar-           where agents provide conflicting hypotheses. We
+isons use the same three-agent traces and differ        divide evaluation instances into two groups: unani-
+only in the final aggregation strategy.                 mous questions, where all agents produce the same
+                                                        final answer, and contested questions, where mul-
+G.2   Main Results on Open-domain Question
+                                                        tiple distinct answers appear among the candidate
+      Answering
+                                                        branches.
+Table 5 summarizes the performance of different            Table 6 reports the performance breakdown on
+aggregation strategies on open-domain question          these two subsets. As expected, all aggregation
+answering. Across both MuSiQue and TriviaQA,            methods produce identical predictions on unani-
+AGENTAUDITOR consistently improves over Ma-             mous questions, since no adjudication is required.
+jority Voting under the same three-agent candidate      In contrast, the majority of improvements come
+budget.                                                 from contested questions, where AGENTAUDI-
+   On MuSiQue-ctx, Majority Voting achieves             TOR can exploit the structural differences among
+29.79% EM accuracy, while the trained AGEN-             competing reasoning branches.
+TAUDITOR improves performance to 34.17%,                   On MuSiQue-ctx, unanimous questions account
+yielding a gain of +4.38 absolute points. The           for 40.1% of the evaluation set, while contested
+prompt-only Auditor already provides a substan-         questions account for the remaining 59.9%. The
+tial improvement over voting (32.31%), suggest-         trained Auditor improves contested-question ac-
+ing that explicitly exposing reasoning divergence       curacy from 24.59% with Majority Voting to
+Table 5: Main results on open-domain question answering. All methods operate on the same native K = 3 agent
+candidates. Numbers show exact match (EM) accuracy, and improvements are measured against MV@3 using
+two-sided McNemar tests.
+
+                             Method                     MuSiQue-ctx     TriviaQA
+                             Majority Voting (MV@3)        29.79         59.87
+                             LLM-as-Judge (flat)           30.45         58.53
+                             AGENTAUDITOR (Prompt)         32.31         60.93
+                             AGENTAUDITOR (Trained)        34.17         63.37
+                             Improvement over MV@3         +4.38         +3.50
+
+Table 6: Performance on unanimous and contested questions. AGENTAUDITOR improves primarily on contested
+instances where agent branches disagree.
+
+                  Dataset       Method                    Overall     Unanimous    Contested
+                                MV@3                       29.79        37.56       24.59
+                                LLM-as-Judge               30.45        37.56       25.69
+                  MuSiQue-ctx
+                                AGENTAUDITOR Prompt        32.31        37.56       28.80
+                                AGENTAUDITOR Trained       34.17        37.56       31.91
+                                MV@3                       59.87        77.07       44.01
+                                LLM-as-Judge               58.53        77.07       41.45
+                  TriviaQA
+                                AGENTAUDITOR Prompt        60.93        77.07       46.06
+                                AGENTAUDITOR Trained       63.37        77.07       50.74
+
+
+
+31.91%, while leaving unanimous questions un-          is unreliable and selectively switches to evidence-
+changed. Similarly, on TriviaQA, the Auditor im-       supported alternatives. This behavior directly
+proves contested-question accuracy from 44.01%         aligns with the goal of structure-aware adjudica-
+to 50.74%, confirming that the gains originate from    tion: resolving critical disagreements by comparing
+resolving agent disagreement rather than altering      branch-level evidence rather than following answer
+already-consistent decisions.                          frequency alone.
+   To further understand how AGENTAUDITOR
+improves over voting, we analyze its override be-      G.4    Recoverability Analysis: Generation
+havior on contested questions. An override occurs             Errors vs. Aggregation Errors
+when the final prediction selected by an aggrega-      While AGENTAUDITOR improves aggregation ac-
+tion method differs from the Majority Voting deci-     curacy, not all multi-agent errors can be resolved
+sion. A reliable adjudicator should not simply over-   through better adjudication. If none of the gener-
+ride more frequently; instead, it should override      ated agent traces contains the correct answer, the
+only when alternative branches provide stronger        failure is caused by generation rather than aggre-
+evidence.                                              gation and cannot be corrected by any selection
+   The override analysis reveals an important dis-     strategy.
+tinction between structure-aware auditing and flat        To quantify this distinction, we partition Ma-
+judging. On MuSiQue-ctx, the trained Auditor           jority Voting errors into two categories: (1)
+overrides Majority Voting on 50.3% of contested        generation-limited errors, where the ground-truth
+questions and achieves higher override precision       answer is absent from all candidate branches; and
+than the flat LLM-as-Judge (25.8% vs. 21.9%). On       (2) aggregation-recoverable errors, where at least
+TriviaQA, the difference is even more pronounced:      one agent produces the correct answer but the ag-
+the trained Auditor makes fewer overrides (25.6%)      gregation strategy selects an incorrect branch.
+but achieves substantially higher precision (38.8%),      Table 8 reports the corresponding analysis.
+whereas the flat judge overrides 45.7% of contested       On MuSiQue-ctx, among the errors made by Ma-
+questions with lower precision.                        jority Voting, 83.1% are generation-limited, mean-
+   These results suggest that the advantage of         ing that the correct answer never appears in the
+AGENTAUDITOR does not come from aggres-                three-agent candidate set. Only 16.9% of errors
+sively replacing majority decisions. Instead, the      are aggregation-recoverable. Within this recover-
+Auditor learns to identify when the majority branch    able subset, the trained AGENTAUDITOR corrects
+Table 7: Override behavior on contested questions. Override precision measures the fraction of overrides that lead
+to correct predictions.
+
+                   Dataset         Method                     Override Rate     Override Precision
+                                   LLM-as-Judge                   49.2                21.9
+                   MuSiQue-ctx     AGENTAUDITOR Prompt            41.5                21.0
+                                   AGENTAUDITOR Trained           50.3                25.8
+                                   LLM-as-Judge                   45.7                29.8
+                   TriviaQA        AGENTAUDITOR Prompt            28.0                28.4
+                                   AGENTAUDITOR Trained           25.6                38.8
+
+Table 8: Error decomposition and recovery efficiency. Recovery efficiency measures the fraction of aggregation-
+recoverable Majority Voting errors corrected by each method. Leakage measures whether a method produces a
+correct answer when the ground truth is absent from all candidate branches.
+
+                     Dataset        Method                      Recovery Efficiency    Leakage
+                                    LLM-as-Judge                         51.2           0/1410
+                     MuSiQue-ctx    AGENTAUDITOR Prompt                  43.2           0/1410
+                                    AGENTAUDITOR Trained                 64.8           0/1410
+                                    LLM-as-Judge                         53.0            0/917
+                     TriviaQA       AGENTAUDITOR Prompt                  36.6            0/917
+                                    AGENTAUDITOR Trained                 47.7            0/917
+
+
+
+64.8% of cases, substantially improving over the           flat LLM-as-Judge baseline under the same candi-
+prompt-only Auditor.                                       date set and inference budget.
+   A similar pattern appears on TriviaQA. Although            The flat judge receives the question and all can-
+the overall QA accuracy is higher than MuSiQue,            didate answers with their reasoning traces, and
+most Majority Voting failures remain generation-           directly selects the most reliable candidate with-
+limited (76.2%). Among the remaining recoverable           out any explicit representation of reasoning struc-
+errors, the trained Auditor successfully recovers          ture. In contrast, AGENTAUDITOR first con-
+47.7% of cases while introducing zero leakage.             structs a structured representation of agent reason-
+   The zero-leakage property is particularly impor-        ing and performs localized adjudication at diver-
+tant for interpreting the role of AGENTAUDITOR.            gence points. Therefore, the two approaches differ
+Unlike a solver-based approach that may gener-             only in how candidate evidence is organized and
+ate new answers, AGENTAUDITOR only selects                 compared.
+among existing reasoning branches. Therefore, its             The results show a consistent gap between
+improvements come from better evidence-based               flat judging and structure-aware auditing. On
+extraction and adjudication rather than producing          MuSiQue-ctx, the flat LLM-as-Judge baseline only
+unsupported solutions.                                     marginally improves over Majority Voting and the
+   These results reveal the practical capability           improvement is not statistically significant. On
+boundary of multi-agent aggregation. Improving             TriviaQA, it performs worse than Majority Voting,
+the aggregator can recover a substantial fraction of       suggesting that directly ranking multiple plausible
+failures caused by incorrect selection, but further        answers can introduce unreliable overrides.
+progress requires improving the upstream agent                In contrast, AGENTAUDITOR consistently im-
+generation process when correct evidence is absent         proves over voting on both datasets. The prompt-
+from the candidate pool.                                   based Auditor already provides gains without addi-
+                                                           tional training, while the trained Auditor further in-
+G.5    Structure-aware Adjudication vs. Flat               creases the margin. This indicates that the primary
+       LLM-as-Judge                                        source of improvement is not merely the presence
+A natural question is whether the improvement of           of an LLM evaluator, but the structured comparison
+AGENTAUDITOR simply comes from using an                    of competing reasoning branches.
+additional LLM-based evaluator. To answer this                To further understand this difference, we analyze
+question, we compare AGENTAUDITOR with a                   the quality of overrides on contested questions. A
+Table 9: Comparison between flat LLM-as-Judge and structure-aware AGENTAUDITOR. All methods use the same
+native K = 3 candidate traces.
+
+                        Dataset        Method                     EM     ∆ vs. MV@3
+                                       Majority Voting           29.79         –
+                                       LLM-as-Judge              30.45       +0.66
+                        MuSiQue-ctx
+                                       AGENTAUDITOR Prompt       32.31       +2.52
+                                       AGENTAUDITOR Trained      34.17       +4.38
+                                       Majority Voting           59.87         –
+                                       LLM-as-Judge              58.53       -1.34
+                        TriviaQA
+                                       AGENTAUDITOR Prompt       60.93       +1.06
+                                       AGENTAUDITOR Trained      63.37       +3.50
+
+
+
+flat judge tends to make frequent overrides with-        sentation order has negligible impact on the final ac-
+out sufficiently distinguishing when the majority        curacy. On MuSiQue-ctx, the EM accuracy slightly
+branch is actually reliable. For example, on Triv-       increases from 34.83% to 35.17%, while TriviaQA
+iaQA, the flat judge changes the Majority Voting         decreases by less than one percentage point. These
+decision for 45.7% of contested questions, but only      variations are within normal evaluation noise and
+29.8% of these overrides are correct, resulting in       indicate that the trained Auditor does not rely on
+an overall degradation.                                  fixed branch positions.
+   The trained AGENTAUDITOR behaves differ-                 Although some individual decisions change after
+ently. It makes fewer overrides (25.6% of contested      permutation, these changes are mostly restricted
+questions) but achieves a much higher override pre-      to contested questions where multiple branches
+cision of 38.8%. This selective behavior allows          are semantically similar. Importantly, the end-to-
+the Auditor to preserve reliable consensus while         end accuracy remains stable, demonstrating that
+intervening when branch-level evidence indicates         the Auditor’s decisions are primarily driven by the
+that the majority hypothesis is incorrect.               evidence contained in the reasoning branches rather
+   These findings demonstrate that AGENTAUDI-            than their ordering.
+TOR is not equivalent to applying a generic LLM             This robustness analysis further supports the in-
+judge after generation. The improvement arises           terpretation that AGENTAUDITOR learns content-
+from explicitly modeling where agent reasoning           based branch adjudication instead of exploiting su-
+paths diverge and evaluating the local evidence re-      perficial identifiers. Together with the previous
+sponsible for the disagreement.                          analyses, these results show that the gains of the
+                                                         trained Auditor originate from structure-aware evi-
+G.6   Robustness Analysis of the Learned
+                                                         dence comparison and selective correction of unre-
+      Auditor
+                                                         liable consensus.
+Since the trained Auditor is optimized from branch-
+level preference supervision, we further investigate     H    Case Study
+whether it learns genuine evidence-based adjudi-
+cation or relies on superficial positional cues. In      Figure 5 illustrates an example where Majority
+particular, a potential failure mode is that the Audi-   Voting fails due to confabulation consensus, while
+tor memorizes the presentation order of candidate        AGENTAUDITOR succeeds by focusing adjudica-
+branches or develops a preference for a specific         tion on decision-critical semantic divergences. All
+agent position.                                          agents share an apparently consistent macro-plan
+   To evaluate this concern, we perform a branch         (compute slice totals, then convert slices to pies).
+permutation test. For each evaluation instance, we       However, this shared prefix hides two qualitatively
+keep the question, candidate reasoning traces, and       different error modes that only become salient once
+answers unchanged, while randomly shuffling the          we inspect where the reasoning topology first forks
+order in which branches are presented to the Au-         into incompatible semantic commitments (CDPs).
+ditor. A position-dependent model would change           In this instance, two out of three agents reach in-
+its decision after permutation, whereas a content-       correct answers through different yet locally fluent
+based Auditor should remain stable.                      transformations, so aggregating by final answer am-
+   As shown in Table 10, changing the branch pre-        plifies error even when the traces appear coherent
+Table 10: Branch-order robustness of the trained AGENTAUDITOR. Only the presentation order of candidate
+branches is changed; all semantic content remains identical.
+
+                     Dataset        Original EM   Permuted EM   ∆EM     Decision Flip Rate
+                     MuSiQue-ctx       34.83         35.17      +0.33         11.9
+                     TriviaQA          65.06         64.11      -0.95         6.1
+
+
+
+at a glance.                                             poses the earliest semantic fork points, allowing
+   CDP-1: Type/unit mismatch induced by pre-             the Auditor to localize verification to a small num-
+mature aggregation. The first substantive di-            ber of CDPs rather than re-evaluating entire traces.
+vergence occurs when one agent collapses flavor-         By identifying the unit mismatch at CDP-1 and
+specific quantities into a single scalar “total slices   the scope violation at CDP-2, AGENTAUDITOR
+per friend” (6+4) and proceeds as if this combined       prevents locally plausible errors from dominating
+count could be converted under both denominators         aggregation simply because they receive greater
+(12 slices per cheese pie and 8 slices per pepperoni     support. The selected reasoning path preserves
+pie). This is a latent type error: “cheese-slice” and    the relevant quantities and constraints, performing
+“pepperoni-slice” are not interchangeable because        clean per-flavor conversions (36/12 and 24/8) and
+they belong to distinct conversion regimes. Once         yielding the correct purchase count: 3 cheese pies
+merged, the quantity can no longer be mapped con-        and 3 pepperoni pies, totaling 6. More broadly,
+sistently back to pie counts without reinstating the     the example shows that structural auditing helps
+per-flavor partition. AGENTAUDITOR identifies            by exposing the specific semantic commitments re-
+this as an early inconsistency and favors the branch     sponsible for disagreement rather than relying only
+that preserves flavor-wise accounting (36 cheese         on final-answer selection.
+slices and 24 pepperoni slices), effectively enforc-
+ing a basic invariant for correctness: unit-consistent
+conversions must be completed before any cross-
+type summation.
+   CDP-2: Constraint violation via an unsup-
+ported multiplicative assumption. A later diver-
+gence appears during the slice-to-pie conversion
+stage, where another agent introduces an extra “×7”
+factor by implicitly including Kate as an additional
+eater (6 friends + Kate), even though the statement
+specifies only the friends’ consumption. Unlike
+CDP-1, this is a scope/quantifier error that changes
+the population being counted. AGENTAUDITOR
+identifies this branch as inconsistent with the prob-
+lem statement and favors the alternative grounded
+in the stated entities and quantities. The Auditor
+also favors trace discipline, avoiding unnecessary
+transformations or unsupported assumptions that
+can remain locally plausible and survive naive vot-
+ing.
+   Why structural tree auditing helps. This case
+highlights how structural tree auditing reshapes the
+failure surface relative to majority voting. Majority
+voting operates only on final answers and there-
+fore cannot distinguish between unit-consistent,
+statement-grounded reasoning and fluent but in-
+valid reasoning that violates an earlier invariant
+or constraint. In contrast, the Reasoning Tree ex-
+                              The cheese pizza is cut into 12 slices
+                              and the pepperoni pizza is cut into 8                                                                Reasoning
+                              slices. If Kate?s 6 f riends each eat 6
+                                                                                              Q
+                              cheese pizza slices and 4 pepperoni
+                               pizza slices, how many pizza pies
+                                                                                                                                    process
+                                     does she need to buy ?
+
+                                                                                                                   Calculate the total slices first.
+
+                                                                                                             Agent 1: we need to calculate the
+                                                                                                                 total number of slices...
+                                                                                                            Agent 2: We need to find the total
+                                                                                              S1            number of slices each friend eats.
+                                         Agent 1         Agent 2    Agent 3                                 Agent 3: we need to determine the
+                                                                                                                  total number of slices.
+                                                    Shared Step 1
+                                                                          Branch 0                      Branch 1
+                Calculate the cheese/ pepperoni
+                       slices separately.                                                                                                   Combine the two flavors
+
+
+            Agent 1: ?- Cheese pizza slices eaten: 6                                                                                       Agent 2: Total slices per
+            friends * 6 slices per friend = 36 slices?                                                                                      friend = 6 (cheese) + 4
+             ?- Pepperoni pizza slices eaten: 6
+            friends * 4 slices per friend = 24 slices?             S2                                              S2                     (pepperoni) = 10 slices per
+                                                                                                                                                    friend. ...
+            Agent 3: ?- Total cheese pizza slices
+            eaten by her friends = 6 friends * 6
+            slices = 36 slices?
+
+
+
+
+                                                                                                                                                       Agent 2
+                                                   Branch 0                   Branch 1
+                       Agent 1        Agent 3                                                                                           Auditor selected Branch 0 .
+
+                                                                                                            Ignored                     Reason: Branch 1 has a f atal
+                                                                                                                                        unit- mismatch: it treats
+                                                                                                                                        combined slices as divisible
+                                                                                                                                        by both 12 and 8 as if they
+                                           S3                                 S3                                   S3                   were the same type.
+
+                        Agent 1                                                               Agent 3
+
+                                                                                                           Kate was mistakenly included
+
+
+             Agent 1: ?- Cheese pizzas                                                                   Agent 3: Since Kate also eats
+             needed: 36 slices / 12 slices                                          Ignored             the same amount as her friends,
+             per pizza = 3 pizzas?                                                                      we need to multiply the amounts
+             ?- Pepperoni pizzas                                                                             by 7 (6 friends + Kate).
+             needed: 24 slices / 8 slices
+             per pizza = 3 pizzas?                                                        S4                            Auditor selected Branch 0 .
+                    Divide by taste
+                                                                                                                        Reason: Select Branch 0 for
+                                                                                                                        cleaner trace hygiene and higher
+                                                                                                                        coherence. Branch 1 introduces
+                                         Final correct answer
+                                                                                                                        an unnecessary aggregation
+                                                                                                                        step that weakens constraint/
+                                   Agent 1: ?3 (cheese pizzas) + 3
+                                                                                                                        consistency.
+                                   (pepperoni pizzas) = 6 pizzas?
+                                    ?So, Kate needs to buy 6 pizzas.?
+                                                                                              S5
+                                                                          Agent 1
+
+
+
+
+Figure 5: Case Study. An example where majority voting converges to an incorrect consensus due to correlated
+fluent errors. AGENTAUDITOR audits only decision-critical divergence points, detects a flavor-unit mismatch and an
+unsupported population assumption, prunes the invalid branches early, and selects the correct per-flavor conversion
+path.
+

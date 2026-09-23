@@ -1,0 +1,934 @@
+                                             Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement
+                                                                            Learning
+
+
+                                           Hang Zhang 1 Ruheng Wang 2 Yuelyu Ji 1 Mingu Kwak 1 Xizhi Wu 1 Chenyu Li 1 Li Zhang 1 Wenqi Shi 2
+                                                                             Yifan Peng 3 Yanshan Wang 1
+
+
+                                                                    Abstract                                         67-year-old man with               Ototoxicity is common with
+                                                                                                                     bladder cancer presents            taxanes which
+                                                 Large language models have achieved strong per-
+
+
+
+
+arXiv:2601.20221v1 [cs.AI] 28 Jan 2026
+                                                                                                                     with tinnitus after                hyperstabilize
+                                                 formance on medical reasoning benchmarks, yet                       chemotherapy. Which                microtubules...
+                                                                                                                     mechanism caused this?             Answer: Hyperstabilization
+                                                 their deployment in clinical settings demands                                                          of microtubules
+                                                 rigorous verification to ensure factual accuracy.                   Text-based Verification
+                                                 While reward models offer a scalable approach for
+                                                                                                                      The reasoning correctly identifies taxanes as ototoxic.
+                                                 reasoning trace verification, existing methods face                  Judgment: Correct
+                                                 two limitations: they produce only scalar reward                    Tool-integrated Verification
+                                                 values without explicit justification, and they rely
+                                                                                                                                                            The trace incorrectly
+                                                 on single-pass retrieval that precludes adaptive                                                           attributes ototoxicity to
+                                                 knowledge access as verification unfolds. We in-                    <search>         Cisplatin             taxanes. Cisplatin is
+                                                                                                                     cisplatin        causes                standard for bladder
+                                                 troduce Med-TIV, an agentic framework that ad-                      bladder cancer   ototoxicity via       cancer.
+                                                                                                                     ototoxicity      DNA cross-            Judgment: Incorrect
+                                                 dresses these limitations by training medical rea-                  </search>        linking...
+                                                 soning verifiers to iteratively query external medi-
+                                                 cal corpora during evaluation. Our approach com-           Figure 1. Comparison of medical reasoning verification paradigms.
+                                                 bines tool-augmented verification with an itera-           Text-based judges rely on parametric knowledge and may validate
+                                                                                                            erroneous reasoning, while tool-integrated judges dynamically
+                                                 tive reinforcement learning paradigm that requires         retrieve evidence to ground their judgments.
+                                                 only trace-level supervision, alongside an adap-
+                                                 tive curriculum mechanism that dynamically ad-
+                                                 justs training data distribution. Across four med-
+                                                 ical reasoning benchmarks, Med-TIV achieves                inference, and medical knowledge benchmarks (Ji et al.,
+                                                 substantial gains over existing methods, improv-           2025a; Xiao et al., 2026). While these advances hold signif-
+                                                 ing MedQA accuracy by 23.5% and MedXpertQA                 icant promise for augmenting clinical decision making and
+                                                 by 32.0% relative to the base generator in partic-         democratizing access to medical expertise, the deployment
+                                                 ular. Crucially, Med-TIV demonstrates an 8×                of LLMs in high-stakes clinical settings demands rigorous
+                                                 reduction in sampling budget requirement com-              verification mechanisms to ensure that generated reasoning
+                                                 pared to prior reward model baselines. These               is both factually accurate and logically sound (Zhang et al.,
+                                                 findings establish that grounding verification in          2025; Wang et al., 2025).
+                                                 dynamically retrieved evidence offers a princi-
+                                                                                                            Reward-based judges have therefore emerged as a scalable
+                                                 pled path toward more reliable medical reasoning
+                                                                                                            solution for evaluating model outputs, supporting both post-
+                                                 systems.
+                                                                                                            training refinement via reinforcement learning from human
+                                                                                                            feedback (RLHF) and inference-time scaling through tree
+                                                                                                            search (Snell et al., 2024). These judges can be broadly cat-
+                                         1. Introduction
+                                                                                                            egorized by the granularity of their supervision. Outcome
+                                         Large Language Models (LLMs) have demonstrated remark-             Reward Models (ORMs) provide sparse trace-level super-
+                                         able capabilities in medical reasoning, achieving competi-         vision that quantifies the quality of the entire output, while
+                                         tive performance on clinical question answering, diagnostic        Process Reward Models (PRMs) offer dense step-level feed-
+                                            1
+                                                                                                            back that scores each intermediate reasoning step, enabling
+                                             University of Pittsburgh 2 UT Southwestern Medical Cen-        fine-grained credit assignment and precise error localiza-
+                                             3
+                                         ter Cornell University. Correspondence to: Hang Zhang
+                                         <haz269@pitt.edu>, Yanshan Wang <yaw45@pitt.edu>.                  tion within multi-step reasoning. Recent work has adapted
+                                                                                                            both paradigms to the medical domain to assess complex
+                                         Preprint. January 29, 2026.                                        clinical reasoning traces. In parallel, advances in genera-
+
+                                                                                                        1
+                      Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+tive reward modeling have extended judge models beyond                models that are up to 4× larger in scale. Notably, Med-TIV
+scalar scoring, enabling them to produce natural-language             also demonstrates an 8× gain in sampling efficiency com-
+critiques that explicitly justify their decisions (Liu et al.,        pared to prior reward-based approaches, achieving equiva-
+2025c; Xiong et al., 2025).                                           lent accuracy with substantially fewer sampled reasoning
+                                                                      traces during test-time search.
+Despite their effectiveness, reward-based judges exhibit
+fundamental limitations when applied to clinical reasoning            Our main contributions are summarized as follows:
+tasks (Yun et al., 2025). A primary concern is the prevalence
+                                                                      • We propose Med-TIV, a novel tool-integrated verifica-
+of hallucinations in critique traces, where judge models gen-
+                                                                        tion framework that enables dynamic, iterative knowledge
+erate plausible yet factually incorrect assessments (Figure 1).
+                                                                        retrieval during medical reasoning evaluation, providing
+This issue is particularly noticeable in the medical domain,
+                                                                        both interpretable, fine-grained justification and improved
+where reliable verification demands grounding in authorita-
+                                                                        factual grounding.
+tive clinical evidence and established medical knowledge.
+                                                                      • We introduce an iterative RL paradigm with curriculum-
+Unverified judgments could lead to the propagation of in-
+                                                                        based difficulty adaptation that progressively improves
+correct diagnostic or treatment recommendations. Existing
+                                                                        verification capabilities through self-bootstrapping, requir-
+medical reasoning verifiers typically provide only scalar
+                                                                        ing only trace-level supervision rather than dense step-
+reward signals, offering little or no justification for their
+                                                                        level expert annotations.
+judgments and thus limiting interpretability (Jiang et al.,
+                                                                      • Med-TIV achieves state-of-the-art performance on four
+2025b). Furthermore, these methods often rely on a static
+                                                                        medical reasoning benchmarks, with comprehensive abla-
+Retrieval-Augmented Generation (RAG) pipeline, in which
+                                                                        tion studies that validate each component’s contribution.
+a fixed set of retrieved documents is prefixed to the context
+and remains unchanged throughout evaluation (Yun et al.,
+2025). Such static design precludes adaptive, multi-turn              2. Preliminaries
+evidence gathering and forces the verifier to a fixed retrieval
+                                                                      2.1. Problem Setup
+budget, thus limiting scalability.
+                                                                      We define medical reasoning verification as the task of as-
+To address these issues, we propose Med-TIV (Medical
+                                                                      sessing the correctness of a multi-step reasoning trace gen-
+Tool-Integrated reasoning Verifier), an agentic reinforce-
+                                                                      erated in response to a medical question. Formally, given
+ment learning (RL) framework that trains LLMs to leverage
+                                                                      a medical question q ∈ Q and a multi-step reasoning trace
+external knowledge bases for judging medical reasoning
+                                                                      τ = (s1 , s2 , . . . , sm ) from a generator model, a verifier
+traces1 . Med-TIV features three key design principles:
+                                                                      model determines whether τ contains any errors. We formu-
+(1) a tool-augmented verification paradigm that enables dy-
+                                                                      late this problem as binary classification, where the verifier
+namic, iterative knowledge retrieval during the evaluation
+                                                                      Vθ (q, τ ) produces a judgment ℓ ∈ {0, 1}, where ℓ = 1 indi-
+process; (2) an iterative RL approach that progressively im-
+                                                                      cates a error-free reasoning trace, and ℓ = 0 indicates the
+proves verification capabilities without requiring step-level
+                                                                      presence of one or more errors. Unlike scalar reward models
+expert annotations; and (3) an adaptive curriculum formula-
+                                                                      that output continuous scores, we adopt a generative judge
+tion strategy that adjusts the data distribution in response to
+                                                                      paradigm in which the verifier produces a discrete judgment
+the evolving capability of the model. By equipping judge
+                                                                      accompanied by a detailed critique trace that provides a
+models with tool-use capabilities, Med-TIV grounds eval-
+                                                                      structured justification for the decision.
+uation decisions in external evidence rather than relying
+solely on parametric knowledge, thereby mitigating hallu-
+cination, improving interpretability, and overcoming the              2.2. Tool-Augmented Reasoning Verifier
+limitations of static RAG (Ji et al., 2025b; Xia et al., 2025).       Following prior works (Jin et al., 2025), we extend the veri-
+To verify the effectiveness of Med-TIV, we conduct ex-                fier with access to an external search engine E that retrieves
+tensive experiments on common medical reasoning bench-                top-k documents from a curated medical corpus (See Ap-
+marks. Our results demonstrate that Med-TIV trains strong             pendix B.2 for details). Retrieved documents are appended
+medical verifiers: when guiding inference-time search for             verbatim to the verifier context. Given a verification in-
+a 7B generator model, our trained verifier achieves relative          stance (q, τ ), the verifier constructs an iterative verfication
+improvements of 23.5% on MedQA and 32.0% on MedX-                     trajectory. At step k, the trajectory is represented as:
+pertQA compared to the generator model alone. More-                                tk = {r1 , a1 , o1 , . . . , rk , ak , ok },
+over, Med-TIV consistently outperforms existing medical
+reward model baselines and surpasses the performance of               where ri denotes a natural language reasoning step analyz-
+   1
+                                                                      ing the medical content, ai is a search query formulated to
+   Code is available          at   https://github.com/                retrieve relevant medical knowledge, and oi = E(ai ) rep-
+PittNAIL/med-tiv
+                                                                      resents the retrieved documents. The iterative verification
+
+                                                                  2
+                          Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+      Tool-Integrated Reasoning Verification                    Training Strategy                                Inference-Time Guided Search
+      INPUT                                           Curriculum Formulation
+                                                                                                                                            Frozen
+                                                                                                                                           Generator
+                                                                       Trivial         Filtered Out     Medical
+               Medical           Multi-step                                                             Question                                  Candidate
+               Question          Reasoning
+                                                                                                                                                   Traces
+                                                                     Impossible        Filtered Out
+      VERIFICATION
+
+                                                                     Boundary           Retained
+                         Reasoning
+                                                                                                                 𝜏1                 𝜏2            𝜏3
+                           Step
+
+                                                                                                          𝜏1 :        (Confidence: 0.92)
+
+
+         Retrieved                      Search        Labeled Pool Sampled Batch Filtered Batch           𝜏2 :        (Confidence: 0.37)
+        Documents                       Query
+                                                      RL Training                                         𝜏3 :        (Confidence: 0.75)
+
+                                                                    RL Training Step
+                          Medical
+                                                              𝜋𝜃𝑡 → 𝜋𝜃𝑡+1                                                                       Improved
+                          Corpus
+                                                                                                                                                Accuracy
+      OUTPUT
+
+                                                                                                                                               8× Sampling
+                                                                                                                Weighted                      Efficiency Gain
+                     Correct    Incorrect              Reward                           Environment          Self-consistency
+
+
+
+Figure 2. Overview of Med-TIV. Left: Tool-integrated verification iteratively analyzes reasoning traces, formulates search queries,
+and retrieves medical evidence before producing correctness judgments. Middle: Curriculum formulation filters trivial and impossible
+instances, retaining boundary cases for RL training. Right: At inference time, the verifier evaluates candidate medical reasoning traces
+generated by a frozen model and final answers are selected via weighted self-consistency.
+
+
+process is defined as:                                                            selects the trace with the highest score:
+
+                     (rk , ak ) ∼ Vθ (q, τ, tk−1 ),                                                   τ̂ = arg max Vθ (q, τ (j) ),
+                                                                                                                      τ (j)
+
+                               ok = E(ak ),                                       and verification-based majority voting, where candidate
+                                                                                  traces are first filtered by the verifier and the final answer is
+                     tk = tk−1 ⊕ rk ⊕ ak ⊕ ok ,                                   determined by consensus among verified traces. Med-TIV
+where ⊕ denotes sequence concatenation. This process                              trains such a plug-in verifier that provides tool-grounded
+continues until the verifier produces a final judgment ℓ ∼                        assessments that can be used to augment decision-making
+Vθ (q, τ, tT ) at the terminal step T . By allowing multiple                      for any frozen generator model at inference time.
+tool executions, the verifier dynamically retrievs medical
+knowledge as need to verify specific claims in the reasoning                      3. Tool-Integrated Medical Reasoning Verifier
+trace. Table 5 in the Appendix shows the explicit instruction
+used in our experiments.                                                          Med-TIV is an agentic verification framework that trains
+                                                                                  models to leverage external knowledge bases for verifying
+2.3. Test-Time Search                                                             whether a given medical reasoning trace contains errors. We
+                                                                                  adopt an iterative training approach based on dynamic cur-
+Test-time search strategies improve reasoning performance                         riculum learning, which requires no fine-grained step-level
+by leveraging reward models to evaluate and select among                          expert supervision and trains solely through multiple rounds
+multiple candidate solutions (Shi et al., 2024). Given a                          of reinforcement learning (Figure 2). We next describe the
+frozen generator model πgen and a question q, we first sam-                       training procedure of Med-TIV in details.
+ple N independent reasoning traces:
+                                                                                  3.1. Tool-Integrated RL with Verifiable Rewards
+                      {τ (j) }N
+                              j=1 ∼ πgen (· | q).
+                                                                                  Data Construction. All training data across iterations is
+A trained verifier Vθ then scores each candidate trace, and                       derived from the open-source Med-PRM dataset. Each orig-
+the final output is selected based on these scores. Com-                          inal instance consists of a tuple (q, τ, ℓstep , ℓtrace ), where q is
+mon selection strategies include Best-of-N sampling, which                        a medical question, τ is a multi-step reasoning trace, ℓstep de-
+
+                                                                             3
+                       Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+notes step-level labels, and ℓtrace is a trace-level correctness           tags. To discourage degenerate outputs, we further penalize
+label2 .                                                                   excessive tag usage. Specifically, Rf = 1 if the output sat-
+                                                                           isfies all formatting constraints and contains no more than
+At each training iteration, we only utilize the triplet
+                                                                           10 <answer> tag pairs; Rf = 0.25 if the output is correct
+(q, τ, ℓtrace ) with human-annotated trace-level labels. Step-
+                                                                           but exhibits tag overflow; and Rf = 0 otherwise.
+level labels ℓstep is intentionally excluded, as Med-TIV is
+designed to improve verification performance without reply-                The final reward R is defined as the product of the two
+ing on fine-grained supervision. For each training iteration,              components:
+we fix the training data budget to 20K instances and enforce                                   R = Rc × Rf .
+a balanced label distribution between correct (ℓtrace = 1)
+and incorrect (ℓtrace = 0) reasoning traces.                               3.2. Training Strategies
+
+Algorithm. We employ Dr. GRPO (Liu et al., 2025b) as                       Adaptive Curriculum Formulation. A central challenge
+the RL algorithm for training the verifier. Given a verifica-              in RL for verification is ensuring that training data remains
+tion instance (qi , τi ), we sample a group of G verification              appropriately calibrated to the evolving capability of the
+trajectories {oi }G
+                  i=1 from the current policy πθ . Each tra-               model. Instances that are either trivially easy or impossibly
+                             |o |
+jectory oi = (o1i , . . . , oi i ) consists of reasoning tokens,           difficult yields minimal learning signal, as the resulting
+search queries, retrieved documents, and a final judgment.                 policy gradients approach zero. To address this issue, we
+The objective is:                                                          adopt a model-aware curriculum formulation mechanism
+      G |oi |
+                                                                           that dynamically adapts the task distribution at each training
+   1 XXn         h                                      io
+                                                                           iteration.
+              min rit Âti , clip rit , 1 − ϵl , 1 + ϵh Âti ,   (1)
+   G i=1 t=1
+                                                                           Concretely, before each iteration t, we perform online fil-
+             π (ot |q,o<t )                                                tering on the sampled batch Bt to construct an effective
+where rit= π θ (oi t |q,oi <t ) , q = (q, τ ) denotes the input
+             θold  i       i                                               training set Dt :
+prompt containing the question and reasoning trace, o<t      i                                                                              ′
+represents previously generated tokens, and ϵl and ϵh are                  Dt = {(q, τ, ℓ) ∈ Bt : ∃ g, g ′ ∈ {1, . . . , G} s.t. r(g) ̸= r(g ) }.
+the clipping parameters. The advantage term Âti is defined
+as:                                                                        Here, for each candidate instance (q, τ, ℓ) ∈ Bt , we sample
+                                                                           G verification trajectories {o(g) }G
+                                                                                                              g=1 from the current policy
+   Âti = R(q, oi ) − mean ({R(q, o1 ), . . . , R(q, oG )}) .              πθt . We then compute the corresponding rewards {r(g) }G  g=1 .
+                                                                           Finally, we retain only instances if any two rewards are
+Reward Designs. To facilitate multi-turn RL with tool                      different, i.e., reward variance is non-zero (Khatri et al.,
+execution, we design a structured reward covering two com-                 2025).
+plementary objectives, following prior practices (Jin et al.,              This criterion eliminates prompts where the model either
+2025):                                                                     consistently succeeds or consistently fails across all sam-
+(i) Correctness Reward (Rc ): This component measures                      pled trajectories. By filtering these zero-gradient instances,
+whether the verifier’s judgment aligns with the ground-truth               optimization is focused on decision-boundary cases where
+label. Let q = (q, τ ) denote the verification prompt and                  the verifier exhibits uncertainty.
+ℓ ∈ {0, 1} the ground-truth label. We define:                              To maintain a fixed training budget per iteration, we itera-
+                                                                          tively resample additional instances from the labeled pool
+               Rc = 1 extract(o) = ℓ ,
+                                                                           B and apply the same filtering criterion until |Dt | = 20K.
+where 1(·) is the indicator function and extract(o)                        This dynamic curriculum evolves naturally across iterations
+parses the final judgment from the <answer> tags in the                    as the verifier improves, eliminating the need for manually
+generated trajectory o. Intuitively, Rc = 1 if the verifier’s              designed difficulty schedules.
+decision is correct, and Rc = 0 otherwise.
+                                                                           Iterative Training via Self-Bootstrapping. We adopt an
+(ii) Format Reward (Rf ): To ensure reliable tool use and                  iterative training approach that progressively improves veri-
+structured outputs, the verifier is required to adhere to                  fication capabilities through multiple rounds of RL. Unlike
+a predefined format. Specifically, reasoning steps must                    prior work that alternates between rejection sampling, su-
+be enclosed within <think> tags, search queries within                     pervised fine-tuning (SFT), and RL (Xu et al., 2025), our
+<search> tags, and the final judgment within <answer>                      approach operates entirely through iterative RL, following
+   2
+   Dataset   is    available  at    https://                               the RL-Zero paradigm where the model reinforces its verifi-
+huggingface.co/datasets/dmis-lab/llama-3.                                  cation capabilities without requiring dense turn-level expert
+1-medprm-reward-training-set                                               demonstrations for cold start.
+
+                                                                       4
+                      Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+Algorithm 1 Iterative Training of Tool-Integrated Medical             4. Experiments
+Reasoning Verifier
+                                                                      4.1. Experimental Setup
+Require: Base verifier πθ0 , labeled dataset pool D =
+    {(qi , τi , ℓi )}N
+                     i=1 , maximum iterations Tmax , batch size
+                                                                      Evaluation benchmarks. We evaluated Med-TIV on
+    B, group size G, search engine E                                  four open-source medical question-answering benchmarks:
+Ensure: Trained verifier πθ∗                                          MedQA (Jin et al., 2020), MedMCQA (Pal et al.,
+ 1: for t = 1 to Tmax do                                              2022), MMLU-Med (Hendrycks et al., 2021), and MedX-
+ 2:   ▷ Sample labeled batch                                          pertQA (Zuo et al., 2025), using accuracy as the evalua-
+ 3:   Bt ← S AMPLE BATCH(D, B)                                        tion metric. These benchmarks collectively assess the veri-
+ 4:   Dt ← ∅                                                          fier’s ability to distinguish correct from erroneous reasoning
+ 5:   ▷ Curriculum formulation                                        across varying difficulty levels and medical subdomains.
+ 6:   for each (q, τ, ℓ) ∈ Bt do                                      Detailed descriptions of benchmarks are in Appendix C.1.
+ 7:       Sample verification trajectories:
+              {ℓ̂(g) }G
+                      g=1 ∼ πθt (· | q, τ, E)                         Implementation details. We trained verifiers using two
+ 8:       Compute rewards within group:                               light-weight backbone models: Llama3.1-8B and Qwen2.5-
+              r(g) ← 1[ℓ̂(g) = ℓ], for g ∈ 1, . . . , G               7B, with Llama3.1-8B as the default for results reporting.
+                                              ′
+ 9:       if ∃ g ̸= g ′ such that r(g) ̸= r(g ) then                  All training was conducted using the VeRL-Tool frame-
+10:           Add (q, τ, ℓ) to curriculum set Dt                      work (Jiang et al., 2025a). Detailed hyperparameters are
+11:       end if                                                      shown in Appendix B.1. All experiments were conducted
+12:   end for                                                         on 4 NVIDIA H100 GPUs with 80GB of memory. Due to
+13:   ▷ RL optimization on curriculum data                            computational constraints, we limit the maximum number
+14:   πθt+1 ← D R .GRPO(πθt , Dt , E)                                 of RL iterations to Tmax = 2 and we set the group size for
+15: end for                                                           curriculum formulation (Section 3.2) to G = 8.
+16: Return πθTmax
+                                                                      For inference, we used the default sampling hyperparame-
+                                                                      ters for all models. In reward-guided search experiments, un-
+                                                                      less otherwise specified, we used Qwen2.5-7B as the frozen
+                                                                      generator and sampled up to 32 candidate reasoning traces
+Starting from the base model πθ0 , we perform Tmax itera-
+                                                                      per question. We applied Hard-Weighted Self-Consistency
+tions. Each iteration consists of three stages:
+                                                                      as the default test-time search strategy.
+
+                Bt ← S AMPLE BATCH(D, B),                             Baselines. We compared Med-TIV against two groups
+                Dt ← F ILTER(Bt , πθt ),                              of baselines. 1): Off-the-shelf LLMs: GPT-4o-mini (Ope-
+                                                                      nAI et al., 2024), Gemini-2.0-Flash, DeepSeek-R1 se-
+             πθt+1 ← RL(πθt , Dt ).
+                                                                      ries (Guo et al., 2025), Qwen2.5 series (Yang et al., 2025),
+                                                                      Llama3.1 (Grattafiori et al., 2024), AlphaMed (Liu et al.,
+Each iteration draws a fresh batch Bt from the annotated              2025a), UltraMedical (Zhang et al., 2024), and HuatuoGPT-
+pool D with trace-level labels, ensuring a balanced distribu-         o1 (Chen et al., 2024). 2): Medical domain-specialized
+tion of correct and incorrect reasoning traces. The curricu-          Reward Models: MedS3 (Jiang et al., 2025b) and Med-
+lum filtering then constructs the training set Dt as described        PRM (Yun et al., 2025). Detailed descriptions of each re-
+above, and RL optimization updates the policy based on the            ward model baseline are shown in Appendix B.3.
+structured reward.
+                                                                      Test-Time Search Strategies. We evaluated three test-
+The key insight underlying this iterative approach is the co-
+                                                                      time search strategies that leverage Med-TIV to improve
+evolution of model capability and training distribution. As
+                                                                      the reasoning performance of frozen generators. Given a
+the verifier improves, the filtering mechanism automatically
+                                                                      reasoning trace τ = (s1 , s2 , . . . , sK ) with K steps, our
+removes instances that have become too easy, while the fresh
+                                                                      verifier assigns a confidence score rτ ∈ [0, 1] for the entire
+sampling introduces new challenging cases. This creates a
+                                                                      trace, defined as the softmax probability of the 1 token over
+self-bootstrapping cycle: stronger models encounter harder
+                                                                      the logits of both 1 and 0 tokens.
+verification tasks, which in turn drive further improvements.
+Since the trace-level correctness reward is deterministic             • Best-of-N. Given a question q, we sampled N candidate
+and unambiguous, this self-bootstrapping process converges              traces {τ (j) }N
+                                                                                       j=1 from the generator and selected the trace
+reliably without the instabilities that can arise from noisy            with the highest verifier confidence score:
+synthetic step-level labels. We summarize the overall train-
+ing procedure in Algorithm 1.                                                               τ̂ = arg max rτ (j) .
+                                                                                                      τ (j)
+
+                                                                  5
+                         Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+Table 1. Main evaluation results on medical reasoning benchmarks. We report accuracy (%) on MedQA, MedMCQA, MMLU-Med, and
+MedXpertQA. Bold numbers indicate the best results among the reward model group. ✓: Verifier supports external tools for judging; ✗:
+Verifier does not support external tools for judging.
+
+   Baselines                               å     |Train|    Size   MedQA     MedMCQA        MMLU-Med         MedXpertQA       Avg.
+   Proprietary Models
+     GPT-4o-mini                            -       -         -    79.03         68.20          87.79            17.84        63.22
+     Gemini-2.0-Flash                       -       -         -    87.51         72.60          92.01            20.57        68.17
+   General Reasoning Models
+     DeepSeek-R1                            -       -       671B   90.34         78.80          94.40            37.76        75.33
+     R1-Distill-Qwen                        -       -        7B    24.82         36.40          47.47             7.43        29.03
+     R1-Distill-Llama                       -       -        8B    34.96         43.60          64.19             5.35        37.03
+   General Non-reasoning Models
+     Qwen2.5                                -       -       32B    73.21         64.83          84.94            13.87        59.21
+     Qwen2.5                                -       -        7B    60.96         56.56          76.96            12.15        51.66
+     Llama3.1                               -       -        8B    70.93         61.60          78.97            13.02        56.13
+   Medical Reasoning Models
+     AlphaMed                               -       -        7B    71.01         61.46          81.16            19.16        58.20
+     UltraMedical                           -       -        8B    72.66         62.60          79.61            15.25        57.53
+     HuatuoGPT-o1                           -       -        8B    72.19         63.60          75.30            16.84        56.98
+   Medical Reward Models
+     MedS3                                 ✗      225k       7B    64.89         58.91          80.53            12.90        54.31
+     Med-PRM                               ✓      111k       7B    69.99         62.36          80.99            13.51        56.71
+     Med-TIV (Ours)                        ✓       20k       7B    75.26         64.70          85.58            16.04        60.40
+
+
+
+• Hard-Weighted Self-Consistency. We first filtered traces               on MedQA, 64.70% on MedMCQA, 85.58% on MMLU-
+  by the verifier’s binary judgment, keeping only those la-              Med, and 16.04% on MedXpertQA, yielding an average
+  beled correct (Vθ (q, τ ) = 1). Among the filtered traces,             accuracy of 60.40%. Notably, Med-TIV enables this 7B
+  we applied majority voting to determine the final answer:              generator to rival substantially larger models, even surpass-
+                                                                         ing the base performance of Qwen2.5-32B despite using
+               N
+               X                                                         a generator that is approximately 4× smaller. Compared
+                 1 Vθ (q, τ (j) ) = 1 · 1 ans(τ (j) ) = a .
+                                                      
+  â = arg max                                                           to domain-specialized medical reasoning models of simi-
+               a
+                   j=1
+                                                                         lar scale, Med-TIV outperforms HuatuoGPT-o1-8B and
+• Soft-Weighted Self-Consistency. Instead of binary filtering,           UltraMedical-8B by 3.07% and 2.60% on MedQA, respec-
+  we weighted each trace’s vote by the verifier’s confidence             tively, demonstrating the effectiveness of our tool-integrated
+  score:                                                                 verification. Case analysis in Appendix D further illustrates
+                                                                         how Med-TIV identifies subtle reasoning errors.
+                             N
+                             X
+                                   rτ (j) · 1 ans(τ (j) ) = a .
+                                                            
+          â = arg max                                                   4.3. Analysis
+                         a
+                             j=1
+                                                                         We conducted a series of ablation analyses to investigate six
+4.2. Main Results                                                        key research questions regarding our proposed framework.
+Table 1 presents the main results on four medical rea-
+soning benchmarks. Models trained with Med-TIV con-                      Q1: Does Med-TIV generalize across different gen-
+sistently outperform existing baselines across all bench-                erator models? To evaluate the generalizability of the
+marks. Specifically, under guided-search using a Med-TIV-                trained verifier, we applied Med-TIV to guide test-time
+trained verifier, Qwen2.5-7B attains accuracies of 75.26%                search across generator models of varying sizes and capa-
+
+                                                                     6
+                                                   Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+                                                MedQA                                           MedMCQA                                       MMLU-Med
+                                                                                                                              86
+                        Med-TIV
+               74       Med-PRM                                             64
+                        MedS3                                                                                                 84
+                        Self-consistency
+               72                                           8x                                                 8x
+                                                                            62                                                82                            8x
+
+
+Accuracy (%)
+               70
+                                                                                                                              80
+               68
+                                                                            60
+               66                                                                                                             78
+
+               64                                                           58                                                76
+
+               62                                                                                                             74
+                                                                            56
+                    1             2            4        8        16   32          1      2       4         8        16   32        1   2       4        8        16   32
+                                           Sampling Budget (N)                               Sampling Budget (N)                           Sampling Budget (N)
+
+Figure 3. Test-time scaling analysis across three medical reasoning benchmarks. Each plot shows accuracy versus sampling budget
+N ∈ {1, 2, 4, 8, 16, 32} for four baselines. Med-TIV consistently outperforms baselines across all sampling budgets and benchmarks.
+
+
+Table 2. Performance improvements from using Med-TIV as                                                  cross-scale generalization suggests that Med-TIV learns
+a verifier on MedQA. For each generator model, the first row
+indicates the accuracy over single sampled trace per question.
+                                                                                                         transferable verification patterns rather than overfitting to
+                                                                                                         specific generator characteristics.
+                    Models                                                   MedQA
+                                                                                                         Q2: How do different test-time search strategies com-
+                    Qwen2.5-7B                                                   60.96
+                                                                                                         pare under Med-TIV? We then systematically compare
+                        + Self-Consistency                                 66.38 (+5.42)                 different test-time search strategies under verifier guidance
+                        + Best-of-N (Med-TIV)                          72.35 (+11.39)                    to identify the most effective approach for leveraging ver-
+                                                                                                         ification signals. As shown in Table 2, Hard-Weighted
+                        + Soft Weighted SC (Med-TIV)                   75.02 (+14.06)
+                                                                                                         Self-Consistency consistently achieves the highest accu-
+                        + Hard Weighted SC (Med-TIV)                   75.26 (+14.30)                    racy across all generators, followed by Soft-Weighted Self-
+                    AlphaMed-7B                                                  71.01                   Consistency and Best-of-N selection. On Qwen2.5-7B,
+                                                                                                         Hard-Weighted Self-Consistency outperforms Best-of-N
+                        + Self-Consistency                                 74.23 (+3.22)
+                                                                                                         by 3% absolute accuracy, suggesting that majority voting
+                        + Best-of-N (Med-TIV)                              75.02 (+4.01)                 among verified traces provides more robust answer selec-
+                        + Soft Weighted SC (Med-TIV)                       75.33 (+4.32)                 tion than simply choosing the highest-confidence individual
+                                                                                                         trace.
+                        + Hard Weighted SC (Med-TIV)                       75.65 (+4.64)
+                    Qwen2.5-32B                                                  73.21                   Q3: Can Med-TIV reduce the sampling budget required
+                        + Self-Consistency                                 75.26 (+2.05)                 to achieve state-of-the-art performance compared to ex-
+                        + Best-of-N (Med-TIV)                              75.57 (+2.36)
+                                                                                                         isting baselines? Next, we investigated how verification
+                                                                                                         performance scales with sampling budget, a critical consid-
+                        + Soft Weighted SC (Med-TIV)                       75.96 (+2.75)                 eration for deployment under varying computational con-
+                        + Hard Weighted SC (Med-TIV)                       75.96 (+2.75)                 straints. As shown in Figure 3, Med-TIV achieves substan-
+                                                                                                         tial efficiency advantage over existing medical reward mod-
+                                                                                                         els across all three benchmarks. In particular, Med-TIV
+ bilities. As shown in Table 2, when using Qwen2.5-7B                                                    matches the performance of baselines using only 4 samples,
+ as the generator, Hard-Weighted Self-Consistency yields a                                               whereas the baselines require 32 samples, representing an
+ relative improvement of 23.5% over the base model’s single-                                             8× reduction in sampling budget. On MedQA, Med-TIV
+ sample accuracy, substantially outperforming the 12.2%                                                  achieves 72.1% accuracy at N = 4, while Med-PRM re-
+ gain achieved by standard Self-Consistency. Notably, the                                                quires the full N = 32 budget to reach 70.0% accuracy.
+ domain-specialized AlphaMed-7B model also benefits from                                                 Since inference cost scales approximately linearly with the
+ verifier guidance with a 6.5% relative improvement, indi-                                               number of sampled traces, this translates to equivalent per-
+ cating that our verifier provides complementary verifica-                                               formance at one-eighth the generator inference cost in prac-
+ tion capabilities beyond domain-specific fine-tuning. The                                               tical deployment settings.
+ improvements extend to larger models as well: Qwen2.5-
+ 32B achieves a 3.8% relative gain during test-time search,                                              Q4: Does Med-TIV generalize across different base
+ demonstrating that a light-weight 8B verifier can effectively                                           models? To assess the generality of our proposed frame-
+ guide models that are significantly larger than itself. This                                            work, we compared verification performance using two
+
+                                                                                                     7
+                               Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+                                      MedQA                               anchors logical verification, dynamic retrieval is essential
+                80                                                        for resolving knowledge-intensive boundary cases beyond
+                     Llama-3.1-8B
+                     Qwen-2.5-7B                                          the model’s parametric memory.
+                75
+                                                                          5. Related Work
+                70
+
+
+ Accuracy (%)
+                                                                          Medical Reasoning Models. The application of large lan-
+                65                                                        guage models to medical reasoning has attracted consider-
+                                                                          able attention. Early efforts focused on domain-adaptive
+                60                                                        pretraining and instruction tuning on medical corpora (Wu
+                                                                          et al., 2023; Singhal et al., 2025; Chen et al., 2023). More
+                55
+                                                                          recent work has explored reasoning-enhanced medical mod-
+                                                                          els. HuatuoGPT-o1 (Chen et al., 2024) incorporates chain-
+                      Base              Iter-1          Iter-2            of-thought reasoning with verification mechanisms, and
+Figure 4. Ablation on base model selection and training iterations.       UltraMedical (Zhang et al., 2024) combines high-quality in-
+                                                                          struction data with preference optimization. AlphaMed (Liu
+                                                                          et al., 2025a) employs RL to improve medical reasoning ca-
+distinct verifier backbones: Llama3.1-8B and Qwen2.5-                     pabilities. Despite these advances, most existing approaches
+7B. As shown in Figure 4, both backbones achieve strong                   focus on improving the generator model itself, whereas our
+performance after two training iterations. Llama3.1-8B                    work addresses the complementary problem of training a
+consistently outperforms Qwen2.5-7B by approximately                      plug-and-play verifier that can improve any frozen generator
+3.5% absolute accuracy on MedQA, achieving 75.86% ver-                    through test-time search.
+sus 72.35% after 2 iterations of training. The parallel per-
+formance gains observed across both models indicate that                  Tool-Assisted Reward and Judge Models. Standard
+Med-TIV is agnostic to backbone architectures.                            LLM-based judges typically function as passive scorers lim-
+                                                                          ited by parametric knowledge. Recent work addresses this
+Q5: What is the impact of iterative training? Figure 4                    through agentic reward modeling, equipping verifiers with
+presents ablation results examining the impact of iterative               executable tools. Themis (Li et al., 2024) established the
+training with adaptive curriculum formulation. Llama3.1-                  foundational framework by enabling access to calculators,
+8B improves from 60.96% to 75.26% after iteration 1, with                 search engines, and knowledge bases through structured
+marginal gains to 75.86% at iteration 2. Qwen2.5-7B fol-                  tool-calling traces. TIR-Judge (Xu et al., 2025) advanced
+lows a similar pattern, reaching 72.35% after two iterations.             this paradigm in the general domain by integrating code ex-
+The rapid convergence suggest that the majority of verifica-              ecution to judge paired responses. TIM-PRM (Kuang et al.,
+tion capability is acquired in the first round, with subsequent           2025) introduced independent tool queries for multi-modal
+iterations refining boundary cases.                                       verification to eliminate confirmation bias. The concept
+                                                                          has further expanded to the Agent-as-a-Judge paradigm
+Q6:        How       Table 3. Ablation on RL and tool integration.        (You et al., 2026), which employs dynamic planning, tool
+does RL and                                                               augmentation and multi-agent coordination to decompose
+tool integra-          Models                         MedQA               complex evaluation tasks. Our work instantiates this agentic
+tion impact            Qwen2.5-7B                        60.96            paradigm within the medical domain, moving beyond static
+verification                                                              retrieval to iterative, evidence-grounded clinical verification.
+performance?              + Med-TIV (RL)                 69.60
+Table 3 high-             + Med-TIV (RL + Tool)          70.54            6. Conclusion
+lights the dual        AlphaMed-7B                       71.01
+benefits of our                                                           We presented Med-TIV, an agentic RL framework for med-
+framework                 + Med-TIV   (RL)               76.12            ical reasoning verification. Our approach addresses key
+across      two           + Med-TIV (RL + Tool)          77.14            limitations of existing medical reward models by offering
+generators. RL                                                            explicit critique traces and enabling dynamic knowledge re-
+training drives the primary gain, boosting MedQA accuracy                 trieval during verification. Empirical evaluations across four
+of Qwen2.5-7B by 8.64%, confirming that the verifier                      medical reasoning benchmarks demonstrate that Med-TIV
+effectively internalizes reasoning patterns. Tool integration             substantially outperforms prior approaches. More broadly,
+provides a critical secondary boost, further elevating                    Med-TIV introduces a general paradigm for training tool-
+accuracy to 70.54%. A similar cumulative trend is observed                augmented verifiers that can be extended to other high-
+with AlphaMed-7B. This demonstrates that while RL                         stakes domains requiring evidence-grounded evaluation.
+
+                                                                      8
+                     Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+Impact Statement                                                      models. npj Digital Medicine, 8:246, 2025a.            doi:
+                                                                      10.1038/s41746-025-01576-4.
+This paper introduces research aimed at improving the re-
+liability of large language models for medical reasoning            Ji, Y., Zhang, H., and Wang, Y. Bias evaluation and mitiga-
+tasks. We believe our work contributes positively to the de-           tion in retrieval-augmented medical question-answering
+velopment of trustworthy medical AI systems by providing               systems, 2025b. URL https://arxiv.org/abs/
+mechanisms to verify reasoning correctness before clini-               2503.15454.
+cal deployment. Med-TIV holds potential to enhance the
+                                                                    Jiang, D., Lu, Y., Li, Z., Lyu, Z., Nie, P., Wang, H., Su,
+safety of LLM-assisted clinical decision support by reducing
+                                                                       A., Chen, H., Zou, K., Du, C., Pang, T., and Chen, W.
+erroneous reasoning outputs through systematic verification.
+                                                                       Verltool: Towards holistic agentic reinforcement learning
+By grounding judgments in retrieved medical evidence, our
+                                                                       with tool use, 2025a. URL https://arxiv.org/
+approach offers improved transparency compared to opaque
+                                                                       abs/2509.01055.
+scalar reward models, enabling practitioners to better un-
+derstand and audit verification decisions. The efficiency           Jiang, S., Liao, Y., Chen, Z., Zhang, Y., Wang, Y., and
+gains demonstrated by Med-TIV could democratize access                 Wang, Y. Meds3 : Towards medical slow thinking with
+to reliable medical reasoning verification, making robust              self-evolved soft dual-sided process supervision, 2025b.
+verification feasible even in resource-constrained settings.           URL https://arxiv.org/abs/2501.12051.
+                                                                    Jin, B., Zeng, H., Yue, Z., Yoon, J., Arik, S., Wang, D.,
+Acknowledgement                                                        Zamani, H., and Han, J. Search-r1: Training llms to
+                                                                       reason and leverage search engines with reinforcement
+This study was supported by the National Insti-
+                                                                       learning, 2025. URL https://arxiv.org/abs/
+tutes of Health awards UL1TR001857, U24TR004111,
+                                                                       2503.09516.
+R01LM014588, and R01LM014306. The sponsors had
+no role in study design, data collection, analysis, interpre-       Jin, D., Pan, E., Oufattole, N., Weng, W.-H., Fang, H., and
+tation, report writing, or decision to submit the paper for            Szolovits, P. What disease does this patient have? a
+publication.                                                           large-scale open domain question answering dataset from
+                                                                       medical exams, 2020. URL https://arxiv.org/
+References                                                             abs/2009.13081.
+
+Chen, J., Cai, Z., Ji, K., Wang, X., Liu, W., Wang, R.,             Jin, Q., Kim, W., Chen, Q., Comeau, D. C., Yeganova,
+  Hou, J., and Wang, B. Huatuogpt-o1, towards medical                  L., Wilbur, W. J., and Lu, Z.             Medcpt: Con-
+  complex reasoning with llms, 2024. URL https://                      trastive pre-trained transformers with large-scale pubmed
+  arxiv.org/abs/2412.18925.                                            search logs for zero-shot biomedical information re-
+                                                                       trieval.     Bioinformatics, 39(11), November 2023.
+Chen, Z., Cano, A. H., Romanou, A., Bonnet, A., Matoba,                ISSN 1367-4811.            doi: 10.1093/bioinformatics/
+  K., Salvi, F., Pagliardini, M., Fan, S., Köpf, A., Mo-              btad651. URL http://dx.doi.org/10.1093/
+  htashami, A., Sallinen, A., Sakhaeirad, A., Swamy, V.,               bioinformatics/btad651.
+  Krawczuk, I., Bayazit, D., Marmet, A., Montariol, S.,
+  Hartley, M.-A., Jaggi, M., and Bosselut, A. Meditron-             Khatri, D., Madaan, L., Tiwari, R., Bansal, R., Duvvuri,
+  70b: Scaling medical pretraining for large language mod-            S. S., Zaheer, M., Dhillon, I. S., Brandfonbrener, D., and
+  els, 2023. URL https://arxiv.org/abs/2311.                         Agarwal, R. The art of scaling reinforcement learning
+  16079.                                                              compute for llms, 2025. URL https://arxiv.org/
+                                                                      abs/2510.13786.
+Grattafiori, A. et al. The llama 3 herd of models, 2024. URL
+  https://arxiv.org/abs/2407.21783.                                 Kuang, P., Wang, X., Liu, W., Dong, J., and Xu, K. Tim-
+                                                                      prm: Verifying multimodal reasoning with tool-integrated
+Guo, D. et al. Deepseek-r1 incentivizes reasoning in llms             prm, 2025. URL https://arxiv.org/abs/2511.
+  through reinforcement learning. Nature, 645(8081), 2025.            22998.
+  doi: 10.1038/s41586-025-09422-z.
+                                                                    Langley, P. Crafting papers on machine learning. In
+Hendrycks, D., Burns, C., Basart, S., Zou, A., Mazeika,               Langley, P. (ed.), Proceedings of the 17th International
+  M., Song, D., and Steinhardt, J. Measuring massive                  Conference on Machine Learning (ICML 2000), pp.
+  multitask language understanding, 2021. URL https:                  1207–1216, Stanford, CA, 2000. Morgan Kaufmann.
+ //arxiv.org/abs/2009.03300.
+                                                                    Li, L., Chai, Y., Wang, S., Sun, Y., Tian, H., Zhang, N., and
+Ji, Y., Ma, W., Sivarajkumar, S., et al. Mitigating the               Wu, H. Tool-augmented reward modeling, 2024. URL
+   risk of health inequity exacerbated by large language              https://arxiv.org/abs/2310.01045.
+
+                                                                9
+                     Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+Liu, C., Wang, H., Pan, J., Wan, Z., Dai, Y., Lin, F.,                 Xu, C. Newton downhill optimizer with applica-
+  Bai, W., Rueckert, D., and Arcucci, R. Beyond dis-                   tion to engineering optimization and breast cancer
+  tillation: Pushing the limits of medical llm reasoning               feature selection.      Biomedical Signal Processing
+  with minimalist rule-based rl, 2025a. URL https:                     and Control, 117:109184, 2026. ISSN 1746-8094.
+  //arxiv.org/abs/2505.17952.                                          doi:       https://doi.org/10.1016/j.bspc.2025.109184.
+                                                                       URL        https://www.sciencedirect.com/
+Liu, Z., Chen, C., Li, W., Qi, P., Pang, T., Du, C., Lee,              science/article/pii/S1746809425016957.
+  W. S., and Lin, M. Understanding r1-zero-like training:
+  A critical perspective, 2025b. URL https://arxiv.                  Xiong, W., Zhao, W., Yuan, W., Golovneva, O., Zhang,
+  org/abs/2503.20783.                                                  T., Weston, J., and Sukhbaatar, S. Stepwiser: Step-
+                                                                       wise generative judges for wiser reasoning, 2025. URL
+Liu, Z., Wang, P., Xu, R., Ma, S., Ruan, C., Li, P., Liu, Y.,          https://arxiv.org/abs/2508.19229.
+  and Wu, Y. Inference-time scaling for generalist reward
+  modeling, 2025c. URL https://arxiv.org/abs/                        Xu, R., Chen, J., Ye, J., Wu, Y., Yan, J., Yang, C., and
+  2504.02495.                                                         Yu, H. Incentivizing agentic reasoning in llm judges
+                                                                      via tool-integrated reinforcement learning, 2025. URL
+OpenAI et al. Gpt-4o system card, 2024. URL https:                     https://arxiv.org/abs/2510.23038.
+ //arxiv.org/abs/2410.21276.
+                                                                     Yang, A. et al. Qwen2.5 technical report, 2025.
+Pal, A., Umapathi, L. K., and Sankarasubbu, M. Medmcqa
+  : A large-scale multi-subject multi-choice dataset for             You, R., Cai, H., Zhang, C., Xu, Q., Liu, M., Yu, T., Li,
+  medical domain question answering, 2022. URL https:                  Y., and Li, W. Agent-as-a-judge, 2026. URL https:
+  //arxiv.org/abs/2203.14371.                                          //arxiv.org/abs/2601.05111.
+                                                                     Yun, J., Sohn, J., Park, J., Kim, H., Tang, X., Shao, Y., Koo,
+Shi, W., Xu, R., Zhuang, Y., Yu, Y., Sun, H., Wu, H., Yang,
+                                                                       Y., Ko, M., Chen, Q., Gerstein, M., Moor, M., and Kang,
+  C., and Wang, M. D. Medadapter: Efficient test-time
+                                                                       J. Med-prm: Medical reasoning models with stepwise,
+  adaptation of large language models towards medical
+                                                                       guideline-verified process rewards, 2025. URL https:
+  reasoning, 2024. URL https://arxiv.org/abs/
+                                                                       //arxiv.org/abs/2506.11474.
+  2405.03000.
+                                                                     Zhang, H., Lou, Q., and Wang, Y. Towards safe ai
+Singhal, K., Tu, T., Gottweis, J., et al. Toward expert-
+                                                                       clinicians: A comprehensive study on large language
+  level medical question answering with large language
+                                                                       model jailbreaking in healthcare, 2025. URL https:
+  models. Nature Medicine, 31:943–950, 2025. doi: 10.
+                                                                       //arxiv.org/abs/2501.18632.
+  1038/s41591-024-03423-7.
+                                                                     Zhang, K., Zeng, S., Hua, E., Ding, N., Chen, Z.-R.,
+Snell, C., Lee, J., Xu, K., and Kumar, A. Scaling llm test-            Ma, Z., Li, H., Cui, G., Qi, B., Zhu, X., Lv, X., Jin-
+  time compute optimally can be more effective than scal-              fang, H., Liu, Z., and Zhou, B. Ultramedical: Build-
+  ing model parameters, 2024. URL https://arxiv.                       ing specialized generalists in biomedicine, 2024. URL
+  org/abs/2408.03314.                                                  https://arxiv.org/abs/2406.03949.
+Wang, K., Fu, Z., Xin, W., Zhou, L., and Chandrappa, S. K.           Zhao, X., Liu, S., Yang, S.-Y., and Miao, C. Medrag:
+ Digital voices of survival: From social media disclo-                 Enhancing retrieval-augmented generation with knowl-
+ sures to support provisions for domestic violence victims.            edge graph-elicited reasoning for healthcare copilot, 2025.
+ arXiv preprint arXiv:2509.12288, 2025.                                URL https://arxiv.org/abs/2502.04413.
+Wu, C., Lin, W., Zhang, X., Zhang, Y., Wang, Y., and Xie,            Zuo, Y., Qu, S., Li, Y., Chen, Z., Zhu, X., Hua, E., Zhang,
+ W. Pmc-llama: Towards building open-source language                   K., Ding, N., and Zhou, B. Medxpertqa: Benchmarking
+ models for medicine, 2023. URL https://arxiv.                         expert-level medical reasoning and understanding, 2025.
+ org/abs/2304.14454.                                                   URL https://arxiv.org/abs/2501.18362.
+Xia, C., Wu, Q., Tian, S., and Hao, Y. Parallelism
+  meets adaptiveness: Scalable documents understand-
+  ing in multi-agent llm systems, 2025. URL https:
+  //arxiv.org/abs/2507.17061.
+
+Xiao, W., Lian, J. J., Ouyang, K., Gu, S., Ke, Z.,
+  Wei, D., Sha, X., Wang, J., Fu, S., Qiu, M., and
+
+                                                                10
+                     Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+A. Limitation
+While Med-TIV demonstrates substantial improvements over existing medical reasoning verification approaches, several
+limitations warrant discussion and suggest directions for future research.
+
+Process Supervision. Our current training paradigm relies solely on trace-level outcome rewards, providing no supervision
+on intermediate verification behaviors such as when to search, what queries to formulate, or how to integrate retrieved
+evidence. While this design eliminates the need for costly step-level annotations, it may lead to suboptimal search patterns or
+redundant retrieval operations. Future work could explore supervision for the verification task itself, or leverage techniques
+such as search behavior cloning from stronger models to provide denser optimization signals.
+
+Retrieval Corpus Coverage. Med-TIV’s verification accuracy is inherently bounded by the coverage and quality of
+the underlying medical corpus. Our retrieval system indexes documents from PubMed abstracts and medical textbooks,
+which provides broad coverage of established medical knowledge but may lack recent findings, rare disease information, or
+region-specific clinical guidelines. Verification of reasoning traces involving cutting-edge treatments or highly specialized
+subspecialties may be limited by corpus gaps.
+
+Language and Domain Scope. All training and evaluation are conducted on English-language medical reasoning
+benchmarks. The generalization of Med-TIV to multilingual medical content or non-Western medical traditions remains
+unexplored. Additionally, while our benchmarks span multiple medical subdomains, certain specialized areas such as
+genomics, radiology interpretation, and surgical planning may require domain-adapted retrieval corpora for optimal
+verification performance.
+
+B. Additional Implementation Details
+B.1. Hyperparameter Settings
+Table 4 provides comprehensive hyperparameter configurations for Med-TIV training across both iterations. We maintain
+mostly consistent settings between iterations to isolate the effect of iterative training from hyperparameter tuning.
+
+                          Table 4. Hyperparameter configurations for Med-TIV training across iterations.
+
+                                 Hyperparameters                     Iteration 1    Iteration 2
+                                 RL Algorithm                        Dr.GRPO         Dr.GRPO
+                                 Clip ratio (low / high)             0.2 / 0.3       0.2 / 0.3
+                                 Learning rate                         1e-6            1e-6
+                                 Warmup steps                            10             10
+                                 Training epochs                          5              5
+                                 Global batch size                      256             256
+                                 Mini-batch size                        256             256
+                                 Group size (G)                           5              8
+                                 Rollout sampling temperature           1.0             1.0
+                                 Rollout top-p                         0.95            0.95
+                                 Curriculum filtering                Enabled         Enabled
+
+
+B.2. Retrieval Setup
+We construct our retrieval infrastructure using a dense retrieval architecture optimized for medical domain queries. The
+corpus is derived from the MedRAG (Zhao et al., 2025) collection, specifically combining the PubMed and Textbooks
+subcorpora into a unified index. The PubMed subset contains approximately 23.9 million biomedical abstracts covering
+research publications, while the Textbooks subset includes content from standard medical textbooks spanning clinical
+medicine, pharmacology, pathology, and related disciplines. After deduplication and quality filtering, the combined corpus
+contains approximately 24 million snippets.
+We employ MedCPT (Jin et al., 2023) as our dense retrieval encoder, specifically the query encoder variant for encoding
+
+                                                               11
+                      Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+                                                  Table 5. Prompt template.
+
+
+  User Prompt:
+  You are a reasoning validator for medical problems. Your task is to think step by step and evaluate whether the given
+  reasoning trace of a medical problem contains errors.
+  First, you must always perform a step-by-step analysis to examine the entire reasoning process. Then, based on your
+  analysis, you will make a definitive judgment.
+  - Use 1 if the reasoning trace is free of errors.
+  - Use 0 if the reasoning trace contains one or more errors.
+  Output Instruction:
+  You must conduct your step-by-step analysis inside <think> and </think> first every time you get new information.
+  After reasoning, if you find you lack some knowledge, you can call a search engine by <search> query </search>
+  and it will return the top searched results between <information> and </information>. You can search as
+  many times as you want. If you find no further external knowledge needed, you can directly provide the answer inside
+  <answer> and </answer>, without detailed illustrations.
+   Medical Problem:
+   {The full Medical Problem on one or more lines.}
+
+   Reasoning Trace:
+   {The full Reasoning Trace on one or more lines.}
+
+
+
+search queries and article encoder for encoding corpus snippets. Document embeddings are pre-computed and stored in a
+FAISS index using the Flat configuration for maximum retrieval accuracy, distributed across multiple GPUs using FAISS’s
+GPU sharding capability to enable parallel similarity search. For each search query, we retrieve the top-3 most relevant
+documents for both training and inference.
+
+B.3. Baseline Setup
+We describe the configuration of reward model baselines used in our experiments. For Med-PRM, which employs static
+retrieval-augmented generation, we equip it with the same retrieval corpus, encoder, and top-k setting as our framework to
+ensure a controlled comparison. MedS3 does not support external tool invocation and is therefore evaluated without retrieval
+augmentation. For confidence score extraction and inference hyperparameter settings, we follow the configurations specified
+in each baseline’s original publication.
+
+B.4. Prompt Template
+We design a structured prompt template that guides the verifier through systematic reasoning with explicit tool invocation
+syntax. The complete prompt is shown in Table 5.
+
+C. Benchmarks and Baselines
+C.1. Benchmarks
+We evaluate Med-TIV on four established medical reasoning benchmarks that collectively assess verification capability
+across varying difficulty levels and medical subdomains.
+• MedQA (Jin et al., 2020): A dataset of multiple-choice questions derived from the United States Medical Licensing
+  Examination (USMLE), designed to evaluate clinical reasoning and medical knowledge integration across diverse
+  specialties.
+• MedMCQA (Pal et al., 2022): A large-scale multi-subject benchmark sourced from Indian medical entrance examinations
+  (AIIMS and NEET-PG), covering 21 medical subjects with emphasis on factual knowledge and clinical application.
+• MMLU-Med (Hendrycks et al., 2021): An aggregation of medical-related subsets from the Massive Multitask Language
+  Understanding benchmark, encompassing anatomy, clinical knowledge, college biology, college medicine, medical
+
+                                                             12
+                     Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+  genetics, and professional medicine.
+• MedXpertQA (Zuo et al., 2025): An expert-level benchmark featuring challenging questions that require multi-step
+  clinical reasoning, differential diagnosis, and treatment planning at the level expected of practicing physicians.
+
+C.2. Baselines
+We compare Med-TIV against comprehensive baselines spanning proprietary systems, general-purpose models, and domain-
+specialized approaches.
+
+Proprietary Models.
+• GPT-4o-mini (OpenAI et al., 2024): A compact variant of OpenAI’s GPT-4o optimized for efficiency while maintaining
+  strong reasoning capabilities across diverse tasks.
+• Gemini-2.0-Flash: Google’s efficient multimodal model designed for fast inference with competitive performance on
+  knowledge-intensive benchmarks.
+
+General Reasoning Models.
+• DeepSeek-R1 (Guo et al., 2025): A 671B parameter reasoning model trained with RL, representing the current frontier of
+  open-weight reasoning capabilities.
+• R1-Distill-Qwen / R1-Distill-Llama: Distilled variants of DeepSeek-R1 at 7B and 8B scales respectively, designed to
+  transfer reasoning capabilities to smaller architectures.
+
+General Foundation Models.
+• Qwen2.5 (Yang et al., 2025): A family of open-weight language models with strong multilingual and reasoning capabilities,
+  evaluated at 7B and 32B parameter scales.
+• Llama3.1 (Grattafiori et al., 2024): Meta’s open-source foundation model demonstrating competitive performance across
+  diverse benchmarks, evaluated at the 8B scale.
+
+Medical Domain Models.
+• AlphaMed (Liu et al., 2025a): A medical reasoning model that employs RL with rule-based rewards to enhance clinical
+  reasoning without reliance on distillation from larger models.
+• UltraMedical (Zhang et al., 2024): A specialized medical model combining high-quality instruction tuning on curated
+  biomedical corpora with preference optimization for improved clinical accuracy.
+• HuatuoGPT-o1 (Chen et al., 2024): A medical reasoning model incorporating chain-of-thought reasoning with internal
+  verification mechanisms to improve diagnostic accuracy.
+
+Medical Reward Models.
+• MedS3 (Jiang et al., 2025b): A self-evolved soft dual-sided process supervision framework for medical reasoning that
+  generates training signals through iterative self-improvement without external annotations.
+• Med-PRM (Yun et al., 2025): A process reward model for medical reasoning verification that provides step-level
+  supervision using static retrieval-augmented generation with guideline-based verification.
+
+D. Case Analysis
+Table 6 presents a complete verification example illustrating how a Med-TIV trained verifier identifies reasoning errors
+through dynamic evidence retrieval. The case involves a patient with bladder cancer who develops ototoxicity following
+chemotherapy. The generator’s reasoning trace incorrectly attributes the symptoms to taxanes based on their known associa-
+tion with ototoxicity, concluding with answer (B). However, the model retrieves evidence establishing that cisplatin—the
+standard neoadjuvant therapy for transitional cell carcinoma—is the causative agent, and its mechanism involves DNA
+cross-linking rather than microtubule hyperstabilization. Through iterative search and reasoning, verifier correctly identifies
+the error, demonstrating the value of tool augmentation for catching subtle medical reasoning mistakes.
+
+
+
+                                                             13
+                       Scaling Medical Reasoning Verification via Tool-Integrated Reinforcement Learning
+
+
+
+
+Table 6. Complete verification demonstration. Given a medical problem and a reasoning trace, the verifier retrieves relevant evidence and
+correctly identifies the reasoning error within the trace.
+
+
+   Medical Problem:
+   Question: A 67-year-old man with transitional cell carcinoma of the bladder comes to the physician because of a 2-day
+   history of ringing sensation in his ear. He received this first course of neoadjuvant chemotherapy 1 week ago. Pure
+   tone audiometry shows a sensorineural hearing loss of 45 dB. The expected beneficial effect of the drug that caused
+   this patient’s symptoms is most likely due to which of the following actions?
+   Options: (A) Inhibition of proteasome (B) Hyperstabilization of microtubules (C) Generation of free radicals (D)
+   Cross-linking of DNA
+
+   Generator Reasoning Trace:
+   The patient’s presentation of ringing in the ear, known as tinnitus, and a sensorineural hearing loss of 45 dB, suggest
+   ototoxicity. Ototoxicity is a well-known side effect of certain chemotherapy drugs. Neoadjuvant chemotherapy refers
+   to the use of chemotherapy before other treatments such as surgery. The patient has received a course of neoadjuvant
+   chemotherapy 1 week ago, which aligns with the recent onset of ototoxic symptoms. To determine the cause of
+   ototoxicity from the provided options, we need to identify which of the options is likely to cause sensorineural
+   hearing loss. Option (A), Inhibition of proteasome, is associated with drugs like bortezomib (Velcade), which are
+   less commonly associated with ototoxicity. Option (B), Hyperstabilization of microtubules, is a known mechanism
+   of taxanes (e.g., paclitaxel, docetaxel). Taxanes are known to cause ototoxicity, making this a potential candidate.
+   Option (C), Generation of free radicals, is a general mechanism that can cause cellular damage but is not specifically
+   known to be associated with ototoxicity. Option (D), Cross-linking of DNA, is a known mechanism of alkylating
+   agents like cyclophosphamide. While alkylating agents can cause ototoxicity, this mechanism is not as commonly
+   linked to ototoxicity as other options. Considering the options, the one most commonly associated with ototoxicity is
+   hyperstabilization of microtubules. Therefore, the drug that most likely caused this patient’s symptoms is one that
+   hyperstabilizes microtubules. The answer is (B).
+   Verifier Judgment:
+   <think> Let’s check the common chemotherapeutic agents used for bladder cancer and their known side effects.
+   Transitional cell carcinoma of the bladder is often treated with cisplatin-based chemotherapy as neoadjuvant therapy.
+   We need to determine if any of the options match the known side effects of these drugs. Let’s search to confirm the
+   side effects of cisplatin and other common bladder cancer chemotherapy drugs. </think>
+   <search> common side effects of cisplatin chemotherapy </search>
+   <information> [Search Results regarding Cisplatin toxicity and mechanisms...] </information>
+   <think> From the information, cisplatin is known to cause ototoxicity, which aligns with the patient’s symptoms
+   of sensorineural hearing loss. Now let’s check the mechanisms of action for the options: Option (A): Inhibition
+   of proteasome - This is associated with drugs like bortezomib and is not used for bladder cancer. Option (B):
+   Hyperstabilization of microtubules - This is the mechanism of taxanes (e.g., paclitaxel, docetaxel). Option (C):
+   Generation of free radicals - This is not specific to a single mechanism and is not commonly associated with ototoxicity.
+   Option (D): Cross-linking of DNA - This is the mechanism of alkylating agents (e.g., cyclophosphamide). Cisplatin is
+   an alkylating agent, and its mechanism involves cross-linking of DNA. Therefore, the correct answer should be (D).
+   </think>
+   <answer>0</answer>
+
+
+
+
+                                                                   14
+

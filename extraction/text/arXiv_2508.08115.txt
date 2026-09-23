@@ -1,0 +1,1449 @@
+                                           TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through
+                                                                    Teamwork Theory
+
+
+                                                                           Pranav Mishra 1 Mohammad Arvan 1 Mohan Zalake 1
+
+
+                                                                    Abstract                                   scaling demonstrate strategic test-time compute allocation
+                                                Complex medical reasoning has historically re-                 yields substantial gains (Snell et al., 2025; Balachandran
+                                                                                                               et al., 2025), yet remain largely unexplored for enabling effi-
+
+
+
+
+arXiv:2508.08115v3 [cs.AI] 31 Mar 2026
+                                                quired frontier language models to achieve
+                                                clinically-acceptable accuracy, creating com-                  cient medical reasoning with resource-constrained models.
+                                                putational barriers that limit deployment in                   Small Language Models (1-7B parameters) offer compelling
+                                                resource-constrained clinical settings. We present             deployment advantages: reduced latency, lower computa-
+                                                TeamMedAgents, a modular multi-agent frame-                    tional requirements, privacy-preserving local execution (Wu
+                                                work that translates Salas et al.’s evidence-                  et al., 2024b; Han et al., 2024; Gemma Team, 2025). Ar-
+                                                based teamwork theory into computational mech-                 chitectural innovations, knowledge distillation, and domain-
+                                                anisms—shared mental models, team leadership,                  specific training enable competitive performance on focused
+                                                team orientation, trust networks, and mutual mon-              tasks (Zhang et al., 2025). However, complex clinical rea-
+                                                itoring—enabling Small Language Models to                      soning—differential diagnosis, multi-modal evidence inte-
+                                                perform multi-step clinical reasoning efficiently.             gration, multi-step inference—remains challenging. Zero-
+                                                Evaluation across 8 medical benchmarks demon-                  shot and few-shot SLM approaches show substantial deficits
+                                                strates that TeamMedAgents advances the Pareto                 (typically 40-50% accuracy), particularly on systematic de-
+                                                efficiency frontier by 1–2 orders of magnitude,                liberation tasks (Liu et al., 2024b), limiting clinical applica-
+                                                achieving competitive accuracy at substantially                bility where reasoning quality impacts patient safety.
+                                                lower token cost than MDAgents, MedAgents,
+                                                DyLAN, and ReConcile. The framework exhibits                   A critical gap exists in translating SLM efficiency bene-
+                                                the lowest cross-dataset variance among multi-                 fits into viable clinical systems. While Chain-of-Thought
+                                                agent approaches, enabling deployment without                  prompting and knowledge distillation improve individual
+                                                per-task tuning. Our results establish that theory-            performance (Wei et al., 2022; Shridhar et al., 2023), gains
+                                                grounded coordination mechanisms provide es-                   remain limited when complexity exceeds capacity. Multi-
+                                                sential scaffolding for deploying efficient medical            agent frameworks achieve superior results through specialist
+                                                AI in resource-constrained clinical environments.              coordination (Kim et al., 2024; Tang et al., 2024; Liu et al.,
+                                                                                                               2024a; Chen et al., 2024b), yet focus on frontier models
+                                                                                                               without investigating whether structured teamwork scaf-
+                                                                                                               folds smaller models. Cost-optimal inference work (Chen
+                                         1. Introduction
+                                                                                                               et al., 2023; Erol et al., 2025) demonstrates Pareto-efficient
+                                         Clinical decision-making demands integration of special-              selection feasibility but does not address whether structured
+                                         ized medical knowledge, systematic reasoning under un-                coordination advances efficiency frontiers beyond single-
+                                         certainty, and coordination across diagnostic perspectives            agent approaches. Bridging this requires principled methods
+                                         (Salas et al., 2005). Large language models demonstrate               translating collaboration patterns into computational mecha-
+                                         proficiency on medical knowledge tasks, yet deployment                nisms compensating for agent limitations while maintaining
+                                         faces critical barriers: computational cost, inference latency,       practical costs.
+                                         and resource requirements limiting point-of-care accessi-
+                                                                                                               Our Approach: We present TeamMedAgents, a modular
+                                         bility (Kim et al., 2024). While frontier models achieve
+                                                                                                               framework systematically integrating organizational psy-
+                                         high accuracy, operational demands prove prohibitive for
+                                                                                                               chology teamwork principles for efficient medical reason-
+                                         real-world integration. Recent advances in inference-time
+                                                                                                               ing with Small Language Models. Building on Salas et
+                                            1
+                                             University of Illinois Chicago, IL, USA. Correspondence to:       al.’s ”Big Five” (Salas et al., 2005), we operationalize five
+                                         Pranav Mishra <pmishr32@uic.edu>, Mohammad Arvan <mar-                independently configurable components: team leadership
+                                         van2@uic.edu>, Mohan Zalake <mzalak2@uic.edu>.                        (structured oversight), shared mental models (diagnostic
+                                                                                                               context), team orientation (hierarchical specialist roles), mu-
+                                         Preprint. April 1, 2026.
+
+                                                                                                           1
+               TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+tual trust (reasoning quality weighting), mutual monitoring         concept of ”effective size”—measured through empirical
+(peer review with feedback). Four-phase deliberation with           benchmarking rather than raw parameters—reveals that
+dynamic recruitment (2-4 specialists) translates validated          well-optimized smaller models achieve disproportionate per-
+teamwork patterns into computational scaffolding for sys-           formance through distillation, synthetic data augmentation,
+tematic clinical reasoning.                                         and architectural refinements (Zhang et al., 2025). These
+                                                                    findings establish theoretical foundations for our hypothe-
+We validate across two scales: (1) Small Language
+                                                                    sis that structured coordination can bridge capability gaps
+Models (Gemma-3-4B, MedGemma-4B) demonstrate ef-
+                                                                    between frontier and small models.
+ficient reasoning at practical speeds; (2) frontier mod-
+els (GPT-4o) validate principles enhance performance re-            Medical applications present compelling use cases for SLMs
+gardless of size. Evaluation across eight medical bench-            due to privacy requirements, deployment constraints, and
+marks reveals Gemma-3-4B with TeamMedAgents achieves                cost considerations. Meerkat-7B demonstrates that med-
+49.4% average accuracy using single fixed configura-                ical textbook training combined with synthetic Chain-of-
+tion (TMA-AllCompon)—outperforming competing frame-                 Thought data enables USMLE-passing performance in com-
+works (MedAgents 48.1%, ReConcile 51.6%, DyLAN                      pact architectures (Wu et al., 2024b). Privacy-preserving
+48.4%, MDAgents 40.8%) while achieving 3.1× inference               deployment studies validate that local SLM-based medical
+speedup versus GPT-4o multi-agent and 2.1-7.6× token                assistants achieve clinical utility without cloud dependencies
+efficiency versus competing frameworks (2,748 vs 5,698-             (Han et al., 2024). Healthcare-specific RAG implementa-
+20,788 tokens). Pareto analysis reveals TMA-AllCompon               tions show that domain-tuned SLMs outperform GPT-4o on
+advances efficiency frontiers by 1-2 orders of magnitude,           clinical Q&A and research synthesis tasks (John Snow Labs,
+achieving competitive accuracy at substantially lower cost          2024).
+(Kim et al., 2024; Tang et al., 2024; Liu et al., 2024a; Chen
+                                                                    Complementary work on inference-time scaling demon-
+et al., 2024b). Cross-dataset stability analysis shows low-
+                                                                    strates that strategic test-time compute allocation can yield
+est coefficient of variation (0.13), establishing deployment
+                                                                    substantial performance gains, often matching benefits of
+readiness.
+                                                                    scaling model parameters (Snell et al., 2025). Empirical
+Our contributions: (1) SLM Enablement: Psychology-                  studies establish that small models with compute-optimal
+grounded coordination enables Small Language Models to              inference strategies can approach larger model performance
+perform complex medical reasoning at 3.1× faster inference          on complex reasoning tasks (Wu et al., 2024a; Balachandran
+with 2-8× token efficiency versus competing approaches.             et al., 2025). Cost-aware evaluation frameworks (Chen et al.,
+(2) Modular Teamwork: Five independently configurable               2023; Erol et al., 2025) provide theoretical grounding for
+components translating Salas et al.’s theory into computa-          Pareto-efficient model selection, though prior work focuses
+tional mechanisms for theory-driven multi-agent design. (3)         on single-agent routing rather than structured multi-agent co-
+Cross-Scale Validation: Evaluation across 8 benchmarks,             ordination. TeamMedAgents extends this by demonstrating
+3 model families, 4 competing frameworks demonstrating              that psychology-grounded teamwork mechanisms represent
+task-specific effectiveness and model-agnostic benefits. (4)        a novel dimension of inference-time scaling—advancing
+Pareto Efficiency: Rigorous characterization establishing           the Pareto frontier through coordination rather than raw
+Pareto-optimal trade-offs, advancing frontiers by 1-2 orders        compute.
+of magnitude with deployment-ready stability (CV = 0.13).
+                                                                    Chain-of-Thought reasoning, originally emergent in large
+                                                                    models (Wei et al., 2022), transfers to small models through
+2. Related Work                                                     targeted distillation (Shridhar et al., 2023). These findings
+                                                                    directly inform our framework: if structured reasoning pat-
+Our work builds upon four research domains informing
+                                                                    terns can be distilled into small models, systematic team-
+efficient medical reasoning through structured multi-agent
+                                                                    work mechanisms may provide complementary scaffold-
+collaboration with Small Language Models.
+                                                                    ing for complex clinical decision-making. The Gemma
+                                                                    model family (Gemma Team, 2025) exemplifies modern
+2.1. Small Language Models and Inference-Time                       SLM architecture, supporting our selection of Gemma-3-4B
+     Scaling                                                        for demonstrating teamwork-enabled reasoning in resource-
+Recent surveys establish SLMs (1-7B parameters) as vi-              constrained configurations.
+able alternatives to frontier models through architectural
+innovations and training methodologies. Analyses of 59              2.2. Multi-Agent Collaboration in Medical AI
+on-device SLMs demonstrate that effective model design
+                                                                    Multi-agent LLM systems establish foundational frame-
+encompasses runtime efficiency, quantization robustness,
+                                                                    works for coordinated collaboration. MetaGPT introduces
+and task-specific optimization (Liu et al., 2024b). The
+                                                                    Standardized Operating Procedures enabling role-based
+
+                                                                2
+                      TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+ Q: Is the lesion purely lytic or sclerotic?              PHASE 2A: Adaptive Component Selection                        POST-ROUND 2 PROCESSING:
+
+                                                                                                                         Mutual Trust - Calculate trust scores [0.4-1]
+                                                                                                                         based on reasoning quality
+                                                           Leadership                                Mutual Trust
+                                                                                                                         Shared Mental Model - Update with
+                                                                                                                         consensus facts from Round 2
+
+                                                           Mutual                Shared                   Team            Leadership - Assigns a leader
+                                                                                                                         - Sets collaborative approach for Round 3
+                                                          Monitoring           Mental Model            Orientation
+                                                                                                                         Each agent receives other agents’ answer and reasoning
+                                                          Task-specific teamwork modules are selectively
+                                                          activated by the recruiter agent to optimize agent            PHASE 3: Collaborative Discussion
+                                                          coordination for the current question.
+                                                                                                                        Turn 1 to N-1: Structured Discussion in Round-robin fashion
+                                                          All teamwork components are activated in this
+A: Purely lytic            B: Mixed lytic and sclerotic                                                                 Team O- Agents share reasoning
+                                                          example to facilitate systematic understanding of
+C: Purely sclerotic        D: Cannot be determined        component interactions with the framework.                    Leadership- Leader mediates, synthesizes
+                                                                                                                        Mutual M- Challenge inconsistencies
+PHASE 1: Dynamic Agent Recruitment
+                                                          PHASE 2B: Initial Assessment                                  Shared Mental M- Verify consensus facts
+                  The recruiter agent dynamically
+                                                          Round 2: Initial independent predictions                         End of each Turn: Trust network updated, SMM updated
+                  assembles a specialized team of
+                  agents tailored to the task or               Shared                                    Team           Turn N: Final Rankings
+                  question at hand.
+                                                            Mental Model                             Orientation        Each agent provides ranked preference list
+                                                            Initializes task                            Define          Agent i:   1 (B)   2 (C)   3    (A)   4   (D)
+  1.                  2.                 3.                      context                          collaborative roles
+                                                                                                                        PHASE 4: Weighted Decision Aggregation
+                                                             Each agent independently predicts answer with reasoning
+                                                                                                                        Combine using trust-weighted Borda count:
+  Radiologist         Orthopedic         Pathologist         Agent (Answer):          1 (B)       2 (C)       3 (C)
+       0.40                0.35               0.25                                                                      • Apply Trust Network scores (0.4-1.0)
+                                                                                                                        • Apply Team Orientation hierarchical weights
+                                                           After initializing team orientation and a shared
+                                                                                                                        • Leadership: 1.5× multiplier to leader vote
+  The recruiter agent assigns relevance-based              mental model, all information is stored in a shared                                                                       WINNER
+  weights to agents, establishing a hierarchical           knowledge bank, from which agents independently              Final decision:    2 (B) 0.37    1 (C) 0.62     3 (A) 0.21
+                                                                                                                                                                                     C (0.53)
+  structure tailored to the task.                          derive their answers.                                        Confidence: Σ(top_option_weights) / total
+
+Figure 1. TeamMedAgents framework showing four-phase collaborative decision-making: dynamic recruitment assigns task-specific
+specialists with hierarchical weights, adaptive component selection and Round 2 independent assessment, Round 3 structured discussion
+with leadership mediation and mutual monitoring, and trust-weighted Borda count aggregation
+
+
+collaboration through structured documents (Hong et al.,                                       across model scales.
+2024), while CAMEL provides theoretical foundations for
+                                                                                               TeamMedAgents extends this work by: (1) systematically
+autonomous cooperation (Li et al., 2023). Recent taxon-
+                                                                                               integrating evidence-based teamwork components as inde-
+omy work characterizes collaboration across actors, types,
+                                                                                               pendently configurable mechanisms, (2) conducting compre-
+structures, strategies, and protocols (Chen et al., 2025), yet
+                                                                                               hensive efficiency analysis across competing frameworks,
+current systems face limitations in reasoning, joint planning,
+                                                                                               and (3) demonstrating how organizational psychology prin-
+and dynamic coordination (Agashe et al., 2023)—capabili-
+                                                                                               ciples enable structured coordination critical for deploying
+ties essential for medical decision-making.
+                                                                                               smaller models requiring additional scaffolding.
+Medical applications require complex diagnostic reason-
+ing benefiting from specialist agent collaboration. MedA-                                      2.3. Teamwork Theory and Computational Translation
+gents pioneered role-playing LLM agents simulating clin-
+ical consultations through structured five-stage workflows                                     Salas et al.’s ”Big Five” teamwork model identifies five
+with consensus voting (Tang et al., 2024), while MDAgents                                      behavioral components (Team Leadership, Mutual Perfor-
+introduced dynamic resource allocation based on task com-                                      mance Monitoring, Backup Behavior, Adaptability, Team
+plexity (Kim et al., 2024). DyLAN explores dynamic agent                                       Orientation) and three coordinating mechanisms (Shared
+selection with importance-weighted aggregation (Liu et al.,                                    Mental Models, Closed-Loop Communication, Mutual
+2024a), and ReConcile employs confidence-weighted vot-                                         Trust) that correlate with patient outcomes and diagnostic ac-
+ing mechanisms (Chen et al., 2024b). Recent extensions                                         curacy (Salas et al., 2005). Empirical validation spans police
+address multimodality (Liu et al., 2025), knowledge inte-                                      operations (Verhage et al., 2022) and healthcare applications
+gration (Wang et al., 2025), and reinforcement learning                                        (Hassan et al., 2025), with foundational work establishing
+optimization (Xia et al., 2025). However, these frameworks                                     theoretical bases for shared mental models (Cannon-Bowers
+employ predetermined interaction patterns without inves-                                       et al., 1995), team leadership (Zaccaro et al., 2001), and
+tigating how teamwork dynamics influence performance                                           trust in teams (Webber, 2002).
+or systematically evaluating efficiency-accuracy trade-offs                                    TeamMedAgents represents the first systematic computa-
+
+
+                                                                                          3
+               TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+tional operationalization of these principles through struc-        Mutual Performance Monitoring Enables systematic
+tured agent prompts, behavioral tracking, and dynamic               peer review during Round 3 (Marks et al., 2001). Agents
+trust networks. Unlike ad-hoc coordination patterns in              analyze peer responses for diagnostic completeness, logical
+multi-agent LLM systems, our framework offers principled            consistency, and medical errors, generating constructive
+methodology for integrating validated teamwork compo-               feedback categorized by clinical severity.
+nents—demonstrating particular value when smaller models
+require scaffolding to organize complex clinical information.       Team Orientation Prioritizes collective diagnostic ac-
+This psychology-to-computation translation establishes a            curacy over individual advocacy (Eby & Dobbins, 1997).
+generalizable paradigm for theory-driven multi-agent design         Agents receive hierarchical weights based on domain exper-
+beyond medical applications.                                        tise relevance, following geometrically decreasing distribu-
+                                                                    tions: N =2: {0.6, 0.4}, N =3: {0.5, 0.3, 0.2}, N =4: {0.4,
+3. Method                                                           0.3, 0.2, 0.1}.
+
+TeamMedAgents translates organizational psychology team-            Shared Mental Models Establishes consistent under-
+work principles into computational mechanisms for multi-            standing across agents (Stout et al., 1999). The system
+agent medical reasoning. Figure 1 illustrates the architec-         constructs formalized task models (case objectives, evalua-
+ture; Algorithms 1 and 2 provide formal specifications.             tion criteria) and team models (expertise areas, interaction
+                                                                    protocols) distributed to all agents before deliberation.
+3.1. Framework Architecture
+The framework implements Salas et al.’s “Big Five” team-            Mutual Trust Maintains dynamic trust networks influenc-
+work model (Salas et al., 2005) through four phases with            ing information sharing depth (Webber, 2002). Trust levels
+dynamic agent recruitment (Kim et al., 2024):                       initialize at 0.8 and update based on agreement with emerg-
+                                                                    ing consensus and reasoning quality assessments. Higher
+Phase 1: Agent Allocation Based on task complexity                  trust enables more comprehensive knowledge exchange dur-
+analysis, the system recruits 2–4 specialized agents (e.g.,         ing Round 3.
+cardiologist, radiologist, internist) with domain-relevant
+expertise.                                                          3.3. Experimental Setup
+                                                                    Datasets We evaluate across eight medical benchmarks
+Phase 2: Component Selection The recruiter agent selec-             (Table 3) spanning diverse reasoning requirements: clin-
+tively activates teamwork components to optimize coordina-          ical knowledge (MedQA (Jin et al., 2020), MedMCQA
+tion for the current question.                                      (Pal et al., 2022)), research comprehension (PubMedQA
+                                                                    (Jin et al., 2019)), broad medical knowledge (MMLU-Pro
+Phase 3: Collaborative Reasoning Agents engage in                   Medical (Wang et al., 2024)), differential diagnosis (DDX-
+structured deliberation across three rounds: (1) initial case       Plus (Tchango et al., 2022)), clinical reasoning (MedBul-
+analysis establishing diagnostic hypotheses, (2) independent        lets (Chen et al., 2024a)), and vision-language understand-
+assessment where each agent evaluates the case without peer         ing (PathVQA (He et al., 2020), PMC-VQA (Zhang et al.,
+influence, and (3) structured discussion with two turns of          2023)).
+peer feedback mediated by team leadership.
+                                                                    Baselines We compare against four multi-agent frame-
+Phase 4: Decision Aggregation Final answers are deter-
+                                                                    works: MedAgents (Tang et al., 2024) (role-playing con-
+mined via trust-weighted Borda count voting, where each
+                                                                    sultation), MDAgents (Kim et al., 2024) (complexity-based
+agent’s contribution is weighted by accumulated trust scores
+                                                                    recruitment), DyLAN (Liu et al., 2024a) (dynamic agent
+and hierarchical expertise weights.
+                                                                    selection), and ReConcile (Chen et al., 2024b) (confidence-
+                                                                    weighted voting). Single-agent baselines include Zero-Shot,
+3.2. Teamwork Components
+                                                                    Few-Shot (3 examples), and Chain-of-Thought prompting.
+We operationalize five components from the “Big Five”               Full comparison results appear in Table 1.
+model as independently configurable mechanisms:
+                                                                    Models We validate across three model families: (1)
+Team Leadership Designates a leader agent for coordi-               Gemma-3-4B-IT as the primary SLM platform (4B param-
+nation and synthesis (Zaccaro et al., 2001). The leader             eters, local deployment via Ollama); (2) MedGemma-4B
+provides problem decomposition before Round 2, mediates             to evaluate domain-specialized pre-training effects; and (3)
+discussion in Round 3, and contributes synthesis with en-           GPT-4o (gpt-4o-2024-05-13) to validate model-agnostic
+hanced weighting (1.5× multiplier) in decision aggregation.         principles at frontier scale. All models use identical prompt
+
+                                                                4
+                 TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+Table 1. Full dataset evaluation. Results grouped by base model.               Gemma-3-4B, TMA-AllCompon achieves best or compet-
+For Gemma-3-4B, TMA-AllCompon achieves best accuracy on 4/8
+benchmarks and remains competitive on others. MedGemma-4B
+                                                                               itive accuracy on 6/8 benchmarks: MedBullets (33.9%),
+with TMA shows +9.4pp average improvement over Gemma-3-4B.                     MedMCQA (53.3%, +0.9pp over DyLAN), PMC-VQA
+With GPT-4o, all frameworks achieve high accuracy, but TMA                     (43.2%), PubMedQA (59.0%), DDXPlus (65.3%, -0.3pp
+maintains competitive performance while requiring significantly                vs DyLAN), MedQA (45.5%, -3.7pp vs DyLAN). Com-
+fewer tokens (see Table 4). Bold indicates best within model group.            peting frameworks show advantages only on MMLU-Pro
+Dashes indicate experiments not completed.
+                                                                               (ReConcile 35.8% vs TMA 35.6%) and PathVQA (ReCon-
+   Framework       DDX MBL MMC MQA MML PVQ PMC PQA                             cile 63.8% vs TMA 59.7%). Average: TMA 49.4% versus
+   MedGemma-4B                                                                 competing frameworks 48.4-51.6%.
+   TMA-AllCompon 70.2     48.2   63.6   62.1   46.4   68.4   38.5   73.4
+                                                                               Cross-model validation establishes systematic scalability:
+   Gemma-3-4B
+   TMA-AllCompon   65.3   33.9   53.3   45.5   35.6   59.7   43.2   59.0       GPT-4o 77.6%, MedGemma-4B 58.9% (+9.4pp through do-
+   DyLAN           65.6    –     52.4   49.2   27.4   47.4    –      –         main specialization), Gemma-3-4B 49.4%. Model scale
+   MDAgents        52.6    –     38.5   39.6   24.4   49.1    –      –
+   MedAgents       61.0    –     50.8   46.8   23.6   60.2    –      –         advantages vary by task: smallest on differential diag-
+   ReConcile       58.0    –     52.0   48.5   35.8   63.8    –      –         nosis (DDXPlus: +4.7pp) and evidence synthesis (Pub-
+   GPT-4o                                                                      MedQA: +4.9pp), largest on broad knowledge tasks (Med-
+   TMA-AllCompon   74.9   78.8   85.4   90.7   79.7   76.8   56.4   78.3
+   DyLAN           56.0   69.5   84.6   86.8   80.0   69.7   56.0   72.8       Bullets: +30.6pp, MMLU-Pro: +33.3pp, MedQA: +28.6pp).
+   MDAgents        77.9   80.8   80.8   88.7   80.7   65.3   56.4   75.0       SLMs with structured teamwork compete effectively on con-
+   MedAgents       66.6   70.0   85.7   90.3   46.7   66.7   56.5   76.4
+   ReConcile       68.0   75.2   86.0   92.8   78.8   65.4   56.0   70.8       strained reasoning while requiring additional capacity for
+   DDX=DDXPlus, MBL=MedBullets, MMC=MedMCQA, MQA=MedQA,                        comprehensive knowledge coverage.
+   MML=MMLU-Pro, PVQ=PathVQA, PMC=PMC-VQA, PQA=PubMedQA
+
+                                                                               4.2. Pareto Efficiency Analysis
+templates (Appendix 8); vision tasks employ native multi-                      Figure 2 presents per-dataset Pareto frontiers comparing
+modal capabilities.                                                            accuracy versus token cost. TMA-AllCompon uses a sin-
+                                                                               gle fixed configuration across all datasets, demonstrating
+3.4. Evaluation Protocol                                                       systematic advantages without task-specific tuning. Token
+                                                                               costs: TMA averages 2,748 tokens/question versus compet-
+Configurations We evaluate TMA-AllCompon (all com-
+                                                                               ing frameworks’ 5,698-20,788 tokens—2.1-7.6× efficiency
+ponents active) as the primary configuration, with three
+                                                                               advantages (DyLAN: 2.6×, ReConcile: 2.1×, MDAgents:
+single-agent baselines and five individual component abla-
+                                                                               7.6×, MedAgents: 7.0×). Vision benchmarks require 3,700
+tions (Tables 7, 9, 6). Full evaluation encompasses 11,545
+                                                                               tokens versus text 2,400 tokens due to image encoding.
+questions, with large-scale datasets (MedMCQA, DDX-
+Plus) sampled to 1,000 questions. Ablation studies use 50-                     TMA occupies optimal or near-optimal Pareto positions on
+question stratified subsets per dataset across 3 runs (seeds:                  7/8 datasets. On knowledge tasks (MMLU-Pro, MedM-
+111, 222, 333).                                                                CQA), TMA achieves 35.6-53.3% at 2,400-3,400 tokens
+                                                                               while MDAgents/MedAgents consume 10,000-31,000 to-
+Metrics Primary metric is accuracy via weighted majority                       kens reaching 24.4-52.4%. Single-agent baselines (400-
+voting. We report computational efficiency (Table 2), cross-                   1,000 tokens) achieve 10-25pp lower accuracy. PathVQA
+dataset stability via coefficient of variation (Table 5), and                  represents the sole exception: ReConcile 63.8% at 3,253
+Pareto efficiency characterization (Figure 2).                                 tokens versus TMA 59.7% at 3,648 tokens.
+                                                                               Efficiency scoring (accuracy per 1,000 tokens) quantifies
+Implementation Hyperparameters (trust initialization 0.8,                      trade-offs: TMA 18.0 versus ReConcile 9.1 (2.0× better),
+leadership multiplier 1.5×, hierarchical weight distribu-                      MedAgents 2.5 (7.2× better), MDAgents 2.0 (9.0× better),
+tions) were validated on MedQA development subsets. We                         establishing Pareto dominance across diverse medical rea-
+apply all components uniformly (TMA-AllCompon) across                          soning tasks at practical token budgets for real-time deploy-
+all models to evaluate cross-dataset stability. Implementa-                    ment.
+tion uses Python 3.12.6 with modular task configurations. A
+detailed case study walkthrough is provided in Appendix 7.
+                                                                               4.3. Deployment Stability and Configuration Selection
+
+4. Results and Analysis                                                        TMA-AllCompon’s consistency across datasets (range:
+                                                                               31.4pp) enables practical deployment without labeled de-
+4.1. Full Dataset Evaluation and Comparison                                    velopment data per domain, task classification infrastruc-
+                                                                               ture, or classification latency overhead. Architectural re-
+Table 1 and Figure 3 present comprehensive evaluation on
+                                                                               dundancy—multiple coordination mechanisms compensat-
+complete datasets (n=1,000 questions per benchmark). On
+
+                                                                           5
+                                                     TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+               72.5        Few-Shot CoT                                                                                                                   DyLan*
+                                                                                                                                                                                                           54                                TMA                                                                                              DyLan
+                                                                                                                              CoT                                                                                                                      DyLan                                                                              ReConcile
+                                                                                                                                                                                                                                                     ReConcile
+               70.0                                                                                          34                         TMA                                                                52
+                                                                                                                   Few-Shot                                            MedAgents*
+                                                                                                                                                                                                                              CoT
+                                                                                                                                                                                                                                                                       MedAgents                      48
+               67.5                                                                                                                                                                                        50                                                                                                                                         MedAgents
+                          Zero-Shot                                                                          32
+                                                         DyLan                                                                                                                                                  Zero-Shot
+                                               TMA
+                                                                                                                                                                                                           48                                                                                         46
+               65.0                                                                                                                                                                                                                                                                                         Few-Shot               TMA
+                                                                                                             30
+
+Accuracy (%)                                                                                  Accuracy (%)                                                                                  Accuracy (%)                                                                               Accuracy (%)
+                                                                                                                                                                                                                 Few-Shot
+                                                                                                                                                          ReConcile*
+               62.5                                                                                                                                                                                        46
+                                                                                  MedAgents                                                                                                                                                                                                           44
+                                                                                                             28
+               60.0                                                                                                                                                                                        44
+                                                                                                                                                                                                                                                                                                                       CoT
+                                                              ReConcile
+               57.5                                                                                          26                                                                                            42                                                                                         42
+
+               55.0                                                                                          24                                                                                            40                                                                                              Zero-Shot
+
+                                                                               MDAgents                           Zero-Shot                                               MDAgents*                                                                                        MDAgents                   40                                                          MDAgents
+               52.5                                                                                                                                                                                        38
+                                 103                         104                                                          103                             104                                                               103                                    104                                             103                          104
+                                             Tokens/Q (log)                                                                         Tokens/Q (log)                                                                                  Tokens/Q (log)                                                                           Tokens/Q (log)
+                     36                                TMA      ReConcile                                    75   Zero-Shot
+                                                                                                                   Few-Shot                                                                                                                        TMA                                                70                                      ReConcile*
+                                                                                                                                                                                                     42.5
+                                                                                                                                                                                                                                                                                                                       CoT
+                     34                                                                                      70                                                                                      40.0        Few-Shot
+                                                                                                                              CoT
+                                                                                                                                                                                                                                                                                                      65
+                           Few-Shot                                                                                                                                                                                                                                                                        Zero-Shot
+                     32                                                                                                                                                                              37.5
+                                                                                                             65                               ReConcile                                                                                                                                                     Few-Shot
+                                                                                                                                                                                                                                                         ReConcile*
+
+
+      Accuracy (%)                                                                            Accuracy (%)                                                                            Accuracy (%)                                                                                     Accuracy (%)
+                          Zero-Shot                                                                                                                                                                  35.0                                                                 MedAgents*                  60
+                     30                                                                                                                                                   MedAgents
+                                                                                                                                                                                                                              CoT                                                                                            TMA
+                                                                                                             60                                TMA
+                                                                                                                                                                                                                                                                 DyLan*
+                                                                                                                                                                                                     32.5                                                                                                                                             DyLan*
+                                                                                                                                                                                                                                                                           MDAgents*                                                                              MedAgents*
+                     28                                            DyLan
+                                                                                                             55                                                                                      30.0                                                                                             55
+                     26
+                                                                                                                                                                                                     27.5
+                                       CoT                                                                   50
+                                                                                  MDAgents                                                                             MDAgents
+                                                                                                                                                                                                                                                                                                      50
+                     24                                                   MedAgents                                                                         DyLan                                    25.0       Zero-Shot                                                                                                                                      MDAgents*
+
+                                  103                              104                                                    103                              104                                                              103                                  104                                               103                          104
+                                             Tokens/Q (log)                                                                         Tokens/Q (log)                                                                                  Tokens/Q (log)                                                                           Tokens/Q (log)
+                                                                          Single-Agent              TMA (AllCompon)                   DyLan               MDAgents                MedAgents                       ReConcile               Pareto Frontier                 * = Ablation (3 runs, n=50 per run)
+
+   Figure 2. Per-dataset Pareto efficiency analysis (Gemma-3-4B, n=1000). Each subplot shows accuracy (%) versus token cost (log scale)
+   for one medical benchmark. TMA-AllCompon (red diamond) consistently lies on or near the Pareto frontier (green line), achieving
+   competitive accuracy at 2-8× lower token cost than MDAgents (blue) and MedAgents (orange). DyLAN (green) and ReConcile (purple)
+   show intermediate efficiency. Single-agent baselines (gray circles) cluster at low cost but insufficient accuracy. Asterisks (*) indicate
+   ablation-based estimates where full evaluation was not completed. TMA occupies the high-accuracy, low-cost region (<5,000 tokens)
+   across all 8 benchmarks.
+
+
+    ing for task-specific weaknesses—translates redundancy-                                                                                                                                            3-4B), with benefits persisting though attenuated at frontier
+    through-diversity principles (Salas et al., 2005) into                                                                                                                                             scale. Component-specific advantages vary by task—a ”no
+    deployment-ready generalization. Competing frameworks                                                                                                                                              free lunch” pattern motivating TMA-AllCompon’s compre-
+    exhibit comparable variance (ReConcile: 28.0pp, DyLAN:                                                                                                                                             hensive mechanism integration for robust generalization.
+    38.2pp), suggesting cross-task stability represents general
+    multi-agent characteristics rather than TMA-specific advan-                                                                                                                                        4.5. Computational Efficiency
+    tages.
+                                                                                                                                                                                                     Table 2 quantifies coordination overhead. TMA-AllCompon
+                                                                                                                                                                                                     requires 14 API calls and 2,420-3,733 tokens per question
+    4.4. Component Contributions to Performance
+                                                                                                                                                                                                     depending on modality. Round 2 disagreement: 1.7% (text),
+  Figure 4 presents component ablations across teamwork                                                                                                                                              10.1% (vision), indicating medical image interpretation gen-
+  mechanisms (detailed results: Tables 7, 9, 6). Task-specific                                                                                                                                       erates greater uncertainty requiring additional deliberation.
+  patterns emerge: Shared Mental Model strongest on knowl-
+                                                                                                                                                                                                      Comparing Gemma-3-4B against GPT-4o multi-agent re-
+  edge tasks (MMLU-Pro: 64.0%, +30.7pp over single-
+                                                                                                                                                                                                      veals substantial advantages: 3.1× inference speedup (7.3s
+  agent), Leadership on vision reasoning (PMC-VQA: 72.0%,
+                                                                                                                                                                                                      vs 22.6s per question) and 3.2× token efficiency (2,420 vs
+  +32.0pp), Team Orientation on clinical decision-making
+                                                                                                                                                                                                      3,544 tokens for text). Economic impact: Gemma-3-4B
+  (MedBullets: 51.7%, +17.7pp), Mutual Monitoring on dif-
+                                                                                                                                                                                                      costs $3.20 per 1,000 questions versus GPT-4o $130—en-
+  ferential diagnosis (PathVQA: 72.0%). Patterns replicate
+                                                                                                                                                                                                      abling two-tier deployment (SLM triage with selective fron-
+  qualitatively across MedGemma-4B and GPT-4o, validat-
+                                                                                                                                                                                                      tier escalation) achieving 90% cost reduction.
+  ing component-task relationships generalize across model
+  scales.
+    Consistent finding: substantial multi-agent improvement
+    over single-agent baselines (typical +10-20pp on Gemma-
+
+
+                                                                                                                                                                                      6
+                                 TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+               100                                                                                                                                                                             GPT-4o
+                                                                                                  91                                                                                           MedGemma-4B
+                                                                          85                                                                                                                   Gemma-4B
+                                              79                                                                            80
+               80          75                                                                                                                77                                        78
+                                                                                                                                                                                               73
+                                 70                                                                                                                  68
+                                      65                                            64                  62
+
+
+
+Accuracy (%)
+                                                                                                                                                          60                                        59
+               60                                                                                                                                                56
+                                                                                         53
+                                                    48                                                                           46
+                                                                                                             45                                                                43
+               40                                                                                                                     36
+                                                                                                                                                                          39
+                                                             34
+
+
+               20
+
+                                                                                          Avg: GPT-4o=77.6% | MedGemma=58.9% | Gemma=49.4%
+                0
+                              Plus                 ets                         A                       QA                       ro                   *                 *                       A
+                          DDX                 Bull                         MCQ                    Med                       LU-P               VQA                -VQ
+                                                                                                                                                                      A                  edQ
+                                           Med                          Med                                            MM                  Path                PMC                  Pub
+                                                                                                                                                                                        M
+                                                                                                                  Dataset
+    Figure 3. Full evaluation comparison of TMA-AllCompon across three model scales. GPT-4o achieves highest accuracy across all
+    benchmarks, with average 77.6%. MedGemma-4B reaches 58.9% average, closing 35% of the gap between Gemma-3-4B (49.4%) and
+    GPT-4o. The model scale advantage varies by task: smallest on DDXPlus (+4.7pp) and PubMedQA (+4.9pp), largest on MedBullets
+    (+30.6pp) and MMLU-Pro (+33.3pp). This suggests SLMs with domain specialization can approach frontier model performance
+    on constrained medical reasoning tasks while remaining competitive on broader knowledge tasks. Vision benchmarks (PathVQA*,
+    PMC-VQA*) used 3-5× reduced image resolution for MedGemma due to endpoint limitations, affecting direct comparability.
+
+
+    Table 2. Computational efficiency comparison. Single-agent costs                                                 maintaining superior token efficiency (Table 6). How-
+    averaged across Zero-Shot, Few-Shot, and CoT configurations.
+    TMA requires 14 API calls and 2,400-3,700 tokens per question
+                                                                                                                     ever, high single-agent baseline (71%) limits multi-
+    depending on modality. Disagreement indicates percentage of                                                      agent gains: MedQA +2.7pp (90.0% → 92.7%) ver-
+    questions requiring additional Round 3 discussion due to lack                                                    sus Gemma’s +11.5pp improvement. Combined with
+    of Round 2 consensus. Vision tasks show higher disagreement                                                      3,544 tokens/question costing $270-450 per 1,000 ques-
+    (10.1% vs 1.7%) due to increased reasoning uncertainty on medical                                                tions—40× premium over Gemma for 28.2pp accuracy ad-
+    images.
+                                                                                                                     vantage—these economics position TeamMedAgents as par-
+                       Model               Mode Dis. Tok/Q Time/Q API/Q                                              ticularly valuable for enabling efficient SLM deployment
+                                                (%)          (s)                                                     rather than incremental frontier advancement.
+                       Gemma-3-4B          Text          –        613         3.2        1.0
+                                           Vision        –        680         3.8        1.0
+                       TMA-AllCompon Text    1.7 2,420                        7.3        14.2
+                                                                                                                     5. Discussion
+                       (Gemma-3-4B)  Vision 10.1 3,733                        7.3        14.2
+                                                                                                                     Our results establish psychology-grounded teamwork as a
+                       GPT-4o              Text          –     766            4.1        1.7
+                                           Vision        –    1,122           4.3        1.7                         novel inference-time scaling dimension: structured coor-
+                       TMA-AllCompon Text    1.7 3,544                    22.6           13.2                        dination advances the Pareto frontier through principled
+                       (GPT-4o)      Vision 10.1 2,745                    16.4            8.8                        orchestration rather than raw compute or model scale, de-
+               Dis. = Disagreement, Tok/Q = Tokens/Q, Time/Q = Time/Q (s), API/Q = API                               mocratizing medical AI by enabling Small Language Mod-
+                Calls/Q. Text: MedQA, PubMedQA, MMLU-Pro, MedMCQA, DDXPlus,
+                               MedBullets. Vision: PathVQA, PMC-VQA.                                                 els to achieve deployment viability previously confined to
+                                                                                                                     frontier models.
+                                                                                                                     Three findings warrant emphasis.              First, observed
+    4.6. Domain Specialization and Frontier Model                                                                    component-task affinity patterns combined with All Compo-
+         Validation                                                                                                  nents’ cross-dataset stability validate redundancy-through-
+    MedGemma-4B demonstrates domain pretraining ampli-                                                               diversity principles (Salas et al., 2005): multiple coordina-
+    fies teamwork benefits: average +9.4pp over Gemma-3-4B,                                                          tion mechanisms compensate for task-specific weaknesses,
+    with largest gains on clinical knowledge (MedQA: +16.6pp,                                                        eliminating per-case configuration requirements. Second,
+    PubMedQA: +14.4pp, MedBullets: +14.3pp). MMLU-Pro                                                                task-specific patterns replicate qualitatively across 4B-175B
+    shows +10.8pp gain, while PMC-VQA exhibits -4.7pp re-                                                            parameter scales, establishing teamwork as model-agnostic
+    gression potentially due to pathology-specific requirements                                                      architectural principle with asymmetric value—SLMs
+    (Figure 5, Table 9). Vision benchmarks used reduced reso-                                                        achieve proportionally larger improvements (typical +10-
+    lution due to endpoint constraints.                                                                              20pp) at 40× lower cost than frontier models facing di-
+                                                                                                                     minishing returns. Third, Pareto analysis positions TMA
+    GPT-4o achieves 77.6% average accuracy, competitive                                                              uniquely in high-accuracy, low-cost space (<5,000 tokens)
+    with MDAgents (75.7%) and ReConcile (74.1%) while
+
+                                                                                                              7
+                                  TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+               72                                                                                                                                                                                                           54
+                                                                              50                                                                       62.5
+               70                                                                                                                                                                                                           52
+                                                                                                                                                       60.0
+                                                                              45
+               68                                                                                                                                                                                                           50
+                                                                                                                                                       57.5
+               66                                                                                                                                                                                                           48
+
+Accuracy (%)                                                   Accuracy (%)                                                             Accuracy (%)                                                         Accuracy (%)
+                                                                              40                                                                       55.0
+               64                                                                                                                                                                                                           46
+                                                                                                                                                       52.5
+                                                                              35
+               62                                                                                                                                      50.0                                                                 44
+
+               60                                                             30                                                                       47.5                                                                 42
+
+               58                                                                                                                                      45.0                                                                 40
+                    2300 2350 2400 2450 2500 2550 2600                                    2300 2350 2400 2450 2500 2550 2600                                      2100   2200     2300      2400      2500                         2200    2300      2400   2500
+                                Tokens/Q                                                                    Tokens/Q                                                             Tokens/Q                                                     Tokens/Q
+
+               50                                                       70.0                                                                                                                                                76
+                                                                                                                                                             50
+
+                                                                        67.5                                                                                 48                                                             74
+               45
+                                                                        65.0                                                                                 46                                                             72
+
+
+Accuracy (%)                                             Accuracy (%)                                                                         Accuracy (%)                                                   Accuracy (%)
+               40                                                       62.5                                                                                 44
+                                                                                                                                                                                                                            70
+                                                                        60.0                                                                                 42
+               35                                                                                                                                                                                                           68
+                                                                        57.5                                                                                 40
+
+                                                                        55.0                                                                                                                                                66
+               30                                                                                                                                            38
+
+                                                                        52.5                                                                                 36                                                             64
+                3100 3200 3300 3400 3500 3600 3700                                 3550      3600        3650     3700   3750    3800                             3750    3800     3850     3900      3950                       1450 1500 1550 1600 1650 1700 1750
+                                Tokens/Q                                                                    Tokens/Q     TeamMedAgents Configuration                             Tokens/Q                                                     Tokens/Q
+                                                                                              MutTrust         Shared     TeamOrient                     Leadership      MutMonitor       AllCompon
+
+   Figure 4. Component ablation showing task-specific optimization patterns (Gemma-3-4B, n=50, 3 runs). Each subplot displays one
+   benchmark with accuracy (%) versus token cost. Six TMA configurations: Mutual Trust (blue), Shared Mental Model (orange),
+   Team Orientation (green), Leadership (red), Mutual Monitoring (purple). The “no free lunch” pattern emerges: Mutual Trust excels
+   on MedBullets (46.7%) and PathVQA (66.7%); Shared Mental Model leads on MedMCQA (59.3%) and MMLU-Pro (41.7%). All
+   configurations converge on PubMedQA (∼69-72%).
+
+
+    while competing frameworks cluster at 6,000-21,000 tokens                                                                                                6. Conclusion
+    with comparable or lower accuracy.
+                                                                                                                                                             TeamMedAgents demonstrates that systematically translat-
+    Two-tier deployment—SLM triage with selective frontier                                                                                                   ing organizational psychology principles into modular com-
+    escalation—establishes practical pathway to production sys-                                                                                              putational mechanisms enables Small Language Models
+    tems, though accuracy threshold calibration and clinical                                                                                                 to perform complex medical reasoning at practical infer-
+    validation with physicians are essential to establish safety                                                                                             ence speeds, advancing the Pareto efficiency frontier by
+    margins.                                                                                                                                                 1-2 orders of magnitude in token cost while establishing
+                                                                                                                                                             deployment readiness for clinical applications.
+    5.1. Limitations and Future Work
+                                                                                                                                                             Cross-scale validation establishes teamwork as model-
+    Current evaluation lacks comprehensive statistical testing                                                                                               agnostic principle with asymmetric value: structured coor-
+    (bootstrap confidence intervals, Wilcoxon signed-rank tests)                                                                                             dination proves most effective for enabling efficient SLMs
+    and intermediate scale characterization (7-13B models). Fu-                                                                                              rather than incrementally advancing frontier models. All
+    ture work includes automated component selection via meta-                                                                                               Components configuration achieves stable cross-dataset per-
+    learning, interaction effect analysis revealing synergistic                                                                                              formance without per-case tuning, validating redundancy-
+    mechanisms, and domain generalization beyond medicine                                                                                                    through-diversity as computational design principle and
+    validating teamwork as universal coordination paradigm.                                                                                                  providing a principled methodology for translating human
+    Most critically, prospective clinical validation with human                                                                                              collaboration theory into multi-agent AI systems that democ-
+    assessment of reasoning quality is necessary before patient-                                                                                             ratize capabilities previously confined to expensive frontier
+    facing deployment.                                                                                                                                       models.
+
+
+
+
+                                                                                                                                        8
+               TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+References                                                        Hong, S., Zhuge, M., Chen, J., Zheng, X., Cheng, Y., Wang,
+                                                                    J., Zhang, C., Wang, Z., Yau, S. K. S., Lin, Z., Zhou, L.,
+Agashe, S., Zhang, Y., and Koppel, J. Llm-coordination:
+                                                                    Ran, C., Xiao, L., Wu, C., and Schmidhuber, J. Metagpt:
+  Evaluating and analyzing multi-agent coordination
+                                                                    Meta programming for a multi-agent collaborative frame-
+  abilities in large language models. arXiv preprint
+                                                                    work. In The Twelfth International Conference on Learn-
+  arXiv:2310.03903, 2023.
+                                                                    ing Representations, 2024.
+Balachandran, V. et al. Inference-time scaling for complex
+                                                                  Jin, D., Pan, E., Oufattole, N., Weng, W.-H., Fang, H., and
+  tasks. arXiv preprint arXiv:2504.00294, 2025.
+                                                                     Szolovits, P. What disease does this patient have? a
+Cannon-Bowers, J. A., Salas, E., and Converse, S. Shared             large-scale open domain question answering dataset from
+  mental models in expert team decision making. Individual           medical exams. arXiv preprint arXiv:2009.13081, 2020.
+  and Group Decision Making: Current Issues, pp. 221–
+                                                                  Jin, Q., Dhingra, B., Liu, Z., Cohen, W., and Lu, X. Pub-
+  246, 1995.
+                                                                     medqa: A dataset for biomedical research question an-
+Chen, H., Fang, Z., Singla, Y., and Dredze, M. Bench-                swering. In Proceedings of the 2019 Conference on Em-
+  marking large language models on answering and ex-                 pirical Methods in Natural Language Processing and the
+  plaining challenging medical questions. arXiv preprint             9th International Joint Conference on Natural Language
+  arXiv:2402.18060, 2024a.                                           Processing (EMNLP-IJCNLP), pp. 2567–2577. Associa-
+                                                                     tion for Computational Linguistics, 2019.
+Chen, J. C.-Y., Saha, S., and Bansal, M. Reconcile:
+  Round-table conference improves reasoning via consen-           John Snow Labs. The power of small llms in healthcare:
+  sus among diverse llms. In Annual Meeting of the As-              A rag framework alternative to large language models,
+  sociation for Computational Linguistics (ACL), 2024b.             2024. Technical Blog. Available at: https://www.
+  arXiv:2309.13007.                                                 johnsnowlabs.com.
+
+Chen, L., Zaharia, M., and Zou, J. Frugalgpt: How to use          Kim, Y., Park, C., Jeong, H., Chan, Y. S., Xu, X., McDuff,
+  large language models while reducing cost and improving           D., Lee, H., Ghassemi, M., Breazeal, C., and Park, H. W.
+  performance. arXiv preprint arXiv:2305.05176, 2023.               Mdagents: An adaptive collaboration of llms for medi-
+                                                                    cal decision-making. arXiv preprint arXiv:2404.15155,
+Chen, Y., Wang, L., and Zhang, H. Multi-agent collabo-              2024.
+  ration mechanisms: A survey of llms. arXiv preprint
+  arXiv:2501.06322, 2025.                                         Li, G., Hammoud, H. A. A. K., Itani, H., Khizbullin, D.,
+                                                                    and Ghanem, B. Camel: Communicative agents for
+Eby, L. T. and Dobbins, G. H. Collectivistic orientation in         ”mind” exploration of large language model society. arXiv
+  teams: An individual and group-level analysis. Journal            preprint arXiv:2303.17760, 2023.
+  of Organizational Behavior, 18(3):275–295, 1997.
+                                                                  Liu, P. R., Bansal, S., Dinh, J., Pawar, A., Satishkumar, R.,
+Erol, B., Lewis, D., et al. Beyond accuracy: Evaluat-               Desai, S., Gupta, N., Wang, X., and Hu, S. Medchat:
+  ing llms with cost-of-pass benchmarks. arXiv preprint             A multi-agent framework for multimodal diagnosis with
+  arXiv:2504.13359, 2025.                                           large language models. arXiv preprint arXiv:2506.07400,
+                                                                    2025.
+Gemma Team. Gemma 3 technical report. Technical report,
+  Google DeepMind, 2025. arXiv:2503.19786.                        Liu, S., Chen, Y., et al. Dylan: Dynamic llm-agent network
+                                                                    for biomedical reasoning. In Conference on Language
+Han, S., Park, J., et al. Open-source small language mod-           Modeling (COLM), 2024a. arXiv:2310.02170.
+  els for personal medical assistant chatbots. ScienceDi-
+  rect, 2024. https://doi.org/10.1016/j.slm.                      Liu, Z. et al. Small language models survey: Mea-
+  2024.000644.                                                      surements and insights.    ResearchGate, 2024b.
+                                                                    Available at: https://www.researchgate.net/
+Hassan, S. A., El-Sayed, W. M., and Ahmed, F. Z. From               publication/384295444.
+  awareness to action: investigating the impact of big-five
+  teamwork model awareness on rationing of nursing care           Marks, M. A., Mathieu, J. E., and Zaccaro, S. J. A tempo-
+  and patient-centered care. BMC Nursing, 24(1):1–15,              rally based framework and taxonomy of team processes.
+  2025.                                                            Academy of Management Review, 26(3):356–376, 2001.
+He, X., Zhang, Y., Mou, L., Xing, E., and Xie, P. Pathvqa:        Pal, A., Umapathi, L. K., and Sankarasubbu, M. Medmcqa:
+  30000+ questions for medical visual question answering.           A large-scale multi-subject multi-choice dataset for med-
+  arXiv preprint arXiv:2003.10286, 2020.                            ical domain question answering. In Proceedings of the
+
+                                                              9
+               TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+  Conference on Health, Inference, and Learning, volume               Wei, J., Wang, X., Schuurmans, D., Bosma, M., Ichter, B.,
+  174, pp. 248–260. PMLR, 2022.                                        Xia, F., Chi, E., Le, Q., and Zhou, D. Chain-of-thought
+                                                                       prompting elicits reasoning in large language models.
+Salas, E., Sims, D. E., and Burke, C. S. Is there a ”big five”         In Advances in Neural Information Processing Systems
+  in teamwork? Small Group Research, 36(5):555–599,                    (NeurIPS), volume 35, pp. 24824–24837, 2022.
+  2005.
+                                                                      Wu, Y., Peng, Z., and Klein, D. Inference scaling laws:
+Shridhar, K., Stolfo, A., and Sachan, M. Distilling step-              An empirical analysis of compute-optimal inference for
+  by-step! outperforming larger language models with less              problem-solving with language models. In NeurIPS
+  training data and smaller model sizes. In Proceedings of             2024 Workshop on Adaptive Foundation Models, 2024a.
+  the 61st Annual Meeting of the Association for Computa-              arXiv:2408.00724.
+  tional Linguistics (ACL), pp. 8852–8870, 2023.
+                                                                      Wu, Z., Liu, X., et al. Small language models learn enhanced
+Snell, C., Lee, J., Xu, K., and Kumar, A. Scaling                      reasoning skills from medical textbooks. arXiv preprint
+  llm test-time compute optimally can be more effec-                   arXiv:2404.00376, 2024b.
+  tive than scaling model parameters. In International
+  Conference on Learning Representations (ICLR), 2025.                Xia, P., Wang, J., Peng, Y., Zeng, K., Wu, X., Tang, X.,
+  arXiv:2408.03314.                                                     Zhu, H., Li, Y., Liu, S., Lu, Y., and Yao, H. Mmedagent-
+                                                                        rl: Optimizing multi-agent collaboration for multimodal
+Stout, R. J., Cannon-Bowers, J. A., Salas, E., and Mi-                  medical reasoning. arXiv preprint arXiv:2506.00555,
+  lanovich, D. M. Planning, shared mental models, and co-               2025.
+  ordinated performance: An empirical link is established.
+                                                                      Zaccaro, S. J., Rittman, A. L., and Marks, M. A. Team
+  Human Factors, 41(1):61–71, 1999.
+                                                                        leadership. The Leadership Quarterly, 12(4):451–483,
+Tang, X., Zou, A., Zhang, Z., Li, Z., Zhao, Y., Zhang, X.,              2001.
+  Cohan, A., and Gerstein, M. Medagents: Large language               Zhang, W., Chen, L., and Wang, M. Small language models
+  models as collaborators for zero-shot medical reasoning.              can still pack a punch. arXiv preprint arXiv:2501.05465,
+  In Findings of the Association for Computational Linguis-             2025.
+  tics: ACL 2024, pp. 599–621, 2024.
+                                                                      Zhang, X., Wu, C., Zhao, Z., Lin, W., Zhang, Y., Wang,
+Tchango, A. F., Goel, R., Wen, Z., Martel, J., and Ghosn, J.            Y., and Xie, W. Pmc-vqa: Visual instruction tuning
+  Ddxplus: A new dataset for automatic medical diagnosis.               for medical visual question answering. arXiv preprint
+  Advances in Neural Information Processing Systems, 35:                arXiv:2305.10415, 2023.
+  23304–23318, 2022.
+
+Verhage, A., Herrington, V., and Koedijk, R. Police dyads
+                                                                      Appendix
+  within an operational simulation: an empirical test of the
+  research propositions made in the ”big five” teamwork               A. Dataset Information
+  approach. Criminal Justice Policy Review, 33(8):892–
+  919, 2022.                                                          A.1 DATASET S TATISTICS
+                                                                      Table 3 summarizes key characteristics of the eight med-
+Wang, Y., Ma, X., Zhang, G., Ni, Y., Chandra, A., Guo, S.,
+                                                                      ical benchmarks used in our evaluation, spanning knowl-
+ Ren, W., Arulraj, A., He, X., Jiang, Z., et al. Mmlu-pro:
+                                                                      edge retrieval, clinical reasoning, differential diagnosis, and
+ A more robust and challenging multi-task language under-
+                                                                      vision-language understanding tasks.
+ standing benchmark. arXiv preprint arXiv:2406.01574,
+ 2024.                                                                A.2 DATASET D ESCRIPTIONS
+Wang, Z., Zhu, Y., Zhao, H., Zheng, X., Sui, D., Wang, T.,            Text-Based Medical Reasoning MedQA (Jin et al., 2020)
+ Tang, W., Wang, Y., Harrison, E., Pan, C., Gao, J., and              comprises USMLE-style clinical vignettes requiring multi-
+ Ma, L. Colacare: Enhancing electronic health record                  step diagnostic reasoning across diverse medical specialties
+ modeling through large language model-driven multi-                  including patient presentations, laboratory findings, and
+ agent collaboration. In Proceedings of the ACM Web                   treatment planning.
+ Conference 2025, WWW ’25, 2025.
+                                                                      PubMedQA (Jin et al., 2019) focuses on biomedical re-
+Webber, S. S. Trust, satisfaction, and equity in small groups:        search comprehension with yes/no/maybe questions derived
+ what’s important to members? Small Group Research, 33                from PubMed abstracts, requiring evidence-based reasoning
+ (1):85–106, 2002.                                                    to evaluate clinical claims.
+
+                                                                 10
+                 TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+Table 3. Dataset statistics for medical reasoning benchmarks. Eval-        Table 4. Token cost comparison (tokens per question). TMA-
+uation size indicates questions used in our experiments.                   AllCompon achieves 2.1-7.6× lower token usage than competing
+                                                                           multi-agent frameworks while maintaining competitive accuracy.
+  Dataset         Eval Size    Total Size         Format                   Vision benchmarks (PVQ, PMC) require ∼50% more tokens than
+                                                                           text benchmarks due to image encoding overhead. PubMedQA
+  MedQA             1,273         1,273          4-5 MCQ                   uses fewest tokens (1,509) due to simplified yes/no/maybe format.
+  PubMedQA           500           500        Yes/No/Maybe
+  MMLU-Pro          1,089         1,089       10-choice MCQ                Framework       DDX    MBL MMC MQA MML PVQ                      PMC     PQA
+  MedMCQA           4,183         4,183        4-choice MCQ
+  DDXPlus           1,000         1,000       Multiple choice              MedGemma-4B
+                                                                           TMA-AllCompon 2,383    2,391    2,410   2,402   3,427   3,648   3,818   1,509
+  MedBullets         300           300        5-choice MCQ
+  PathVQA           1,000        32,799      Open-ended MCQ                Gemma-3-4B
+                                                                           TMA-AllCompon 2,383 2,391 2,410 2,402 3,427 3,648 3,818 1,509
+  PMC-VQA           1,000       227,859      Open-ended MCQ                DyLAN          6,216 7,171 4,275 6,091 7,977 7,901 7,942 9,621
+                                                                           MDAgents      31,206 25,969 12,623 24,492 21,057 17,927 15,383 17,654
+                                                                           MedAgents     41,862 19,550 10,103 10,466 10,362 23,226 13,978 24,471
+                                                                           ReConcile      8,145 7,336 3,651 5,072 6,271 3,253 5,238 6,621
+                                                                           GPT-4o
+MMLU-Pro Medical (Wang et al., 2024) extends the origi-                    TMA-AllCompon 2,383 2,391 2,410 2,402 3,427 3,648 3,818 1,509
+nal MMLU with 10-choice questions spanning anatomy,                        DyLAN          3,271 2,461 1,047 1,742 1,350 4,301 3,998 2,652
+                                                                           MDAgents      31,206 25,969 2,405 19,549 21,057 17,927 15,383 27,937
+clinical knowledge, medical genetics, and professional                     MedAgents     41,862 19,550 10,103 10,466 10,362 23,226 13,978 24,471
+medicine, testing fine-grained discrimination.                             ReConcile      4,456 2,816 1,318 1,988 1,925 7,325 5,820 3,579
+                                                                               Bold = lowest cost within model. DDX=DDXPlus, MBL=MedBullets,
+MedMCQA (Pal et al., 2022) aggregates questions from                          MMC=MedMCQA, MQA=MedQA, MML=MMLU-Pro, PVQ=PathVQA,
+                                                                                              PMC=PMC-VQA, PQA=PubMedQA
+Indian medical entrance examinations (AIIMS, NEET-PG),
+covering 2,400+ healthcare topics with emphasis on under-
+graduate and postgraduate knowledge.
+                                                                           Table 5. Cross-dataset stability (Gemma-3-4B). CV = Std Dev /
+DDXPlus (Tchango et al., 2022) provides differential diag-                 Mean across 8 datasets. Lower indicates consistency.
+nosis scenarios with patient demographics, symptoms, and
+medical history, requiring systematic evaluation of compet-                    Configuration       Mean            Std Dev         CV      Range
+                                                                                                  Acc (%)            (pp)                   (pp)
+ing diagnoses.
+                                                                               Zero-Shot            46.3            18.8       0.41        51.7
+MedBullets (Chen et al., 2024a) contains board-style ques-                     Few-Shot             50.6            15.5       0.31        41.9
+tions aligned with US medical licensing exam formats, em-                      CoT                  49.3            16.9       0.34        47.3
+phasizing clinical decision-making and evidence-based treat-                   Shared               53.7            12.4       0.23        38.0
+ment selection.                                                                Leadership           52.8            11.4       0.22        35.3
+                                                                               TeamOrient           52.0            11.9       0.23        38.7
+                                                                               MutTrust             53.1            11.4       0.21        33.0
+                                                                               MutMonitor           53.1            11.8       0.22        30.7
+Vision-Language Medical Reasoning PathVQA (He                                  AllCompon            52.1            11.4       0.22        37.0
+et al., 2020) presents open-ended questions about pathology
+images requiring visual understanding of tissue morphology,
+cellular structures, and disease manifestations. We evaluate
+on a 1,000-question subset from the 32,799-question test
+set.                                                                       B.2 G EMMA -3-4B A BLATION S TUDY
+
+PMC-VQA (Zhang et al., 2023) derives from biomedical                       Table 7 presents complete ablation results for Gemma-3-4B
+literature figures in PubMed Central, testing comprehen-                   across all configurations. Task-specific patterns emerge:
+sion of medical imaging modalities including radiology, mi-                Shared Mental Model excels on knowledge tasks (MMLU-
+croscopy, and clinical photography. We use a 1,000-question                Pro: 64.0%), Leadership on vision tasks (PMC-VQA:
+subset from the 227,859-question dataset.                                  72.0%), and Team Orientation on clinical reasoning (Med-
+                                                                           Bullets: 51.7%). All Components configuration achieves
+                                                                           58.0% average accuracy with lowest cross-dataset variance.
+B. Experimental Results
+B.1 GPT-4 O A BLATION S TUDY                                               B.3 BASELINE F RAMEWORK C OMPARISON
+Table 6 presents comprehensive ablation results for GPT-4o                 Table 8 compares TeamMedAgents against four competing
+across all teamwork components and eight medical bench-                    multi-agent frameworks (MedAgents, MDAgents, DyLAN,
+marks. TeamMedAgents-Best (selecting optimal component                     ReConcile) on Gemma-3-4B. TMA-Best achieves 63.5%
+per dataset) achieves 77.9% average accuracy, outperform-                  average accuracy, outperforming all baselines by +13.7 to
+ing MDAgents by +2.2 percentage points while winning on                    +33.9 percentage points, demonstrating systematic advan-
+7/8 datasets.                                                              tages of psychology-grounded coordination.
+
+                                                                      11
+                TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+Table 6. Ablation study of teamwork components (GPT-4o, n=50 questions, 3 runs, mean ± SE). Bold indicates best performance per
+dataset within each section.
+
+ Config.                     DDX          MBL         MMC           MQA         MML          PVQ          PMC          PQA
+ Single-Agent
+ Zero-Shot                 77.3±3.1 68.0±7.2 82.0±6.0 86.7±1.2 66.0±4.0 72.0±3.5 47.3±3.1 69.3±7.0
+ Few-Shot                  81.3±3.1 68.0±3.5 81.3±2.3 90.0±1.2 66.7±5.0 73.3±1.2 41.3±1.2 67.3±6.4
+ CoT                       66.0±6.0 66.0±8.0 77.3±3.1 77.3±3.1 62.0±7.2 74.7±2.3 52.0±2.0 72.0±8.0
+ Multi-Agent (TMA)
+ Shared                    79.0±2.8     68.7±1.4    83.7±2.7     86.3±3.6     84.0±2.0     76.0±1.6     56.7±2.5     72.7±4.4
+ Leadership                76.0±2.8     72.3±2.7    83.7±2.3     89.0±5.0     79.3±3.3     69.3±0.9     45.3±3.8     71.7±1.1
+ Team Orient.              76.7±2.1     72.0±2.5    85.0±2.7     88.3±2.1     81.0±3.0     68.0±2.8     56.7±3.4     71.0±2.2
+ Mut. Trust                81.7±2.1     70.7±2.3    80.3±2.9     90.0±4.0     82.0±2.0     72.0±1.6     52.7±3.4     72.7±1.8
+ Mut. Monitor.             81.0±5.7     74.0±2.4    81.0±2.0     89.0±5.0     83.0±1.5     73.3±2.5     54.0±1.6     73.3±2.8
+ TMA-AllCompon             77.7±2.1 72.3±2.6 82.3±1.5 91.3±3.0 82.0±2.7 74.7±2.5 43.3±3.8 69.3±1.7
+        DDX=DDXPlus, MBL=MedBullets, MMC=MedMCQA, MQA=MedQA, MML=MMLU-Pro, PVQ=PathVQA, PMC=PMC-VQA, PQA=PubMedQA
+
+Table 7. Ablation study of teamwork components (Gemma-3-4B-IT, n=50 questions, 3 runs, mean ± SE). Bold indicates best performance
+per dataset within each section.
+
+ Config.                    DDX          MBL         MMC            MQA        MML           PVQ          PMC          PQA
+ Single-Agent
+ Zero-Shot                66.5±9.0 22.7±5.0 48.6±6.1 40.6±1.2 30.0±7.2 74.4±1.9 24.6±0.0 63.3±1.2
+ Few-Shot                 72.1±7.2 33.2±5.3 46.6±5.0 45.3±6.1 32.3±8.1 74.2±7.2 40.0±2.0 61.3±7.0
+ CoT                      72.0±3.1 34.6±3.1 51.3±3.1 42.6±3.1 24.7±8.3 68.7±13.0 34.0±5.3 66.6±6.1
+ Multi-Agent (TMA)
+ Shared                   65.3±7.0     33.3±5.0     59.3±3.1     48.0±5.3     41.7±2.9     64.0±5.3     46.7±5.8     71.3±6.4
+ Leadership               66.0±2.3     41.7±2.9     52.0±4.0     48.0±4.0     36.7±2.9     60.0±0.0     46.0±3.5     72.0±5.3
+ Team Orient.             65.3±8.3     32.0±2.0     53.3±5.8     49.3±9.9     46.7±5.8     58.3±5.0     40.7±1.1     70.7±5.0
+ Mut. Trust               63.0±5.3     46.7±5.0     50.0±2.0     45.0±8.3     38.3±2.9     66.7±2.3     44.0±0.0     71.3±5.3
+ Mut. Monitor.            66.7±6.4     40.7±1.1     56.7±5.3     46.7±2.3     39.0±1.8     64.0±3.5     41.7±2.9     69.7±4.0
+ TMA-AllCompon            67.3±4.0 46.7±5.0 51.7±4.0 48.7±3.1 31.7±4.1                     56.7±4.1     45.3±1.1 68.7±4.2
+        DDX=DDXPlus, MBL=MedBullets, MMC=MedMCQA, MQA=MedQA, MML=MMLU-Pro, PVQ=PathVQA, PMC=PMC-VQA, PQA=PubMedQA
+
+
+
+B.4 M ED G EMMA -4B D OMAIN S PECIALIZATION                         accuracy (text: 81.3%, vision: 66.6%), MedGemma-4B
+                                                                    reaches 58.9% (demonstrating +10.5pp domain specializa-
+Table 9 presents ablation results for medically fine-tuned
+                                                                    tion advantage over general Gemma-3-4B), and Gemma-
+MedGemma-4B. Medical specialization demonstrates sub-
+                                                                    3-4B establishes 48.4% baseline performance while main-
+stantial clinical reasoning gains (MedQA: +27.3pp, MedM-
+                                                                    taining 12.6× token efficiency versus GPT-4o multi-agent
+CQA: +34.7pp over general Gemma baselines) but incurs
+                                                                    configurations.
+knowledge trade-offs on broader tasks (MMLU-Pro: -8.0pp).
+Vision results use reduced image resolution due to endpoint         Performance patterns reveal task-specific characteristics:
+constraints.                                                        clinical reasoning benchmarks (MedQA, MedMCQA, Med-
+                                                                    Bullets) show largest model-dependent variance (GPT-4o:
+B.5 F ULL DATASET E VALUATION                                       90.7%/85.4%/78.8% vs Gemma: 44.7%/47.0%/33.9%),
+                                                                    while vision-language tasks exhibit more compressed ranges
+Table 1 and Figure 3 present comprehensive evaluation re-           (PathVQA: 76.8% vs 59.7%, 17.1pp gap). Domain special-
+sults on complete datasets (11,545 questions total across 8         ization through MedGemma fine-tuning provides substantial
+benchmarks). TMA-AllCompon demonstrates consistent                  clinical gains (MedQA: +17.4pp, MedMCQA: +16.6pp) but
+cross-model scalability: GPT-4o achieves 77.6% average              incurs knowledge breadth trade-offs (MMLU-Pro: +10.8pp
+
+
+                                                               12
+                TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+                                       Table 8. Multi-agent framework comparison on Gemma-3-4B.
+
+                   Framework            DDX        MBL         MMC        MQA         MML         PVQ        PMC        PQA       Avg
+                   Single-Agent Best     72.1       34.6        51.3       45.3        32.3        74.4       40.0       66.6     52.1
+                   DyLan               60.0±3.5   35.3±4.2    52.7±5.0   48.7±4.2    28.7±5.0    50.0±9.2   32.7±3.1     56.7     45.6
+                   MDAgents            49.3±8.3   22.7±7.2    37.3±3.1   42.7±6.9    30.7±5.8    52.0±2.3   31.3±2.0   48.7±4.2   39.3
+                   MedAgents           69.1±1.0   33.3±4.2    52.7±4.2   47.3±3.1    24.7±2.3    66.9±7.7   34.7±4.2   56.1±2.0   48.1
+                   ReConcile           54.0±6.0   29.3±6.4    52.0±7.2   52.0±5.3    40.0±2.0    66.7±6.4   35.3±2.3   69.3±6.4   49.8
+                   TMA-AllCompon       67.3±4.0   46.7±5.0    51.7±4.0   48.7±3.1    31.7±4.1    56.7±4.1   45.3±1.1   68.7±4.2   52.1
+        DDX=DDXPlus, MBL=MedBullets, MMC=MedMCQA, MQA=MedQA, MML=MMLU-Pro, PVQ=PathVQA, PMC=PMC-VQA, PQA=PubMedQA
+
+Table 9. Ablation study using MedGemma-4B-IT (n=50 questions, 3 runs, mean ± SE). Bold indicates best performance per dataset
+within each section. Note: PathVQA and PMC-VQA used 3-5× reduced image resolution due to endpoint constraints.
+
+ Config.                       DDX              MBL           MMC              MQA               MML            PVQ               PMC       PQA
+ Single-Agent
+ Zero-Shot                 68.7±3.1 38.7±5.0 31.3±4.4 57.3±3.0 40.7±4.6 60.0±4.2 32.0±0.0 35.3±38.8
+ Few-Shot                  68.7±5.8 40.7±4.2 29.0±1.9 48.7±6.1 38.0±4.0 55.8±2.0 20.0±0.0 20.0±2.4
+ CoT                       72.7±5.0 39.3±1.1 35.3±5.8 70.0±10.6 48.7±6.4 53.3±5.0 30.0±2.8 22.7±25.4
+ Multi-Agent (TMA)
+ Shared                    74.3±5.4        46.0±6.8          66.7±6.4       66.7±3.0            47.3±7.5      71.3±1.1          40.0±3.5   69.3±2.3
+ Leadership                67.6±1.4        38.7±5.0          65.3±4.7       67.3±5.7            44.7±3.0      66.0±4.0          40.7±3.4   65.3±6.6
+ Team Orient.              72.0±2.8        44.7±5.7          63.3±8.1       68.0±3.3            44.7±1.1      65.3±2.5          40.7±2.5   75.3±1.9
+ Mut. Trust                71.7±2.0        47.3±2.0          69.8±1.9       62.0±7.1            44.0±9.1      64.0±1.6          43.3±2.5   72.0±1.6
+ Mut. Monitor.             73.3±1.1        39.3±1.1          70.0±4.3       69.3±2.5            47.3±2.3      68.0±0.0          40.0±2.8   74.0±1.6
+ TMA-AllCompon             73.3±1.1 46.7±4.6 70.0±2.0                       64.8±4.8            52.7±2.3 69.3±1.1 42.0±3.3                 68.6±6.4
+        DDX=DDXPlus, MBL=MedBullets, MMC=MedMCQA, MQA=MedQA, MML=MMLU-Pro, PVQ=PathVQA, PMC=PMC-VQA, PQA=PubMedQA
+
+
+
+advantage retained). Notably, PubMedQA shows strongest                            phase decision-making process.
+cross-model consistency (GPT-4o: 78.3%, MedGemma:
+73.4%, Gemma: 59.0%), suggesting evidence-synthesis                               7.1. Clinical Scenario
+tasks benefit uniformly from structured teamwork regard-
+less of base model capacity.                                                         Patient Presentation: A 58-year-old man presents with
+                                                                                     progressive dyspnea and orthopnea. Physical examination
+Comparison against competing frameworks (Table 1) val-                               reveals bilateral crackles, elevated jugular venous pres-
+idates TMA-AllCompon’s advantages. On Gemma-3-4B,                                    sure, and peripheral edema. Echocardiography shows left
+TMA outperforms all baselines on vision tasks (PathVQA:                              ventricular ejection fraction of 35%.
+59.7%, PMC-VQA: 43.2%) where competing frameworks                                    Question: Which medication combination is most appro-
+lack evaluation, while achieving competitive text perfor-                            priate for initial management?
+mance despite using a single fixed configuration                                     Options:
+
+                                                                                     • (A) ACE inhibitor + Beta-blocker + Diuretic
+C. Computational Efficiency Details                                                  • (B) Calcium channel blocker + Diuretic
+C.1 P ER -DATASET T OKEN C OSTS                                                      • (C) Digoxin + Diuretic only
+                                                                                     • (D) ARB + Aldosterone antagonist + Diuretic
+Table 4 provides detailed computational costs for multi-
+agent configurations across all benchmarks.                                          Correct Answer: Option A
+
+7. Case Study: Multi-Agent Collaborative
+   Reasoning                                                                      7.2. Phase 1: Dynamic Recruitment and Component
+                                                                                       Selection
+We present a detailed walkthrough of TeamMedAgents solv-
+ing a clinical heart failure management question, illustrating                 The recruiter classifies this as moderate-complexity requir-
+how teamwork components operate throughout the four-                           ing integration of clinical presentation, diagnostic findings,
+                                                                               and evidence-based pharmacotherapy. Dynamic allocation
+
+                                                                          13
+                                                    TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+               100        MedGemma-4B
+                                                                                        100                                                                      100                                                                 100
+                          Gemma-4B
+               80                                                                       80                                                                       80                                                                  80
+
+               60                                                                       60                                                                       60                                                                  60
+
+Accuracy (%)   40                                                                       40                                                                       40                                                                  40
+
+               20                                                                       20                                                                       20                                                                  20
+
+                0                                                                        0                                                                        0                                                                   0
+                     are           ip        ient        t          r          on             are           ip        ient        t         r          on              are           ip        ient        t         r          on         are           ip        ient        t         r          on
+                        d    de                      tTr us        ito     mp                    d    de                     tTr us        ito     mp                     d    de                     tTr us        ito     mp                d    de                     tTr us        ito     mp
+                     Sh        rsh         Or       Mu
+                                                               on
+                                                              tM          Co                  Sh        rsh         Or       Mu
+                                                                                                                                       on
+                                                                                                                                       tM         Co                   Sh        rsh         Or       Mu
+                                                                                                                                                                                                                on
+                                                                                                                                                                                                               tM          Co              Sh        rsh         Or       Mu
+                                                                                                                                                                                                                                                                                    on
+                                                                                                                                                                                                                                                                                   tM          Co
+                            Le a        Tea m                 Mu         All                         Le a        Tea m                Mu         All                          Le a        Tea m                Mu         All                     Le a        Tea m                Mu         All
+
+               100                                                                      100                                                                      100                                                                 100
+
+               80                                                                       80                                                                       80                                                                  80
+
+               60                                                                       60                                                                       60                                                                  60
+
+Accuracy (%)   40                                                                       40                                                                       40                                                                  40
+
+               20                                                                       20                                                                       20                                                                  20
+
+                0                                                                        0                                                                        0                                                                   0
+                     are           ip        ient     us t          r
+                                                                   ito         on             are           ip        ient    us  t         r
+                                                                                                                                           ito         on              are           ip        ient    us  t         r
+                                                                                                                                                                                                                    ito         on         are           ip        ient    us  t         r
+                                                                                                                                                                                                                                                                                        ito         on
+                        d    dersh                   tTr       on          mp                    d    dersh                  tTr       on          mp                     d    dersh                  tTr       on          mp                d    dersh                  tTr       on          mp
+                     Sh                 Tea mO      Mu        tM          Co                  Sh                 Tea mO      Mu        tM         Co                   Sh                 Tea mO      Mu       tM          Co              Sh                 Tea mO      Mu       tM          Co
+                            Le a               r              Mu         All                         Le a               r             Mu         All                          Le a               r             Mu         All                     Le a               r             Mu         All
+
+
+   Figure 5. Impact of medical domain pretraining on multi-agent effectiveness. Bar charts compare MedGemma-4B versus Gemma-3-4B
+   across eight benchmarks for six TMA configurations (n=50, 3 runs). Domain specialization provides substantial gains on knowledge-
+   intensive tasks: MMLU-Pro +21.0pp, MedMCQA +18.3pp, MedQA +16.1pp, PathVQA +12.6pp. PMC-VQA shows slight regression
+   (-3.3pp), potentially due to pathology-specific requirements or resolution constraints. Vision benchmarks (PathVQA*, PMC-VQA*) used
+   3-5× reduced image resolution for MedGemma due to endpoint limitations, affecting direct comparability. PubMedQA results saturate at
+   ∼68% for both models, suggesting ceiling effects at 4B parameter scale.
+
+
+    determines N=3 agents appropriate.                                                                                                                            Post-Round 2 Processing Shared Mental Model updated
+                                                                                                                                                                  with consensus: ”Triple therapy is standard GDMT” and
+    Team Composition Three specialists recruited with hier-                                                                                                       ”Beta-blocker is essential.” Trust Network assigned all
+    archical weights (Team Orientation):                                                                                                                          agents scores 0.95+ for accurate evidence citation and guide-
+                                                                                                                                                                  line adherence.
+                Agent                      Specialty                                                                                  Weight
+                                                                                                                                                                  7.4. Phase 3: Structured Collaborative Deliberation
+                Agent 1                    Cardiologist (Primary)                                                                     0.5
+                Agent 2                    Clinical Pharmacologist (Secondary)                                                        0.3                              (Round 3)
+                Agent 3                    Internal Medicine Specialist (Tertiary)                                                    0.2
+                                                                                                                                                                  Turn 1 - Initial Discussion Unanimous agreement on Op-
+                                                                                                                                                                  tion A persisted. Cardiologist (Leader) emphasized: ”Com-
+                                                                                                                                                                  plete agreement on Option A. This combination addresses
+    Shared Mental Model Initialization Pre-Round 2 analy-                                                                                                         both mortality reduction (ACE-I + BB) and symptom man-
+    sis identifies critical constraint: ”initial management” pre-                                                                                                 agement (diuretic). Option D lacks beta-blocker, which is
+    vents consideration of advanced add-on therapies. Verified                                                                                                    critical for HFrEF.”
+    medical facts established: EF 35% indicates HFrEF; stan-
+    dard guideline-directed medical therapy (GDMT) requires
+    ACE-I/ARB + Beta-blocker + Diuretic.                                                                                                                          Leadership Mediation Leader synthesized consensus:
+                                                                                                                                                                  unanimous support for Option A based on trial evidence
+                                                                                                                                                                  (SOLVD, MERIT-HF, CONSENSUS); beta-blocker identi-
+    7.3. Phase 2: Independent Initial Assessment (Round 2)
+                                                                                                                                                                  fied as non-negotiable in HFrEF initial therapy.
+    All three agents independently analyzed the case and con-
+    verged on Option A:                                                                                                                                           Mutual Monitoring Intervention Leader challenged
+                                                                                                                                                                  Agent 3 regarding ”Option D reasonable alternative” state-
+                                          Table 10. Round 2 initial assessments.
+                                                                                                                                                                  ment: ”Why is Option D inferior for INITIAL manage-
+                                                    Agent                           Answer             Conf.                                                      ment despite spironolactone’s established mortality benefit
+                                                    Cardiologist                    A                  High
+                                                                                                                                                                  (RALES trial)?”
+                                                    Pharmacologist                  A                  High
+                                                    Internist                       A                  Med                                                        Agent 3 response: ”Excellent point. While spironolactone
+         Key reasoning: Cardiologist cited SOLVD/MERIT-HF trials for neurohormonal                                                                                reduces mortality, it is typically added AFTER optimiz-
+        blockade. Pharmacologist confirmed guideline-concordant triple therapy. Internist                                                                         ing ACE-I and beta-blocker therapy. Option D lacks beta-
+        noted volume overload signs but expressed slight uncertainty about Option D vs A
+                                            ranking.                                                                                                              blocker entirely, rendering it incomplete GDMT. Option A
+                                                                                                                                                                  provides foundational triple therapy that should be initiated
+
+                                                                                                                                                            14
+                                                     TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+                      Few-Shot                                                                                                                                             MDAgents                                                  ReConcile                                                                                      ReConcile
+                                                                                                                                                                                                      86                                                                      MedAgents
+               80                                                                                          80                                                                                                                                    TMA                                                     92
+                                                                          MDAgents                                                        TMA                                                                                                                                                                                         TMA
+                    Zero-Shot                                                                                                                                                                                                  DyLan                                                                                                                        MedAgents
+                                                                                                                                                                                                                                                                                                                Few-Shot
+                                                                                                           78                                                                                                                                                                                            90
+               75                           TMA                                                                                                                                                       84                                                                                                                                                            MDAgents
+
+                                                                                                           76                                                                                                                                                                                            88
+                                                                                                                                            ReConcile                                                                                                                                                         Zero-Shot           DyLan
+
+
+
+Accuracy (%)                                                                                Accuracy (%)                                                                               Accuracy (%)                                                                                       Accuracy (%)
+               70                                                                                          74                                                                                         82     Zero-Shot                                                                                   86
+                                                     ReConcile                                                                                                                                                  Few-Shot
+                                  CoT
+                                                                                MedAgents
+                                                                                                           72                                                                                                                                    MDAgents                                                84
+               65
+                                                                                                                                                                        MedAgents                     80                                                                                                 82
+                                                                                                           70                              DyLan
+
+               60                                                                                                 Zero-Shot
+                                                                                                                    Few-Shot                                                                                                                                                                             80
+                                                                                                           68
+                                                                                                                                                                                                      78
+                                                  DyLan                                                                         CoT                                                                                              CoT
+                                                                                                                                                                                                                                                                                                         78                 CoT
+                                                                                                           66
+               55
+                         103                                104                                                           103                               104                                                          103                                               104                                       103                                104
+                                           Tokens/Q (log)                                                                              Tokens/Q (log)                                                                                Tokens/Q (log)                                                                               Tokens/Q (log)
+                                                                                MDAgents                                                           TMA                                                                                                 TMA                   MedAgents
+                                                                                                                                                                                                                                                                              MDAgents                                       TMA
+                                        DyLan
+               80                            ReConcile
+                                                      TMA
+                                                                                                                                                                                                      56                                                DyLan ReConcile                                  78
+                                                                                                           76
+               75                                                                                                               CoT                                                                   54                                                                                                                                                          MedAgents
+                                                                                                                                                                                                                                                                                                         76
+                                                                                                           74
+                                                                                                                    Few-Shot                                                                                                   CoT                                                                                                                                  MDAgents
+               70                                                                                                                                                                                     52
+                       Few-Shot
+                    Zero-Shot                                                                              72     Zero-Shot                                                                                                                                                                              74
+                                                                                                                                                                                                      50
+
+Accuracy (%)                                                                                Accuracy (%)                                                                               Accuracy (%)                                                                                       Accuracy (%)
+               65                                                                                                                                                                                                                                                                                                                     DyLan
+                                   CoT
+                                                                                                                                                                                                      48                                                                                                 72                CoT
+               60                                                                                          70                                       DyLan                                                    Zero-Shot
+                                                                                                                                                                                                                                                                                                                                          ReConcile
+                                                                                                                                                                                                      46
+               55                                                                                          68                                                                                                                                                                                            70
+                                                                                                                                                                                                                                                                                                              Zero-Shot
+                                                                                                                                                                                                      44
+                                                                                                                                                                           MedAgents
+               50
+                                                                                                           66                                                                                         42                                                                                                 68
+                                                                    MedAgents                                                                               ReConcile   MDAgents                                Few-Shot                                                                                        Few-Shot
+               45
+                          103                                     104                                                     103                                104                                                    103                                            104                                              103                               104
+                                           Tokens/Q (log)                                                                               Tokens/Q (log)                                                                      Tokens/Q (log)                                                                                        Tokens/Q (log)
+                                                                                                           Single-Agent               TMA (AllCompon)              DyLan              MDAgents                     MedAgents         ReConcile                             Pareto Frontier
+
+   Figure 6. Per-dataset Pareto efficiency analysis. With a frontier model(GPT-4o), framework differences narrow but TMA maintains strong
+   efficiency. TMA-AllCompon (red diamond) achieves within 3pp of best accuracy on 6/8 benchmarks while using 3-16× fewer tokens
+   than MDAgents/MedAgents. DyLAN and ReConcile show improved efficiency with GPT-4o compared to Gemma. TMA achieves best
+   accuracy on PathVQA (76.8%) and PubMedQA (78.3%). The Pareto frontier becomes more competitive, but TMA remains the most
+   token-efficient option for high-accuracy medical reasoning.
+
+
+    first.”                                                                                                                                                                                           (unanimous Round 2 agreement).
+    Challenge strengthened reasoning; trust score maintained at
+    0.95+; SMM updated with spironolactone timing clarifica-                                                                                                                                          7.6. Analysis of Teamwork Component Contributions
+    tion.                                                                                                                                                                                                                  Table 12. Teamwork component contributions.
+
+    Turn 2 - Final Rankings All agents provided identical                                                                                                                                                  Component                                                      Contribution
+
+    rankings: (1) Option A, (2) Option D, (3) Option C, (4)                                                                                                                                                Team Orientation                                               Hierarchical weights (0.5:0.3:0.2) prioritized cardi-
+                                                                                                                                                                                                                                                                          ologist expertise appropriately.
+    Option B.
+                                                                                                                                                                                                           Shared Mental Model                                            ”Initial management” constraint prevented advanced
+                                                                                                                                                                                                                                                                          therapy consideration.
+    7.5. Phase 4: Trust-Weighted Decision Aggregation                                                                                                                                                      Leadership                                                     Efficient consensus validation; orchestrated moni-
+                                                                                                                                                                                                                                                                          toring without excess deliberation.
+    Final synthesis employed trust-weighted Borda count incor-
+                                                                                                                                                                                                           Mutual Monitoring                                              Challenge clarified spironolactone timing vs beta-
+    porating agent rankings and trust scores:                                                                                                                                                                                                                             blocker priority.
+                                                                                                                                                                                                           Trust Network                                                  High-quality R2 responses (0.86-0.96 range) bal-
+                        Table 11. Trust-weighted Borda count aggregation.                                                                                                                                                                                                 anced influence appropriately.
+
+                                        Option                                         Borda                         Trust                Final
+                                        A (ACE+BB+Diur)                                     3.0                       0.92                 2.76                                                       Summary This case demonstrates successful multi-agent
+                                        D (ARB+Spiro+Diur)                                  1.0                       0.92                 0.92
+                                        C (Digoxin+Diur)                                    0.33                      0.92                 0.30
+                                                                                                                                                                                                      collaboration where all five teamwork components con-
+                                        B (CCB+Diur)                                        0.0                       0.92                 0.00                                                       tributed measurably to decision quality. System achieved
+                Trust scores: Cardiologist 0.96 (strong evidence citation), Pharmacologist 0.94                                                                                                       correct diagnosis through structured deliberation with unan-
+               (guideline adherence), Internist 0.86 (slight uncertainty on Option D). Weighted                                                                                                       imous convergence. Mutual monitoring intervention, while
+                                                 average: 0.92.
+                                                                                                                                                                                                      validating consensus, enhanced reasoning depth by explic-
+                                                                                                                                                                                                      itly addressing beta-blocker role in initial HFrEF manage-
+    Final Decision: Option A (correct). Convergence: 100%                                                                                                                                             ment versus delayed aldosterone antagonist addition.
+
+                                                                                                                                                                                    15
+               TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+8. Prompt Templates                                                   Shared Mental Model Context
+
+This section presents core prompt templates used in                   Shared Knowledge Base:
+
+TeamMedAgents. Each template corresponds to specific                  Question Analysis:
+phases in Algorithms 1 and 2.                                         {{question_trick_detection}}
+
+                                                                      Verified Medical Facts (Consensus from R2):
+                                                                      {{verified_facts}}
+8.1. Agent Recruitment (Phase 1)
+                                                                      Debated Clinical Points (From Mutual
+Executed during Phase 1 to determine agent count (2-4)                Monitoring):
+based on question complexity.                                         {{debated_points}}
+
+                                                                      Use this shared context to inform your
+                                                                      reasoning while considering consensus
+                                                                      knowledge and areas of ongoing deliberation.
+
+   Recruitment Prompt
+
+   You are a medical expert analyzing question
+   complexity.                                                     8.4. Round 2: Initial Prediction (Phase 2)
+   Question: {{question}}                                          Executed in parallel for all N agents during Phase 2. Agents
+   Options: {{answer_choices}}
+                                                                   receive SMM context if enabled.
+   Determine:
+   1. Complexity Level (low/moderate/high)
+   2. Required number of agents (2-4)                                 Initial Prediction (Round 2)
+   3. Recommended medical specialties
+                                                                      You are a {{role_specialty}} providing
+   Consider: domain breadth, diagnostic depth,                        initial medical assessment.
+   knowledge integration requirements.
+                                                                      {{shared_mental_model_context}}
+   Output Format:
+   Complexity: [low/moderate/high]                                    Question: {{question}}
+   Agent Count: [2/3/4]                                               Options: {{answer_choices}}
+   Specialties: [List specialties]
+   Reasoning: [Brief justification]                                   Provide your analysis:
+                                                                      1. Key medical facts relevant to this case
+                                                                      2. Differential diagnosis considerations
+                                                                      3. Your recommended answer with confidence
+                                                                      4. Critical reasoning steps
+
+                                                                      Answer Format:
+8.2. Team Orientation: Role Assignment (Phase 1)                      Analysis: [Detailed medical reasoning]
+                                                                      Answer: [Selected option]
+                                                                      Confidence: [High/Medium/Low]
+When Team Orientation is enabled, assigns specialized roles
+with hierarchical weights during recruitment.
+
+                                                                   8.5. Trust Network: Quality Evaluation (Post-Phase 2)
+
+   Team Orientation - Role Assignment                              After Round 2, evaluates reasoning quality when Trust is en-
+                                                                   abled. Trust scores range 0.4-1.0, updated using exponential
+   Assign specialized medical roles based on:                      moving average (alpha = 0.7).
+   1. Clinical domain(s) in the question
+   2. Diagnostic expertise needed
+   3. Complementary knowledge areas
+                                                                      Trust Evaluation
+   Question: {{question}}
+   Required Agents: {{num_agents}}                                    Evaluate medical reasoning quality for each
+                                                                      agent in Round 2.
+   Assignment Format:
+   Agent 1: [Specialty] - [Rationale]                                 Question: {{question}}
+   Agent 2: [Specialty] - [Rationale]                                 Agent Responses: {{agent_responses}}
+   Hierarchical Weight: [Primary/Secondary/
+                         Tertiary]                                    For each agent, assess:
+                                                                      1. Clinical accuracy of facts
+                                                                      2. Logical coherence of reasoning
+                                                                      3. Appropriate confidence calibration
+                                                                      4. Evidence quality
+
+                                                                      Evaluation Format (per agent):
+8.3. Shared Mental Model Context (Phases 2-3)                         Agent: {{agent_role}}
+                                                                      Quality Score: [0.4-1.0]
+                                                                      Justification: [Strengths/weaknesses]
+Injected before Round 2 and updated throughout delibera-
+tion, providing shared knowledge baseline.
+
+                                                              16
+               TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+8.6. Round 3: Discussion Turn (Phase 3)                               Mutual Monitoring - Raising Concern
+
+Used during first discussion turn of Phase 3. Agents review           You are team leader identifying potential
+                                                                      reasoning errors.
+R2 responses and engage in deliberation.
+                                                                      Target Agent: {{target_agent_role}}
+                                                                      Their Response: {{target_response}}
+                                                                      Question: {{question}}
+
+                                                                      Identify:
+   Discussion (Round 3 - Turn 1)                                      1. Potential medical errors or oversights
+                                                                      2. Unsupported clinical assumptions
+   You are {{role_specialty}} participating in                        3. Contradictions with established evidence
+   collaborative discussion.
+                                                                      Concern Format:
+   Question: {{question}}                                             Issue: [Specific reasoning problem]
+   Previous Round Responses: {{r2_responses}}                         Evidence: [Why this is concerning]
+   {{leadership_mediation}}                                           Question: [Direct challenge to agent]
+   {{shared_mental_model_context}}
+
+   Review colleagues’ analyses and:                                   Mutual Monitoring - Response
+   1. Identify points of agreement/disagreement
+   2. Present additional supporting evidence
+   3. Address concerns raised by other experts                        You are {{role_specialty}} responding to
+   4. Refine or maintain your answer                                  peer review challenge.
+
+   Response Format:                                                   Original Response: {{your_original_response}}
+   Discussion: [Your contribution]                                    Concern Raised: {{concern}}
+   Current Answer: [Your answer after discussion]
+   Reasoning: [Key points influencing position]                       Address this concern by:
+                                                                      1. Acknowledging valid points or defending
+                                                                         your reasoning
+                                                                      2. Providing additional supporting evidence
+                                                                      3. Revising your answer if justified
+
+                                                                      Response Format:
+                                                                      Acknowledgment: [Reaction to concern]
+8.7. Leadership: Mediation (Phase 3)                                  Defense/Revision: [Supporting evidence or
+                                                                                        corrected reasoning]
+                                                                      Updated Answer: [Maintain or change answer]
+When Leadership is enabled, executed after each discussion
+turn. Synthesizes consensus and guides convergence.
+                                                                   8.9. Round 3: Final Ranking (Phase 3 - Last Turn)
+                                                                   On final turn (turn = n turns), agents provide complete rank-
+   Leadership Mediation                                            ings for decision aggregation (Phase 4).
+
+   You are the medical team leader facilitating                       Final Ranking (Round 3 - Final Turn)
+   collaborative decision-making.
+                                                                      You are {{role_specialty}} providing final
+   Question: {{question}}                                             medical assessment.
+   Agent Responses from Turn {{turn_number}}:
+   {{agent_responses}}                                                Question: {{question}}
+                                                                      Options: {{answer_choices}}
+   Provide mediation by:                                              Discussion History: {{discussion_history}}
+   1. Summarizing consensus points                                    {{leadership_mediation}}
+   2. Highlighting critical disagreements
+   3. Identifying knowledge gaps                                      Based on all deliberations, provide final
+   4. Guiding toward evidence-based convergence                       ranking of ALL answer options from most to
+                                                                      least likely.
+   Mediation Format:
+   Consensus: [Points of agreement]                                   Final Ranking Format:
+   Disagreements: [Key areas of divergence]                           1. [Option X] - Most likely
+   Guidance: [Suggestions for next round]                             2. [Option Y] - Second most likely
+                                                                      3. [Option Z] - Third most likely
+
+                                                                      Justification: [Final clinical reasoning]
+
+
+
+
+8.8. Mutual Monitoring: Challenge and Response                     9. Algorithms
+     (Phase 3)
+                                                                   This section provides complete algorithmic specification of
+Between discussion turns when Mutual Monitoring is en-             TeamMedAgents across four operational phases: dynamic
+abled. Leader identifies weakest reasoning and formulates          agent recruitment, independent assessment, collaborative
+challenge.                                                         deliberation, and trust-weighted decision aggregation.
+
+                                                              17
+               TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+9.1. Algorithmic Overview and Notation
+Dynamic Agent Recruitment D ETERMINE AGENT-
+C OUNT analyzes question complexity, returning
+N ∈ {2, 3, 4} agents based on domain breadth, di-
+agnostic depth, and knowledge integration requirements.
+
+Shared Mental Model (SMM) When C.SM M = true,
+maintains Msmm containing: (1) question analysis via D E -
+TECT T RICKS, (2) verified facts from Round 2 via E XTRACT-
+FACTS or AUTO I NTERSECT, (3) debated points from mu-                Algorithm 1 Agent Recruitment & Initial Prediction
+tual monitoring. Injected into agent prompts to align reason-        Require: Question Q, Options A, Config C
+                                                                     Ensure: R2 , Msmm , Tscores , W, Report, Agents
+ing.                                                                 1: // Initialization
+                                                                     2: Msmm ← SMM() if C.SM M else NULL
+                                                                     3: Tscores ← {ai : 0.8}, Leader ← NULL
+Team Orientation (TO) A SSIGN S PECIALTIES maps                      4:
+questions to medical specialties; A SSIGN W EIGHTS es-               5: // Phase 1: Recruitment (2 API calls)
+                                                                     6: N ← D ETERMINE AGENT C OUNT(Q)
+tablishes hierarchical influence: W = [0.5, 0.3, 0.2] for            7: if C.SM M then
+N = 3, prioritizing domain experts. Without TO: W =                  8: Msmm .analysis ← D ETECT T RICKS(Q, A)
+                                                                     9: end if
+[1/N, . . . , 1/N ].                                                 10: if C.L then
+                                                                     11: Leader ← Recruiter {Dual role}
+                                                                     12: end if
+Leadership (L) Leader agent performs: synthesis via M E -            13: if C.T O and C.L then
+DIATE , fact extraction via E XTRACT FACTS , quality eval-           14: Roles ← A SSIGN S PECIALTIES(Q, N, Msmm )
+                                                                     15: W ← A SSIGN W EIGHTS(N )
+uation via E VALUATE R2, tie resolution via R ESOLVE T IE.           16: else
+Without L, functions execute via statistical aggregation.            17: Roles ← {Expert1 , . . . , ExpertN }
+                                                                     18: W ← {1/N, . . . , 1/N }
+                                                                     19: end if
+Trust Network (T) Scores Tscores ∈ [0.4, 1.0] initialized            20: Agents ← {(ai , Roles[i], W[i])}N    i=1
+                                                                     21:
+to 0.8, updated via exponential moving average (α = 0.7):            22: // Phase 2: Round 2 (N+1 calls)
+Tnew = α · Quality + (1 − α) · Told .                                23: for all ai ∈ Agents in parallel do
+                                                                     24: Ctxi ← {Q, A}
+                                                                     25: if C.SM M then
+Mutual Monitoring (MM) Leader identifies weakest rea-                26:       Ctxi ← Ctxi ∪ Msmm .G ET C ONTEXT()
+                                                                     27: end if
+soning via S ELECT W EAKEST, formulates challenge via                28: if C.T O then
+R AISE C ONCERN, receives response via R ESPOND, evalu-              29:       Ctxi ← Ctxi ∪ ROLE I NSTR(ai )
+                                                                     30: end if
+ates quality via E VALUATE. Trust scores adjust based on             31: R2 [ai ] ← ai .P REDICT(Ctxi )
+response quality.                                                    32: end for
+                                                                     33:
+                                                                     34: // Post-R2 Processing (1 call)
+Decision Aggregation Phase 4 employs Borda count: (1)                35: if C.SM M then
+                                                                     36: Msmm .f acts ← C.L ?
+S TANDARD B ORDA (equal weights), (2) H IERARCHICAL -                37:       Leader.E XTRACT FACTS(R2 ) :
+B ORDA (TO weights W), (3) T RUST W EIGHTED B ORDA                   38:       AUTO I NTERSECT(R2 )
+                                                                     39: end if
+(trust scores Tscores ).                                             40: if C.T O and C.L then
+                                                                     41: Report ← Leader.C REATE R EPORT(R2 , Msmm )
+                                                                     42: end if
+API Call Accounting Phase 1: 2 calls (recruitment +                  43: if C.T then
+roles). Phase 2: N +1 calls (N parallel + 1 post-processing).        44: Tscores ← C.L ?
+                                                                     45:       Leader.E VALUATE R2(R2 ) :
+Phase 3: nturns × (N + 1 + M M ), where M M ∈ {0, 2}.                46:       AUTO S CORE(R2 )
+                                                                     47: end if
+                                                                     48: return R2 , Msmm , Tscores , W, Report, Agents
+
+
+
+
+                                                                18
+                 TeamMedAgents: Pareto-Efficient Multi-Agent Medical Reasoning Through Teamwork Theory
+
+
+
+
+Algorithm 2 Collaborative Discussion & Aggregation
+Require: R2 , Agents, Msmm , Tscores , W, Report, C
+Ensure: Final answer Â, Rationale
+1: // Phase 3: Round 3 Discussion
+2: for turn = 1 to nturns do
+3: Ctx ← B UILD C ONTEXT(R2 , Msmm , Tscores , Report)
+4: for all ai ∈ Agents do
+5:      if turn < nturns then
+6:         D[ai ][turn] ← ai .D ISCUSS(Ctx, Hist)
+7:      else
+8:         D[ai ][turn] ← ai .F INAL R ANK(Ctx, Hist)
+9:      end if
+10: end for
+11: if C.L then
+12:      M ed[turn] ← Leader.M EDIATE(D[·][turn])
+13:      Ctx ← Ctx ∪ M ed[turn]
+14: end if
+15: if C.M M and turn < nturns then
+16:      aweak ← Leader.S ELECT W EAKEST(D[·][turn])
+17:      Concern ← Leader.R AISE C ONCERN(aweak )
+18:      Resp ← aweak .R ESPOND(Concern)
+19:      Qual ← Leader.E VALUATE(Resp)
+20:      if C.T then
+21:         Tscores [aweak ] ← U PDATE T RUST
+22:            (Tscores [aweak ], Qual)
+23:      end if
+24:      if C.SM M then
+25:         Msmm .debates.A DD(E XTRACT(Concern, Resp))
+26:      end if
+27: end if
+28: end for
+29: R3 ← {ai .ranking | ∀ai ∈ Agents}
+30:
+31: // Phase 4: Decision Aggregation
+32: if C.T then
+33: Scores ← T RUST W EIGHTED B ORDA(R3 , Tscores )
+34: else if C.T O then
+35: Scores ← H IERARCHICAL B ORDA(R3 , W)
+36: else
+37: Scores ← S TANDARD B ORDA(R3 )
+38: end if
+39: Â ← arg max(Scores)
+40:
+41: // Tie-breaking
+42: if I S T IE(Scores) and C.L then
+43: T ied ← {Ai | Scores[Ai ] = max(Scores)}
+44: Â ← Leader.R ESOLVE T IE(T ied, R3 , T , Msmm )
+45: end if
+46: Rationale ← G EN R ATIONALE(R3 , Scores, Msmm )
+47: return Â, Rationale
+
+
+
+
+                                                          19
+

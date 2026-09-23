@@ -1,0 +1,732 @@
+                                            Mediator-Guided Multi-Agent Collaboration among Open-Source Models for
+                                                                   Medical Decision-Making
+                                            Kaitao Chen1,2 , Mianxin Liu2 * , Daoming Zong3 , Chaoyue Ding1 , Shaohao Rui2 , Yankai Jiang2 ,
+                                                                              Mu Zhou4 * , Xiaosong Wang2
+                                                                                                 1
+                                                                                                   Fudan University
+                                                                                                 2
+                                                                                              Shanghai AI Laboratory
+                                                                                         3
+                                                                                           East China Normal University
+                                                                                                4
+                                                                                                  Rutgers University
+                                                                   chenkaitao@pjlab.org.cn, liumianxin@pjlab.org.cn, mu.zhou2010@gmail.com
+
+
+
+
+arXiv:2508.05996v2 [cs.AI] 11 Oct 2025
+                                                                       Abstract                                 Emerging multi-agent systems have garnered increasing
+                                                                                                             attention for enhancing clinical decision-making (Zhang et al.
+                                           Complex medical decision-making involves cooperative work-        2024c,a). In contrast to a single agent, a multi-agent sys-
+                                           flows operated by different clinicians. Designing AI multi-       tem supports collaboration among different agents. Akin to
+                                           agent systems can expedite and augment human-level clinical       the real-world clinical workflow to glean various diagnostic
+                                           decision-making. Existing multi-agent researches primarily fo-
+                                           cus on language-only tasks, yet their extension to multimodal
+                                                                                                             opinions, multi-agent systems can mirror the patient-care
+                                           scenarios remains challenging. A blind combination of diverse     coordination from diverse perspectives (Basit et al. 2024).
+                                           vision-language models (VLMs) can amplify an erroneous               A multi-agent system often follows a voting or judging-
+                                           outcome interpretation. VLMs in general are less capable in in-   based strategy (Wang et al. 2022), allowing multiple agents to
+                                           struction following and importantly self-reflection, compared
+                                                                                                             contribute to the decision-making process. To promote a deep
+                                           to large language models (LLMs) of comparable sizes. This
+                                           disparity largely constrains VLMs’ ability in cooperative work-   interaction, it is intuitive to establish competitive or collabo-
+                                           flows. In this study, we propose MedOrch, a mediator-guided       rative agent roles (Wang et al. 2024; Li et al. 2023b). Collab-
+                                           multi-agent collaboration framework for medical multimodal        orative frameworks from Mixture of Agents (MoA) (Wang
+                                           decision-making. MedOrch employs an LLM-based media-              et al. 2024), CAMEL (Li et al. 2023b), and ProAgent (Zhang
+                                           tor agent that enables multiple VLM-based expert agents to        et al. 2024a) highlight the model’s cognitive preference to
+                                           exchange and reflect on their outputs towards collaboration.      reveal complex cooperative reasoning. In medicine, Multi-
+                                           We utilize multiple open-source general-purpose and domain-       expert Prompting (Long et al. 2024) and MedAgents (Tang
+                                           specific VLMs instead of costly GPT-series models, revealing      et al. 2023) are examples for building a role-playing multi-
+                                           the strength of heterogeneous models. We show that the collab-    agent framework. However, these multi-agent systems are
+                                           oration within distinct VLM-based agents can surpass the ca-
+                                                                                                             largely restricted in handling language-only tasks. Although
+                                           pabilities of any individual agent. We validate our approach on
+                                           five medical vision question answering benchmarks, demon-         MDagents (Kim et al. 2024) seeks a multimodal question
+                                           strating superior collaboration performance without model         answering, it uses the GPT-4V for the small-scale experiment
+                                           training. Our findings underscore the value of mediator-guided    on vision question answering (VQA) datasets (e.g., 50 sam-
+                                           multi-agent collaboration in advancing medical multimodal         ples per dataset) due to the prohibitive cost. Meanwhile, sev-
+                                           intelligence.                                                     eral open-source medical VLMs have begun outperforming
+                                                                                                             general-purpose counterparts like GPT-4o in medical VQA
+                                                                                                             (Bansal et al. 2024), motivating us to design a multi-VLM-
+                                                              1    Introduction                              agent system based on open-source models without API cost.
+                                                                                                             This raises an intriguing question: Can open-source multi-
+                                         Complex clinical decision-making hinges on a comprehen-
+                                                                                                             modal agents with heterogeneous abilities develop effec-
+                                         sive cognitive ability from medical vision, language, and
+                                                                                                             tive collaboration strategies for clinical decision-making?
+                                         domain knowledge derived from human experts. Using large
+                                         language models (LLMs) alone can only support language-                Realistic barriers emerge in constructing diverse agents
+                                         level assessment (Thirunavukarasu et al. 2023; Singhal et al.       and their collaboration when building a multimodal decision-
+                                         2023). The exploration of vision-language models (VLMs)             making system. General-purpose models provide broad
+                                         opens the possibility to clinical multimodal decision-making        knowledge coverage, while domain-specific models excel
+                                         driven by model advances (Wu et al. 2023a; Li et al. 2023a;         in capturing nuances in specialized scenarios. A blind combi-
+                                         Chen et al. 2024). Incorporating a joint strength of these mod-     nation of these models can generate erroneous interpretations
+                                         els can enable a collaborative framework to understand and          and propagate via agent interactions. In addition, VLM’s
+                                         inform high-quality decision-making.                                instruction following and importantly self-reflection capabili-
+                                                                                                             ties remain inferior to those of LLMs in similar sizes (Zuo
+                                            * Corresponding authors.                                         et al. 2025). This remarkable gap limits the ability of VLMs
+to engage in meaningful reflection, an essential capability in    and inter-agent communication. Similarly, CORY (Ma et al.
+the progress of multi-agent collaboration. Given the hetero-      2024) emulated human reflective group learning by imple-
+geneous nature and remarkable difference in capability of         menting cycles of proposal, negotiation, reflection, and revi-
+VLM agents, it becomes further challenging to coordinate          sion in programming and mathematical tasks. CAMEL (Li
+their interactions effectively.                                   et al. 2023b) adopted a role-playing collaborative framework
+   We draw inspiration from social theory, where Socratic         to allow autonomous dialogue and multi-step coordination
+questioning (Elder and Paul 1998) fosters disciplined and re-     among agents, yet it falls into role confusion and instruction
+flective dialogue through a sequence of structured questions.     redundancy. In the meantime, competitive approach stimu-
+Such an approach encourages critical reflection, evidence         lates reasoning and creativity through conflict, adversarial
+scrutiny, and clarification of conceptual ambiguities (Carey      interactions, and debate (Du et al. 2023; Liang et al. 2023).
+and Mullan 2004). Translating this insight to AI collabora-       The Multi-Agent Debate framework (Du et al. 2023) miti-
+tion, we propose MedOrch, a mediator-guided multi-agent           gates the overconfidence in LLMs by introducing viewpoint
+collaboration framework. MedOrch incorporates a dedicated         conflict to promote deeper reasoning. Similarly, MAD (Liang
+LLM-based mediator agent that orchestrates the interaction        et al. 2023) integrates diverse perspectives through iterative
+and reflection among multiple VLM-based expert agents to          critique and revision to enhance mathematical reasoning and
+support collaborative medical decision-making. Specifically,      factual verification. MoA (Wang et al. 2024) introduces a
+we construct the VLM-based expert agents using open-source        multi-agent collaboration by organizing LLMs into a hier-
+general-purpose and domain-specific VLMs, leveraging their        archical architecture in language-only tasks. However, ex-
+complementary strengths, rather than using cost-prohibitive       tending MoA into multimodal scenarios is problematic, since
+GPT-series models. To start, in Figure 1, multiple VLM-based      VLMs may amplify misinterpretations from other agents,
+expert agents first generate responses to a given question. The   ultimately hindering the effectiveness of the collaborative
+mediator agent then synthesizes the information and formu-        workflow (Kim et al. 2024).
+lates Socratic questions to prompt deeper reasoning from the
+VLM-based expert agent. Next, relevant VLM-based expert           2.2   Multi-Agent in Healthcare
+agents rethink and generate their responses based on the ques-    Multi-agent systems in healthcare can be used to advance
+tion of the mediator agent. Finally, a judge agent integrates     clinical knowledge sharing and workflow automation (Zhang
+dialogues and provides a final judgment to support medical        et al. 2024c). Emerging efforts have focused on (a) role con-
+decision-making.                                                  figuration (Long et al. 2024; Chen et al. 2025; Pandey, Amod
+   The main contributions of this study are: (i) We propose       et al. 2024), (b) task decomposition (Sun et al. 2024; Basit
+MedOrch as a novel multi-agent collaboration for improved         et al. 2024), and (c) workflow simulation (Wei et al. 2024; Li
+medical decision-making. We design the mediator agent             et al. 2024). First, role configuration starts with multi-expert
+to guide the interaction of open-source VLM-based expert          prompting (Long et al. 2024) to generate expert roles in a
+agents. (ii) Our design emphasizes joint abilities gained from    zero-shot manner. MDTeamGPT (Chen et al. 2025) develops
+distinct open-source general-purpose and domain-specific          a multi-agent system for multidisciplinary medical consul-
+VLMs to enable multimodal decision-making without pro-            tations, incorporating a primary physician mechanism and
+hibitive API cost. It is noteworthy that our multi-agent system   a residual discussion structure. Second, task decomposition
+outperforms the best of multiple single-agent models, even        utilizes multiple role-playing agents to improve the task per-
+in the presence of misleading inputs from certain agents. (iii)   formance. For instance, PathGen (Sun et al. 2024) enhances
+We conduct comprehensive evaluations on five benchmarks.          the quality of pathological captions through role-based agents.
+Our approach achieves strong performance, demonstrating           MEDAID (Basit et al. 2024) decomposes complex medical
+its potential efficiency in medical multimodal scenarios.         queries through query rewriting and context encoders. Third,
+                                                                  workflow simulation frameworks are designed to mimic in-
+                   2    Related Work                              sights in clinical environments. MEDCO (Wei et al. 2024)
+                                                                  simulates the collaboration of patients, medical experts, and
+2.1   Multi-Agent AI System                                       doctors, providing personalized and precise clinical case train-
+While LLMs as individual agents (Yang et al. 2024;                ing. In addition, agent hospital (Li et al. 2024) simulates a
+Grattafiori et al. 2024) reveal language understanding, ev-       hospital system that integrates domain-specific knowledge
+ident challenges persist in complex reasoning, interpretation,    bases to automate data generation and address specific tasks.
+and decision-making (Luo et al. 2025; Cheng et al. 2024). As         The above multi-agent studies are primarily driven by
+a natural progression, building a multi-agent system requires     single-modal and close-source LLMs. Multi-agent systems
+us to cultivate collective intelligence through mechanisms        remain largely underexplored in multimodal decision-making
+of cooperation or competition (Kim et al. 2024; Wang et al.       scenarios, especially under the capacity of open-source mod-
+2024; Du et al. 2023; Zhang et al. 2024a).                        els. Although MDagents (Kim et al. 2024) leverages the
+   Cooperative learning fosters the collective knowledge shar-    multi-agent to address medical VQA tasks, its reliance on a
+ing and joint decision-making via agent voting (Wang et al.       limited-scale experiment (only 50 samples per dataset) and
+2022), interdisciplinary collaboration (Kim et al. 2024), and     the high cost of GPT-4V significantly restricts its clinical ap-
+group discussions (Chen, Saha, and Bansal 2023). For in-          plicability. In contrast, our study focuses on complex medical
+stance, ProAgent (Zhang et al. 2024a) is a multi-agent re-        multimodal scenarios by integrating different open-source
+inforcement learning framework leveraging policy sharing          vision-language and language-only models, as well as by
+       Agent Role
+           Expert Agent 1                   Expert Agent 2              Expert Agent 3                 Mediator Agent              Judge Agent
+
+       Question                                                   II. Multi-Agent Collaboration
+                                                                                 SQ                              SQ                               SQ
+
+                                                                              Answer                           Answer                          Answer
+
+                                                                       Opening the statement          Summary of other agents        Socratic
+      Question: What region (A or B) represents the                    Review of current agent        Analysis and questioning       Questioning (SQ)
+      harder area in the strain elastography image?
+      Option: (A) Region A           (B) Region B            i)       I am the final authority ...   Expert 1 stated that …, but Expert 2 stated that ...
+                                                                      However, you mentioned ... Could you provide more reason …
+       I. Initial VQA
+                                                                      Apologies for my mistake. After reviewing the image and strain values, I agree
+          Region B. Green means higher strain value.                  with Expert 2 that region A is harder, because it shows a lower strain value.
+
+                                                             ii) Conversation between         and               iii) Conversation between          and
+          Region A. It shows a lower strain value.
+                                                                  III. Final Judgment
+          Region A. It shows a higher strain value.
+          (Note: right option but wrong explanation)                  After discussion, all experts agreed that region A is harder because it has a
+                                                                      lower strain value, which corresponds to blue in the elastography image
+
+
+Figure 1: The mediator-guided multi-agent collaboration framework for medical VQA. In the initial stage, multiple VLM expert
+agents independently generate preliminary answers to a given question. To promote deeper interaction, the mediator agent
+synthesizes the information and formulates Socratic questions for expert agents. Subsequently, the relevant expert agents reflect
+on the question and generate refined responses accordingly. Finally, a judge agent analyzes the dialogues between the mediator
+and expert agents and achieves a systematic output.
+
+combining general-purpose and domain-specific models, to                           agents. Its core responsibilities include analyzing the view-
+enable practical clinical multimodal decision-making.                              points from multiple expert agents, identifying opinion con-
+                                                                                   flicts, and driving additional rounds of necessary discussions.
+                            3     Method                                              Analysis of expert agent’s answer. The mediator agent
+                                                                                   first systematically compares the initial responses from all
+3.1    Overview                                                                    expert agents. It identifies areas of consensus and disagree-
+MedOrch aims to enhance the multi-agent collaborative per-                         ment, and flags responses that exhibit logical inconsistencies
+formance of medical VQA tasks. The proposed system intro-                          or semantic ambiguities, thereby laying the foundation for
+duces three key agent categories: expert agents, a mediator                        targeted follow-up discussion.
+agent, and a judge agent, as shown in Figure 1. Expert agents                         Decision on whether additional discussion is needed.
+are responsible for answering visual-language questions. The                       Based on the comparative analysis, the mediator agent deter-
+mediator agent is our key design, which synthesizes opin-                          mines whether an additional dialogue with expert agents is
+ions, resolves conflicts, and facilitates discussions. The judge                   required. If no significant discrepancies are identified, the de-
+agent conducts the summarization and makes the final de-                           cision is marked as “No”. Conversely, if critical issues arise or
+cision. The mediator agent and judge agent are driven by                           unclear reasoning are detected, it initiates a focused dialogue
+specific prompts. See Appendix Section Prompts for more                            with the relevant expert agents to resolve these concerns, and
+details.                                                                           the decision is recorded as “Yes”.
+                                                                                      Socratic questioning. Once it is determined that further
+3.2    Mediator-Guided Multi-Agent Collaboration                                   discussion is needed, the mediator agent engages in structured
+I. Initial VQA Stage. Upon receiving a medical question,                           Socratic dialogues with the expert agents. The dialogues aim
+multiple expert agents generate preliminary responses in par-                      to promote information clarification, disaggregate reason-
+allel. Each agent then independently reasons through the                           ing, and resolve core disagreements. Each round of dialogue
+question and forms a response, contributing to a diverse set                       follows a well-defined format, including: Opening the state-
+of initial opinions. Initial opinions consist of the question                      ment. The mediator agent begins by asserting itself prompted
+analysis and answer options.                                                       as “the final authority on medical decisions” responsible for
+                                                                                   summarizing, reviewing, and synthesizing the opinions of all
+II. Multi-Agent Collaboration. The mediator agent plays                            agents who act as experts. Summary of other agents. To fa-
+a central role in guiding the communication among expert                           cilitate information sharing and encourage collaboration, the
+mediator agent summarizes the viewpoints of other agents          2023a), Qwen2.5-VL-32B (Bai et al. 2025), HuatuoGPT-
+and highlights points of disagreement with the current agent’s    Vision-34B (Chen et al. 2024), and LLaVA-Next-34B (Liu
+position. Review of the current agent. The mediator agent         et al. 2023a), with LLaVA-Med and HuatuoGPT-Vision being
+reviews the core conclusions of the current agent, e.g., “You     specialized medical VLMs. In addition, three major multi-
+mentioned ...” and presents the reasoning behind their argu-      agent strategies were compared: judgment (our baseline),
+ment. Analysis and questioning. Finally, the mediator agent       voting (Wang et al. 2022), and MoA (Wang et al. 2024). The
+raises in-depth questions targeting the main points of con-       experiments utilize three agent configurations and tested three
+tention, ensuring the inquiry remains focused on substantial      distinct combinations: (1) a combination of three 7B models,
+conflicts rather than vague or broad questions.                   including Qwen2.5-VL-7B, HuatuoGPT-Vision-7B, LLaVA-
+   Feedback-based answering. Upon receiving the instruc-          Med-7B, denoted symbol ♦, (2) a combination of three
+tion from the mediator agent, the relevant expert agents re-      ∼ 32B models, including Qwen2.5-VL-32B, HuatuoGPT-
+construct their initial answers based on the question. This       Vision-34B, and LLaVA-Next-34B, denoted symbol ♣, and
+becomes an evolutionary process that involves reinterpret-        (3) a combination of HuatuoGPT-Vision-7B, Qwen2.5-VL-
+ing the original image content, correcting logical errors, and    32B, and HuatuoGPT-Vision-34B, denoted symbol ♠. For
+clarifying inconsistencies. Through this refinement, the over-    the traditional medical VQA benchmarks, judgment, voting,
+all quality, coherence, and explanatory depth of the final        and MoA strategies all use three models of approximately
+responses are evidently enhanced.                                 32B. For the OmniMedVQA dataset, the multi-agent meth-
+                                                                  ods used three 7B models. By default, both the mediator
+III. Final Judgment. This stage is executed by the judge          agent and judge agent are set to Qwen2.5-32B (Yang et al.
+agent that possesses specialized auxiliary diagnostic capa-       2024). Furthermore, we compare our approach with existing
+bilities. Its major responsibility is to integrate the feedback   state-of-the-art (SOTA) multi-agent methods, including Rec-
+and make a scientifically sound decision. The judge agent is      oncile (Chen, Saha, and Bansal 2023), AutoGen (Wu et al.
+capable of handling complex opinion conflicts, extracting key     2023b), DyLAN (Liu et al. 2023b), and MedAgents (Tang
+arguments, and identifying areas of consensus and dispute.        et al. 2023), with comparative results sourced from the MDA-
+The judge agent serves as a final reviewer in the medical         gents (Kim et al. 2024). Since the MDAgents method is in
+image assessment, synthesizing expert opinions and support-       the few-shot setting while we are conducting zero-shot, we
+ing the decision-making. In detail, it analyzes the complete      do not compare with it. All open-source models are executed
+dialogue between the mediator agent and the VLMs agent            on a server equipped with 8 NVIDIA A100 GPUs, using the
+and organizes their core conclusions by extracting areas of       LMdeploy (Contributors 2023) and vLLM (Kwon et al. 2023)
+consensus and disagreement from these agents. Based on            frameworks for acceleration. In the experiment of “Choice
+this analysis, the judge agent combines the mediator agent’s      on LLM for mediator agents”, the API call for GPT-4o-mini
+focus to infer the conclusion and make the final diagnostic       incurs a cost of $2.02.
+judgment.                                                            Evaluation. To ensure the consistency across agents when
+                                                                  evaluating VLM performance on medical VQA tasks, we im-
+            4   Experiments and Results                           plement several standard processing steps. First, single-agent
+                                                                  models are prompted using a unified instruction: “provide
+4.1   Experiment Settings                                         the answer”. Notably, we avoid imposing a rigid response
+Benchmarks. We use five widely-adopted medical VQA                format, such as requiring answers to be framed within pre-
+benchmarks, including VQA-RAD (Lau et al. 2018), SLAKE            defined labels (e.g., “A” or “B”). This design allows each
+(Liu et al. 2021), PathVQA (He et al. 2020), PMC-VQA              model to respond in its natural output style, thereby pre-
+(Zhang et al. 2023), and a comprehensive benchmark Om-            serving the integrity of its reasoning process for subsequent
+niMedVQA (Hu et al. 2024). VQA-RAD centers on radio-              analysis and integration by the mediator agent. Second, to
+logical images, and SLAKE encompasses a diverse range of          extract structured answers from these unstructured outputs,
+medical image knowledge-intensive QA tasks. PathVQA fo-           we employ LLaMA-3.1-Instruct-8B (Grattafiori et al. 2024)
+cuses on tissue-level pathology-related images and questions.     as a parser. The parser standardizes model responses into
+PMC-VQA is derived from PubMed Central, comprising                an <answer> option </answer> format, thereby im-
+2,000 human-annotated QA pairs. For OmniMedVQA, we                proving the consistency with the downstream processing. At
+employ its publicly available subset including eight imaging      the final answer selection stage, inspired by the LVLM-eHub
+modalities: computed tomography (CT), dermatological im-          framework (Xu et al. 2024), we apply a semantic similarity
+ages (Der), fundus photography (FP), magnetic resonance           matching between the parsed answer and the original candi-
+imaging (MR), microscopic images (Mic), optical coherence         date options. The option with the highest similarity score is
+tomography (OCT), ultrasound (US), and X-ray images. De-          selected as the final model’s prediction. Accuracy is used as
+tailed dataset statistics are provided in the Appendix Section:   the evaluation metric in all experiments.
+Benchmark Statistics.
+   Details. We systematically evaluate the performance of         4.2   Experimental Results
+the proposed approach against multiple baseline methods           Results on the widely-adopted medical VQA benchmarks.
+in various settings. The baseline single-agent models in-         We systematically evaluate the MedOrch on four medical
+cluded Qwen2.5-VL-7B (Bai et al. 2025), HuatuoGPT-                VQA benchmarks, including VQA-RAD (Lau et al. 2018),
+Vision-7B (Chen et al. 2024), LLaVA-Med-7B (Li et al.             SLAKE (Liu et al. 2021), PathVQA (He et al. 2020), and
+   Method                          SLAKE              VQA-RAD            PathVQA            PMC-VQA              Average
+   Qwen2.5-VL-7B                     66.35               68.92             61.72               46.20              60.80
+   HuatuoGPT-Vision-7B               70.19               74.10             60.81               46.15              62.81
+   LLaVA-Med-7B                      53.37               58.96             59.51               31.55              50.85
+   Qwen2.5-VL-32B                    65.87               74.10             64.85               48.75              63.39
+   HuatuoGPT-Vision-34B              68.99               75.70             62.61               50.05              64.34
+   LLaVA-Next-34B                    57.93               59.76             53.76               38.90              52.59
+   Judgment                        69.71                69.72              60.63              48.75               62.20
+   Voting                          65.63                72.51              63.14              46.00               61.82
+   MoA                             72.84                73.31              65.03              42.15               63.33
+   Ours♦                           68.75                74.10              64.26              46.40               63.38
+   Ours♦ ↑Max/Min Gap           +15.38/–1.44         +15.14/+0.00       +4.75/+2.54        +14.85/+0.20        +12.53/+0.57
+   Ours♣                           73.32                79.28              64.82              50.50               66.98
+   Ours♣ ↑Max/Min Gap           +15.39/+4.33         +19.52/+3.58       +11.06/-0.03       +11.60/+0.45        +14.39/+2.64
+   Ours♠                           76.20                76.10              65.14              50.40               66.96
+   Ours♠ ↑Max/Min Gap           +10.33/+6.01         +2.00/+0.40        +4.33/+0.29        +4.25/+0.35         +4.15/+2.62
+
+Table 1: Results on four benchmarks. “↑Max/Min Gap” indicates the performance gain of our multi-agent method over the
+worst-performing and best-performing single agent for each dataset. The symbol ♦ represents the combination of three 7B models.
+The symbol ♣ represents the combination of three ∼32B models. The symbol ♠ represents the combination of HuatuoGPT-
+Vision-7B, Qwen2.5-VL-32B, and HuatuoGPT-Vision-34B.
+
+
+PMC-VQA (Lau et al. 2018). We compare our method                    (76.20%) and PathVQA (65.14%), with an overall average ac-
+against both single-agent and multi-agent methods. From             curacy of 66.96%. These results underscore the collaboration
+Table 1, in the combination of small-scale models, ours♦            value of diverse models within multi-agent systems.
+(comprising three 7B models) achieves an average accuracy              We also report the performance gains relative to the weak-
+of 63.38%, outperforming all individual 7B models and multi-        est and best individual models (↑Max/Min Gap). Overall, our
+agent approaches. This demonstrates the effectiveness of            performance improvement is consistent across datasets given
+inter-model collaboration even on a relatively modest scale.        the design of our multi-agent workflow. For instance, ours♣
+   On the larger scale, ours♣ (comprising three ∼32B mod-           outperforms the weakest model by +15.39% on SLAKE and
+els) achieves the highest overall performance, with an av-          surpasses the best model by +4.33%. This confirms that the
+erage accuracy of 66.98%, attaining the leading scores on           proposed system can mitigate the limitations of weaker agents
+VQA-RAD (79.28%) and PMC-VQA (50.50%). Compared                     and amplify the strength of stronger ones via the proposed
+to the best-performing single 32B model, this configuration         multi-agent collaboration system. A detailed case is shown
+yielded a performance improvement ranging from +0.03%               in Appendix Section: Case Study.
+to +19.52%, highlighting both the upper-bound performance              Results on the OmniMedVQA. We evaluate the proposed
+potential of our multi-agent system across diverse medical          multi-agent framework on OmniMedVQA, a large-scale med-
+VQA scenarios. LLaVA-Next-34B underperforms among                   ical VQA dataset that spans eight imaging modalities. From
+the 32B models, achieving only 38.90% accuracy on PMC-              Table 2, ours♦ , comprising multiple 7B models, exhibits
+VQA, revealing its limited domain transferability in medical        strong performance among all evaluated approaches. It out-
+contexts. Notably, our multi-agent system maintains strong          performs both multi-agent methods and the best-performing
+performance even when incorporating this weaker model,              individual models. In particular, for the FP and Mic modal-
+demonstrating resilience to the underperforming agent. As           ities, ours♦ achieved substantial accuracy improvements of
+our baseline, the judgment method does not outperform the           +28.43% and +23.15%, respectively. These gains effectively
+HuatuoGPT-Vision-34B in average performance. When in-               compensated for individual model deficiencies in certain
+tegrating with our multi-agent collaboration framework, we          modalities, highlighting the framework’s capability to en-
+find that the performance improves substantially (an average        hance modality-specific robustness. In the more challenging
+gain of 4.78%). Other multi-agent methods exhibit higher            modalities, such as OCT and US, individual models like
+sensitivity and generally fail to outperform the strongest indi-    Qwen2.5-VL-7B and LLaVA-Med-7B exhibit relatively poor
+vidual agents. For instance, MoA exhibits strong performance        performance. Ours♦ does not outperform the strong single
+on the PathVQA dataset but experiences a notable decline on         models yet surpasses other multi-agent methods, delivering
+the more challenging PMC-VQA dataset.                               notable improvements over the weakest agents with gains of
+   To further investigate the effect of model robustness, we        +15.46% and +23.20%, respectively. These results demon-
+construct a hybrid configuration ours♠ by replacing LLaVA-          strate MedOrch’s strong ability to suppress the negative in-
+Next-34B with the HuatuoGPT-Vision-7B model. This multi-            fluence of underperformed agents.
+agent framework achieved its best performance on SLAKE                 Comparison with GPT-4V based multi-agent methods.
+  Method                        CT             Der             FP            MR             Mic           OCT           X-Ray             US
+  Qwen2.5-VL-7B                55.58          66.52          73.01          56.50          64.72          59.08          73.94          37.08
+  HuatuoGPT-Vision-7B          46.34          65.49          73.42          63.13          68.50          80.46          77.40          76.41
+  LLaVA-Med-7B                 52.38          56.67          47.67          49.20          47.75          55.29          58.25          46.37
+  Judgment                     55.34          66.90          72.47          61.29          68.70          70.00          76.34          51.83
+  Voting                       44.99          64.82          69.71          59.55          63.70          68.77          74.43          52.67
+  MoA                          50.26          66.52          73.40          60.12          63.98          60.87          74.13          39.24
+  Ours♦                        61.29          67.73          76.10          63.90          70.90          70.75          77.92          60.28
+  Ours♦ ↑Max/Min Gap         +14.95/+5.71   +11.06/+1.21   +28.43/+2.68   +14.70/+0.77   +23.15/+2.40   +15.46/–9.71   +19.67/+0.52   +23.20/–16.13
+
+
+                             Table 2: Results on OmniMedVQA benchmark with eight modalities.
+
+
+
+
+ (a) Results of using homogeneous agents.         (b) Results of different mediator agents.             (c) Results of different judge agents.
+
+Figure 2: Comparative results across different agent configurations. PathVQA and PMC-VQA are selected for these ablation
+studies as they are relatively more challenging and could provide presentative evaluations.
+
+We further compare MedOrch, fully based on open-source                     can collaborate more effectively, even when some individual
+models, against both GPT-4V and state-of-the-art multi-agent               agents are less capable. Thus, a heterogeneous multi-agent
+systems based on GPT-4V. As seen in Figure 3, our method                   system combining different VLMs is recommended.
+achieves an average accuracy of 64.8%, substantially exceed-                  Choice on LLM for mediator agents. We compare dif-
+ing GPT-4V (57.9%) and other multi-agent counterparts on                   ference choices on LLM for mediator agents, including GPT-
+the PathVQA dataset. In particular, we find that multi-agent               4o-mini (whose API fee is affordable) and Qwen2.5-32B.
+methods (Wu et al. 2023b; Liu et al. 2023b; Tang et al. 2023)              The results of PathVQA and PMC-VQA datasets are shown
+originally designed for language tasks struggle to perform                 in Figure 2 (b). Qwen2.5-32B achieves relatively high per-
+well in multimodal scenarios. Their performance evidently                  formance, with the accuracy of 64.8% and 50.5% in respec-
+falls far behind the results achieved by using GPT-4V alone.               tive dataset. GPT-4o-mini shows a significant drop in per-
+In contrast, our multi-agent method demonstrates greater                   formance, resulting in a lower overall accuracy. Note that
+adaptability, underscoring the potential of an open-source                 we have explored the feasibility of using smaller models by
+compatible framework in medical multi-agent intelligence.                  evaluating a 7B-scale LLM as the mediator. However, we
+   Comparison with homogeneous multi-agent system. To                      find that such small-scale models struggle to follow complex
+evaluate the performance of the multi-agent framework under                instructions and frequently fail to complete the tasks. Over-
+a homogeneous model configuration, we construct multiple                   all, these results highlight the value of using open-source
+agents using the same base model of HuatuoGPT-Vision-34B.                  LLMs with a proper scale for the mediator agent role in the
+Specifically, we simulate three expert agents by running three             multi-agent VQA system.
+independent inference trials of the same model, each with                     Choice on LLM for judge agents. To investigate the im-
+a temperature setting of 0.6 as seen in Figure 2 (a). Under                pact of judge agent on the performance, we compare the
+such a setting, multi-agent framework is unable to leverage                variants of the Qwen-2.5 series with 7B and 32B parame-
+the diversity across different models and thus we discourage               ters, as summarized in Figure 2 (c). The small-scale model,
+the use of identical models. In contrast, we construct a het-              Qwen-2.5-7B, exhibits suboptimal performance, achieving
+erogeneous multi-agent system composed of three different                  the accuracy of 62.0% on PathVQA and only 43.35% on
+models towards performance gains. Notably, the two addi-                   PMC-VQA. It indicates small-scale model has limited ca-
+tional models, Qwen2.5-VL-32B and LLaVA-Next-34B, are                      pacity for handling complex medical dialogues. Scaling up
+weaker than HuatuoGPT-Vision-34B, as shown in Table 1.                     to 32B results in a substantial performance gain, achieving
+This shows that agents with complementary perspectives                     an accuracy of 64.8% on PathVQA and 50.50% on PMC-
+Figure 3: Comparison with GPT-4V and other multi-agent            Figure 4: Evidence of collaborative synergy in MedOrch on
+methods based on GPT-4V on PathVQA dataset.                       PathVQA dataset.
+
+VQA. These findings underscore the effectiveness of mod-           tion, and mediator type. Towards a stable coordination mech-
+els in semantic understanding and information integration.         anism, our approach leverages structured outputs generated
+Qwen2.5-32B model offers a more favorable configuration            by the mediator LLM and employs an automated regular-
+for both mediator and judge agents, making it well-suited for      expression-based parsing to ensure a high coordination relia-
+deployment in practical applications.                              bility. This setting strongly differs from AFlow (Zhang et al.
+    “Conformity effect” or collaborative synergy? We in-           2024b) that relies on search-based interactions yet suffers
+vestigate whether the performance improvements observed            from its instability. Crucially, our findings reveal that hetero-
+during the collaboration stage are genuinely due to effective      geneous multi-agent systems are particularly well-suited for
+cooperation, or merely a result of the “conformity effect”.        leveraging open-source models in clinical applications.
+“The conformity effect” refers to the tendency of individuals         Multi-agent frameworks inevitably introduce longer infer-
+within a group to align with the majority opinion during the       ence times compared to single-agent systems, primarily due
+collaborative discussion.                                          to coordination overhead (Cheng et al. 2024). In our design,
+    To test this hypothesis, we introduce a two-agent con-         the main source of increased inference time stems from the
+figuration using HuatuoGPT-Vision-34B and LLaVA-Next-              collaborative stage. To reduce this, the mediator agent queries
+34B. In this two-agent setting, the possibility of “minor-         each expert agent only once without repeating the interaction
+ity yielding to majority” is strictly eliminated, making it        process. In addition, we generate all questions of the medi-
+a suitable setup to assess the effect of true collaborative        ator agent in a single forward pass and run multiple expert
+synergy. Notably, we observe that performance improves             agents in parallel to handle responses. This yields an overall
+even in this restricted two-agent setup, where the accuracy        inference time approximately twice that of a single-agent
+increases from 62.61% (HuatuoGPT-Vision-34B alone) to              system. We view this as a reasonable trade-off given the per-
+64.32% with collaboration. This is particularly compelling         formance gains and believe the gap will further narrow with
+given that LLaVA-Next-34B alone achieves only 53.76% that          more optimizations of inference systems (Kwon et al. 2023;
+is lower than HuatuoGPT-Vision-34B. When combined under            Contributors 2023).
+our proposed framework, the result demonstrates an effect             Our approach relies entirely on the agents’ internal capabil-
+of multi-agent collaboration. These findings strongly suggest      ities without the retrieval-augmented generation (Lewis et al.
+that the observed performance gains are not simply the result      2020) and tools (Cheng et al. 2024). Incorporating real-world
+of conformity during group decision-making. Instead, they          clinical data or medical knowledge can further enhance the
+point to genuine complementarity and effective collaboration       system’s performance in structured clinical workflows. Us-
+between heterogeneous agents.                                      ing specialized tools, such as imaging diagnostics and report
+                                                                   generation, could advance the multi-agent collaboration and
+4.3   Discussion and Limitation                                    interpretable decision-making in the healthcare system.
+Designing a collaborative system to handle multimodal clini-
+cal data is challenging given the complex healthcare work-                               5   Conclusion
+flow (Tu et al. 2024; Acosta et al. 2022). We explore the          We propose MedOrch as a collaborative framework and verify
+multi-agent collaboration from a collaboration perspective         that open-source multimodal agents can develop effective col-
+and measure its communication stability. In particular, our ap-    laboration strategies for clinical decision-making. MedOrch
+proach consistently outperformed the strongest single agent        builds upon the joint strength of open-source expert agents
+across diverse setups, including expert agent scale, composi-      under the guidance of an LLM mediator agent. MedOrch
+enhances collaboration and addresses conflict resolution in       He, X.; Zhang, Y.; Mou, L.; Xing, E.; and Xie, P. 2020.
+complex medical conversations, such as error propagation          Pathvqa: 30000+ questions for medical visual question an-
+and constrained inferential depth derived from individual         swering. arXiv preprint arXiv:2003.10286.
+VLMs. Comprehensive evaluations across five benchmark             Hu, Y.; Li, T.; Lu, Q.; Shao, W.; He, J.; Qiao, Y.; and Luo,
+datasets demonstrate that our method attains strong perfor-       P. 2024. Omnimedvqa: A new large-scale comprehensive
+mance without additional training. These findings underscore      evaluation benchmark for medical lvlm. In Proceedings of
+the potential of a reflective mediator-guided collaboration in    the IEEE/CVF Conference on Computer Vision and Pattern
+enhancing medical multimodal intelligence.                        Recognition, 22170–22183.
+                                                                  Kim, Y.; Park, C.; Jeong, H.; Chan, Y. S.; Xu, X.; McDuff,
+                        References                                D.; Lee, H.; Ghassemi, M.; Breazeal, C.; Park, H.; et al. 2024.
+Acosta, J. N.; Falcone, G. J.; Rajpurkar, P.; and Topol, E. J.    Mdagents: An adaptive collaboration of llms for medical
+2022. Multimodal biomedical AI. Nature medicine, 28(9):           decision-making. Advances in Neural Information Process-
+1773–1784.                                                        ing Systems, 37: 79410–79452.
+Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang,     Kwon, W.; Li, Z.; Zhuang, S.; Sheng, Y.; Zheng, L.; Yu, C. H.;
+K.; Wang, P.; Wang, S.; Tang, J.; et al. 2025. Qwen2. 5-vl        Gonzalez, J. E.; Zhang, H.; and Stoica, I. 2023. Efficient
+technical report. arXiv preprint arXiv:2502.13923.                Memory Management for Large Language Model Serving
+Bansal, H.; Israel, D.; Zhao, S.; Li, S.; Nguyen, T.; and         with PagedAttention. In Proceedings of the ACM SIGOPS
+Grover, A. 2024. MedMax: Mixed-Modal Instruction Tun-             29th Symposium on Operating Systems Principles.
+ing for Training Biomedical Assistants. arXiv preprint            Lau, J. J.; Gayen, S.; Ben Abacha, A.; and Demner-Fushman,
+arXiv:2412.12661.                                                 D. 2018. A dataset of clinically generated visual questions
+Basit, A.; Hussain, K.; Hanif, M. A.; and Shafique, M.            and answers about radiology images. Scientific data, 5(1):
+2024. MedAide: Leveraging Large Language Models for               1–10.
+On-Premise Medical Assistance on Edge Devices. arXiv              Lewis, P.; Perez, E.; Piktus, A.; Petroni, F.; Karpukhin, V.;
+preprint arXiv:2403.00830.                                        Goyal, N.; Küttler, H.; Lewis, M.; Yih, W.-t.; Rocktäschel, T.;
+Carey, T. A.; and Mullan, R. J. 2004. What is Socratic ques-      et al. 2020. Retrieval-augmented generation for knowledge-
+tioning? Psychotherapy: theory, research, practice, training,     intensive nlp tasks. Advances in neural information process-
+41(3): 217.                                                       ing systems, 33: 9459–9474.
+Chen, J.; Gui, C.; Ouyang, R.; Gao, A.; Chen, S.; Chen, G. H.;    Li, C.; Wong, C.; Zhang, S.; Usuyama, N.; Liu, H.; Yang, J.;
+Wang, X.; Zhang, R.; Cai, Z.; Ji, K.; et al. 2024. Huatuogpt-     Naumann, T.; Poon, H.; and Gao, J. 2023a. Llava-med: Train-
+vision, towards injecting medical visual knowledge into mul-      ing a large language-and-vision assistant for biomedicine in
+timodal llms at scale. arXiv preprint arXiv:2406.19280.           one day. Advances in Neural Information Processing Systems,
+Chen, J. C.-Y.; Saha, S.; and Bansal, M. 2023. Reconcile:         36: 28541–28564.
+Round-table conference improves reasoning via consensus           Li, G.; Hammoud, H.; Itani, H.; Khizbullin, D.; and Ghanem,
+among diverse llms. arXiv preprint arXiv:2309.13007.              B. 2023b. Camel: Communicative agents for” mind” explo-
+Chen, K.; Li, X.; Yang, T.; Wang, H.; Dong, W.; and Gao,          ration of large language model society. Advances in Neural
+Y. 2025. MDTeamGPT: A Self-Evolving LLM-based Multi-              Information Processing Systems, 36: 51991–52008.
+Agent Framework for Multi-Disciplinary Team Medical Con-          Li, J.; Lai, Y.; Li, W.; Ren, J.; Zhang, M.; Kang, X.; Wang, S.;
+sultation. arXiv preprint arXiv:2503.13856.                       Li, P.; Zhang, Y.-Q.; Ma, W.; et al. 2024. Agent hospital: A
+Cheng, Y.; Zhang, C.; Zhang, Z.; Meng, X.; Hong, S.; Li, W.;      simulacrum of hospital with evolvable medical agents. arXiv
+Wang, Z.; Wang, Z.; Yin, F.; Zhao, J.; et al. 2024. Exploring     preprint arXiv:2405.02957.
+large language model based intelligent agents: Definitions,       Liang, T.; He, Z.; Jiao, W.; Wang, X.; Wang, Y.; Wang, R.;
+methods, and prospects. arXiv preprint arXiv:2401.03428.          Yang, Y.; Shi, S.; and Tu, Z. 2023. Encouraging divergent
+Contributors, L. 2023. LMDeploy: A Toolkit for Com-               thinking in large language models through multi-agent debate.
+pressing, Deploying, and Serving LLM. https://github.com/         arXiv preprint arXiv:2305.19118.
+InternLM/lmdeploy.                                                Liu, B.; Zhan, L.-M.; Xu, L.; Ma, L.; Yang, Y.; and Wu, X.-M.
+Du, Y.; Li, S.; Torralba, A.; Tenenbaum, J. B.; and Mordatch,     2021. Slake: A semantically-labeled knowledge-enhanced
+I. 2023. Improving factuality and reasoning in language mod-      dataset for medical visual question answering. In 2021 IEEE
+els through multiagent debate. In Forty-first International       18th international symposium on biomedical imaging (ISBI),
+Conference on Machine Learning.                                   1650–1654. IEEE.
+Elder, L.; and Paul, R. 1998. The role of Socratic questioning    Liu, H.; Li, C.; Wu, Q.; and Lee, Y. J. 2023a. Visual in-
+in thinking, teaching, and learning. The Clearing House,          struction tuning. Advances in neural information processing
+71(5): 297–301.                                                   systems, 36: 34892–34916.
+Grattafiori, A.; Dubey, A.; Jauhri, A.; Pandey, A.; Kadian, A.;   Liu, Z.; Zhang, Y.; Li, P.; Liu, Y.; and Yang, D. 2023b.
+Al-Dahle, A.; Letman, A.; Mathur, A.; Schelten, A.; Vaughan,      Dynamic llm-agent network: An llm-agent collaboration
+A.; et al. 2024. The llama 3 herd of models. arXiv preprint       framework with agent team optimization. arXiv preprint
+arXiv:2407.21783.                                                 arXiv:2310.02170.
+Long, D. X.; Yen, D. N.; Luu, A. T.; Kawaguchi, K.; Kan, M.-       Xu, P.; Shao, W.; Zhang, K.; Gao, P.; Liu, S.; Lei, M.; Meng,
+Y.; and Chen, N. F. 2024. Multi-expert Prompting Improves          F.; Huang, S.; Qiao, Y.; and Luo, P. 2024. Lvlm-ehub: A com-
+Reliability, Safety and Usefulness of Large Language Models.       prehensive evaluation benchmark for large vision-language
+In Proceedings of the 2024 Conference on Empirical Methods         models. IEEE Transactions on Pattern Analysis and Machine
+in Natural Language Processing, 20370–20401.                       Intelligence.
+Luo, J.; Zhang, W.; Yuan, Y.; Zhao, Y.; Yang, J.; Gu, Y.; Wu,      Yang, A.; Yang, B.; Zhang, B.; Hui, B.; Zheng, B.; Yu, B.;
+B.; Chen, B.; Qiao, Z.; Long, Q.; et al. 2025. Large Language      Li, C.; Liu, D.; Huang, F.; Wei, H.; et al. 2024. Qwen2. 5
+Model Agent: A Survey on Methodology, Applications and             technical report. arXiv preprint arXiv:2412.15115.
+Challenges. arXiv preprint arXiv:2503.21460.                       Zhang, C.; Yang, K.; Hu, S.; Wang, Z.; Li, G.; Sun, Y.; Zhang,
+Ma, H.; Hu, T.; Pu, Z.; Boyin, L.; Ai, X.; Liang, Y.; and Chen,    C.; Zhang, Z.; Liu, A.; Zhu, S.-C.; et al. 2024a. Proagent:
+M. 2024. Coevolving with the other you: Fine-tuning llm            building proactive cooperative agents with large language
+with sequential cooperative multi-agent reinforcement learn-       models. In Proceedings of the AAAI Conference on Artificial
+ing. Advances in Neural Information Processing Systems, 37:        Intelligence, volume 38, 17591–17599.
+15497–15525.                                                       Zhang, J.; Xiang, J.; Yu, Z.; Teng, F.; Chen, X.; Chen, J.;
+Pandey, H.; Amod, A.; et al. 2024. Advancing Healthcare            Zhuge, M.; Cheng, X.; Hong, S.; Wang, J.; et al. 2024b.
+Automation: Multi-agent system for medical necessity justifi-      Aflow: Automating agentic workflow generation. arXiv
+cation. arXiv preprint arXiv:2404.17977.                           preprint arXiv:2410.10762.
+Singhal, K.; Azizi, S.; Tu, T.; Mahdavi, S. S.; Wei, J.; Chung,    Zhang, X.; Wu, C.; Zhao, Z.; Lin, W.; Zhang, Y.; Wang,
+H. W.; Scales, N.; Tanwani, A.; Cole-Lewis, H.; Pfohl, S.;         Y.; and Xie, W. 2023. Pmc-vqa: Visual instruction tun-
+et al. 2023. Large language models encode clinical knowl-          ing for medical visual question answering. arXiv preprint
+edge. Nature, 620(7972): 172–180.                                  arXiv:2305.10415.
+                                                                   Zhang, Y.; Gao, J.; Tan, Z.; Zhou, L.; Ding, K.; Zhou, M.;
+Sun, Y.; Zhang, Y.; Si, Y.; Zhu, C.; Shui, Z.; Zhang, K.;
+                                                                   Zhang, S.; and Wang, D. 2024c. Data-centric foundation
+Li, J.; Lyu, X.; Lin, T.; and Yang, L. 2024. Pathgen-1.6 m:
+                                                                   models in computational healthcare: A survey. arXiv preprint
+1.6 million pathology image-text pairs generation through
+                                                                   arXiv:2401.02458.
+multi-agent collaboration. arXiv preprint arXiv:2407.00203.
+                                                                   Zuo, Y.; Qu, S.; Li, Y.; Chen, Z.; Zhu, X.; Hua, E.; Zhang, K.;
+Tang, X.; Zou, A.; Zhang, Z.; Li, Z.; Zhao, Y.; Zhang, X.;         Ding, N.; and Zhou, B. 2025. MedXpertQA: Benchmarking
+Cohan, A.; and Gerstein, M. 2023. Medagents: Large lan-            Expert-Level Medical Reasoning and Understanding. arXiv
+guage models as collaborators for zero-shot medical reason-        preprint arXiv:2501.18362.
+ing. arXiv preprint arXiv:2311.10537.
+Thirunavukarasu, A. J.; Ting, D. S. J.; Elangovan, K.; Gutier-
+rez, L.; Tan, T. F.; and Ting, D. S. W. 2023. Large language
+models in medicine. Nature medicine, 29(8): 1930–1940.
+Tu, T.; Azizi, S.; Driess, D.; Schaekermann, M.; Amin, M.;
+Chang, P.-C.; Carroll, A.; Lau, C.; Tanno, R.; Ktena, I.; et al.
+2024. Towards generalist biomedical AI. Nejm Ai, 1(3):
+AIoa2300138.
+Wang, J.; Wang, J.; Athiwaratkun, B.; Zhang, C.; and Zou,
+J. 2024. Mixture-of-agents enhances large language model
+capabilities. arXiv preprint arXiv:2406.04692.
+Wang, X.; Wei, J.; Schuurmans, D.; Le, Q.; Chi, E.; Narang,
+S.; Chowdhery, A.; and Zhou, D. 2022. Self-consistency
+improves chain of thought reasoning in language models.
+arXiv preprint arXiv:2203.11171.
+Wei, H.; Qiu, J.; Yu, H.; and Yuan, W. 2024. Medco: Medical
+education copilots based on a multi-agent framework. arXiv
+preprint arXiv:2408.12496.
+Wu, C.; Lei, J.; Zheng, Q.; Zhao, W.; Lin, W.; Zhang, X.;
+Zhou, X.; Zhao, Z.; Zhang, Y.; Wang, Y.; et al. 2023a. Can
+gpt-4v (ision) serve medical applications? case studies on
+gpt-4v for multimodal medical diagnosis. arXiv preprint
+arXiv:2310.09909.
+Wu, Q.; Bansal, G.; Zhang, J.; Wu, Y.; Li, B.; Zhu, E.; Jiang,
+L.; Zhang, X.; Zhang, S.; Liu, J.; et al. 2023b. Autogen: En-
+abling next-gen llm applications via multi-agent conversation.
+arXiv preprint arXiv:2308.08155.
+                                                       Case Study
+A Case of Multi-agent collaboration
+Question:
+What does this histological examination of breast tissue reveal?
+(A): Malignant breast histopathology.
+(B): Non-cancerous kidney histopathology.
+(C): Normal brain histopathology.
+(D): Inflammatory bowel disease histopathology.
+Please provide the answer.
+
+Initial Response from Expert Agent 1 :
+Option A: Malignant breast histopathology. The image shows a dense proliferation of atypical cells with irregular nuclei
+and prominent nucleoli, which is characteristic of malignant tissue in the context provided (breast). This aligns well with
+features typically seen in malignancies such as invasive ductal carcinoma or other forms of breast cancer under microscopic
+examination using hematoxylin-eosin staining technique. Other options like non-cancerous kidney, normal brain, and
+inflammatory bowel disease would not display these specific cellular characteristics typical for their respective tissues when
+viewed microscopically stained similarly.
+
+Initial Response from Expert Agent 2 :
+The image provided is a histological examination of breast tissue. The cells appear to be arranged in a pattern that is
+characteristic of breast tissue. There is no evidence of atypical or abnormal cell growth that would suggest malignancy.
+Given the options provided: Option A: Malignant breast histopathology - This is not supported by the image, as there are no
+features indicative of malignancy. Option B: Non-cancerous kidney histopathology - This is incorrect as the image is of
+breast tissue, not kidney tissue. Option C: Normal brain histopathology - This is incorrect as the image is of breast tissue,
+not brain tissue. Option D: Inflammatory bowel disease histopathology - This is incorrect as the image is of breast tissue,
+not bowel tissue. This is not supported by the image, as there are no features indicative of malignancy. The image appears
+to show normal breast tissue.
+
+Initial Response from Expert Agent 3 :
+The histological examination of the breast tissue reveals malignant breast histopathology, which indicates the presence of
+cancerous cells in the breast tissue.
+
+Question for Expert Agent 1 Posed by Mediator Agent :
+I am the final authority in medical decision-making, responsible for reviewing and synthesizing all opinions from diverse
+medical experts. Expert 2 and Expert 3 have differing opinions on the histological examination of the breast tissue. Expert 2
+does not see any features indicative of malignancy and suggests the image shows normal breast tissue, while you mentioned
+that the image shows a dense proliferation of atypical cells with irregular nuclei and prominent nucleoli, characteristic of
+malignant tissue. Could you elaborate on the specific cellular features that led you to conclude the presence of malignancy,
+and how these features differ from those seen in normal breast tissue?
+
+Response from Expert Agent 1 :
+As an expert in breast histopathology, I can provide a detailed analysis of the cellular features observed in this image that
+indicate malignancy. The key findings include: 1) Dense proliferation: There is a dense and disorganized growth pattern
+of cells throughout the tissue section. 2) Atypical cell morphology: The tumor cells exhibit significant variations in size
+(pleomorphism), shape, and nuclear characteristics compared to normal breast epithelial cells. 3) Prominent nucleoli: Many
+nuclei appear enlarged with prominent nucleoli, which are indicative of increased protein synthesis required for rapid cell
+division. 4) Irregular nuclear contours: Some nuclei have irregular or indented borders instead of smooth outlines seen
+in benign cells. 5) Increased mitotic activity: An elevated number of dividing cells (mitoses) suggests uncontrolled cell
+proliferation typical of malignant tumors. 6) Loss of architectural organization: Unlike normal ductal structures found in
+non-cancerous breast tissue, these atypical cells lack any recognizable glandular patterns or organized architecture. These
+cellular abnormalities collectively point towards a diagnosis of invasive carcinoma rather than normal breast parenchyma or
+inflammatory processes like those seen in inflammatory bowel disease. While some benign lesions may also display mild
+cytological changes, the degree of pleomorphism, high mitotic rate, loss of differentiation, and overall disorganization
+strongly suggest a malignant neoplastic process consistent with Option A - Malignant breast histopathology.
+
+Question for Expert Agent 2 Posed by Mediator Agent :
+I am the final authority in medical decision-making, responsible for reviewing and synthesizing all opinions from diverse
+  medical experts. Expert 1 and Expert 3 have concluded that the histological examination of the breast tissue reveals
+  malignant breast histopathology, while you noted that the image appears to show normal breast tissue with no features
+  indicative of malignancy. Could you provide a detailed explanation of the cellular structures and patterns you observed that
+  led you to this conclusion, and how they differ from the observations made by the other experts?
+
+  Response from Expert Agent 2 :
+  The histological image you provided shows a tissue section stained with hematoxylin and eosin (H&E), which is a common
+  staining method used in histopathology. The image reveals a dense cellular structure with a high cellularity, and the
+  nuclei appear to be large and pleomorphic, which are characteristics often associated with malignancy. The presence
+  of mitotic figures (cells in the process of dividing) is also a strong indicator of malignancy. The cellular structures and
+  patterns in the image are consistent with those seen in breast cancer, particularly in invasive ductal carcinoma, which
+  is the most common type of breast cancer. The nuclei are large, irregular, and have prominent nucleoli, which are
+  features that are not typically seen in normal breast tissue. Additionally, the presence of a high number of mitotic figures
+  and the overall appearance of the tissue are indicative of a neoplastic process. The other experts noted that the image
+  does not show features indicative of malignancy, which could be due to the fact that the image may not be at a high
+  enough magnification to clearly visualize the mitotic figures and other key features of malignancy. It is also possible
+  that the tissue sample may not be representative of the entire breast, and a different section of the tissue could show
+  more definitive signs of malignancy. In conclusion, based on the cellular structures and patterns observed in the image,
+  the histological examination of the breast tissue is more consistent with malignant breast histopathology. The other
+  experts may have missed some key features due to the magnification or the section of the tissue they examined. It is
+  important to note that a definitive diagnosis of breast cancer requires a comprehensive evaluation by a pathologist, including
+  a review of the entire tissue sample and possibly additional tests such as immunohistochemistry and molecular profiling.
+
+  Question for Expert Agent 3 Posed by Mediator Agent :
+  I am the final authority in medical decision-making, responsible for reviewing and synthesizing all opinions from diverse
+  medical experts. Expert 2 has a different opinion, suggesting that the image shows normal breast tissue with no features
+  indicative of malignancy, while you concluded that the histological examination reveals malignant breast histopathology.
+  Could you provide a detailed explanation of the specific cellular features that led you to conclude the presence of
+  malignancy, and how these features differ from those seen in normal breast tissue?
+
+  Response from Expert Agent 3 :
+  I apologize for the confusion, but I cannot provide specific details about the cellular features that led to the conclusion of
+  malignancy without referring to the actual image. However, I can provide some general information about the differences
+  between normal breast tissue and malignant breast tissue. Normal breast tissue typically consists of glandular structures,
+  ducts, and stroma (connective tissue). The cells in normal breast tissue are arranged in a specific pattern, and they appear
+  uniform and well-organized. In contrast, malignant breast tissue may show abnormal cell growth, irregular cell shapes, and
+  disorganized cell arrangement. These changes can be indicative of a malignant process, such as cancer. It is important to
+  note that a definitive diagnosis of malignancy requires a thorough examination of the tissue by a pathologist, who will
+  consider the patient’s clinical history, symptoms, and other diagnostic tests. I believe that the histological examination
+  reveals malignant breast histopathology.
+
+  Final Judgment :
+  <answer> Option: A) Malignant breast histopathology </answer> Based on the detailed analysis
+  provided by Expert 1 and the subsequent clarifications, the histological examination of the breast tissue reveals malignant
+  breast histopathology. The key cellular features observed, such as dense proliferation, atypical cell morphology, prominent
+  nucleoli, irregular nuclear contours, increased mitotic activity, and loss of architectural organization, strongly suggest a
+  malignant neoplastic process. While Expert 2 initially suggested normal breast tissue, the consensus from the detailed
+  analysis aligns with the presence of malignancy.
+
+                                                           Prompts
+The following set of prompts constitutes a comprehensive multi-agent decision-making framework tailored for medical multi-
+modal multi-agent collaboration. Each prompt plays a specialized role in ensuring rigorous, iterative, and collaborative evaluation
+and answer generation. Together, they facilitate an efficient pipeline from initial answer synthesis to final decision-making. The
+prompts are summarized as follows:
+   Prompt to mediator agent for Socratic Questioning. This prompt is designed for the mediator agent, who acts as the final
+authority in medical decision-making. It evaluates the initial opinions from a group of experts, determines whether further
+discussion is necessary, and, if so, conducts structured Socratic-style dialogues with each expert.
+   Prompt for Feedback-based Answering. This prompt is intended for expert agents and focuses on refinement in response to
+questions posed by the mediator agent.
+
+ Prompt for Final Judgment. This prompt is designed for the judge agent for final judgment. It deeply analyzes complex
+multi-party discussions, and infers the most likely final decision.
+
+  Prompt for Answer Refinement. This prompt is used during evaluation stage. An LLM extracts structured answers from
+unstructured model outputs, ensuring that the format is consistent across evaluations of different vision-language models.
+
+
+
+  Prompt to mediator agent for Socratic Questioning
+  You are the final medical decision maker with extensive expertise in medical analysis and decision-making. Your task is to
+  evaluate the opinions provided by your team of medical experts and determine whether further discussion with a specific
+  expert is necessary.
+  1. Analyze the opinions from the team to identify any areas that require clarification.
+  2. Decide if additional discussion with an expert is required. Answer with "Yes" if further discussion is needed, or "No"
+     if not.
+  3. If further discussion is necessary, please communicate with all experts in turn.
+  4. For each expert, simulate a direct conversation that includes both first-person and second-person dialogue. Begin the
+     conversation with:
+    ”I am the final authority in medical decision-making, responsible for reviewing and synthesizing all opinions from diverse
+     medical experts.”
+     Then, summarize the conclusions of the other experts, highlight any disagreements between the selected expert’s opinions
+     and those of the others, and review the selected expert’s conclusions (using second-person narration, e.g., ”You mentioned
+     that...”). Provide your analysis and ask one detailed question, focusing on areas of conflict rather than general opinions
+     (e.g., why was option A chosen over option B?).
+
+  Output: Return your answer strictly in the following JSON format:
+  [{"Decision": "No"}] or
+  [{"Decision": "Yes",
+  "Expert 1": "{Simulated conversation with the expert}",
+  "Expert 2": "{Simulated conversation with the expert}",
+  "Expert 3": "{Simulated conversation with the expert}"}]
+
+  Input:
+  Question:
+  [{Question}]
+  Response:
+  [{Response of expert 1}, {Response of expert 2}, {Response of expert 3}]
+
+
+
+  Prompt for Feedback-based Answering
+  You are a professional question-answering assistant. Your task is to improve a previous answer based on the original question
+  and the provided reviewer’s feedback. Based on the above information, answer the reviewer’s question and revise the initial
+  answer by incorporating the feedback.
+
+  Input:
+  Question:
+  [{Original question}]
+  Reviewer’s feedback:
+  [{Reviewer’s feedback}]
+Prompt for Final Judgment
+You are an expert assistant in medical imaging-assisted diagnosis. You are good at handling discussions between multiple
+medical experts and can help the Reviewer (final reviewer) make the best decision efficiently, scientifically and compre-
+hensively. Based on the complete conversation between the Reviewer and the three experts (Expert 1, Expert 2, Expert 3),
+analyze the views of all parties in depth, sort out the core conclusions and supporting reasons of each expert, extract the
+consensus and disputes among experts, focus on the Reviewer’s questions and the experts’ responses, and combine the
+Reviewer’s focus and inclination to comprehensively infer the answer that the Reviewer is most likely to choose in the end.
+Make the final option.
+
+Output: Return your answer strictly in the following format:
+<answer> option: {X}, {XXX} </answer>.
+{X} represents the selected option.
+{XXX} represents the corresponding content of the selected option.
+
+Input:
+Question:
+[{Question}]
+Experts’ response:
+[{Expert 1’s response}, {Expert 2’s response}, {Expert 3’s response}]
+Reviewer’s questions:
+[{Reviewer’s questions for Expert 1},
+Expert 1’s response:
+[{Expert 1’s response for Reviewer’s questions}]
+Reviewer’s questions:
+[{Reviewer’s questions for Expert 2},
+Expert 2’s response:
+[{Expert 2’s response for Reviewer’s questions}]
+Reviewer’s questions:
+[{Reviewer’s questions for Expert 3},
+Expert 3’s response:
+[{Expert 3’s response for Reviewer’s questions}]
+
+Prompt for Answer Refinement
+Now, based on the response, make the final option directly.
+
+Output: Return your answer strictly in the following format:
+<answer> option: {X}, {XXX} </answer>.
+{X} represents the selected option.
+{XXX} represents the corresponding content of the selected option.
+
+Input:
+Question:
+[{Question}]
+Response:
+[{Response of models}]
+                                                 Benchmark Statistics
+We present statistics for the five VQA benchmarks used in our evaluation in Table 3.
+
+                                             # Question     Modality        Option Type          Data Source
+          PathVQA (He et al. 2020)             3,391       Pathology         Yes/No               Textbooks
+          VQA-RAD (Lau et al. 2018)             451        Radiology         Yes/No               MedPix®
+          PMC-VQA (Zhang et al. 2023)          2,000       Multimodal     Multiple Choice          PubMed
+          SLAKE (Liu et al. 2021)               863        Radiology      Multiple Choice      Public Website
+          OmniMedVQA (Hu et al. 2024)          88,996      Multimodal     Multiple Choice   Classification datasets
+
+                                      Table 3: Statistics for the five VQA benchmarks.
+

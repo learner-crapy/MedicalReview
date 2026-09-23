@@ -1,0 +1,674 @@
+                                              CodeAgents: A Token-Efficient Framework for
+                                                Codified Multi-Agent Reasoning in LLMs
+
+
+                                                 Bruce Yang1 , Xinfeng He2 , Huan Gao3 , Yifan Cao3 , Xiaofan Li1 , David Hsu1
+                                                                           1
+                                                                           National University of Singapore
+                                                        2
+                                                            School of Computer Science and Engineering, Southeast University
+                                                                                     3
+                                                                                       Sapiens AI
+
+
+
+
+arXiv:2507.03254v1 [cs.AI] 4 Jul 2025
+                                                                                  e1100032@u.nus.edu
+                                                                               hexinfeng2003@gmail.com
+                                                                                    gh@seu.edu.cn
+                                                                                  pete@sapiens-ai.io
+                                                                                   li.x@nus.edu.sg
+                                                                                 dcsdavid@nus.edu.sg
+
+
+
+                                                                                      Abstract
+
+                                                 Effective prompt design is essential for improving the planning capabilities of large
+                                                 language model (LLM)-driven agents. However, existing structured prompting
+                                                 strategies are typically limited to single-agent, plan-only settings, and often evalu-
+                                                 ate performance solely based on task accuracy—overlooking critical factors such
+                                                 as token efficiency, modularity, and scalability in multi-agent environments. To
+                                                 address these limitations, we introduce CodeAgents, a prompting framework that
+                                                 codifies multi-agent reasoning enables structured, token-efficient planning in multi-
+                                                 agent systems. In CodeAgents, all components of agent interaction—Task, Plan,
+                                                 Feedback, system roles, and external tool invocations—are codified into modular
+                                                 pseudocode enriched with control structures (e.g., loops, conditionals), boolean
+                                                 logic, and typed variables. This design transforms loosely connected agent plans
+                                                 into cohesive, interpretable, and verifiable multi-agent reasoning programs.We
+                                                 evaluate the proposed framework across three diverse benchmarks—GAIA, Hot-
+                                                 potQA, and VirtualHome—using a range of representative LLMs. Results show
+                                                 consistent improvements in planning performance, with absolute gains of 3–36
+                                                 percentage points over natural language prompting baselines. On VirtualHome,
+                                                 our method achieves a new state-of-the-art success rate of 56%. In addition, our ap-
+                                                 proach reduces input and output token usage by 55–87% and 41–70%, respectively,
+                                                 underscoring the importance of token-aware evaluation metrics in the development
+                                                 of scalable multi-agent LLM systems. The code and resources are available at:
+                                                 https://anonymous.4open.science/r/CodifyingAgent-5A86
+
+
+                                        1   Introduction
+
+                                        Large Language Models (LLMs) have emerged as powerful planning engines for AI agents, capable
+                                        of transforming an initial world state into a desired goal state. From web navigation to robotic
+                                        manipulation, accurate planning is critical in LLM-driven agent tasks: a flawed plan can derail the
+                                        entire reasoning process. Indeed, planning is fundamental to intelligent behavior, and recent work
+                                        has increasingly focused on equipping LLM agents with robust planning abilities to tackle complex,
+                                        multi-step tasks. The challenge is that these tasks demand not only correct reasoning but also efficient
+
+
+                                        Preprint. Under review.
+use of the model’s limited context and resources. This makes it imperative to develop prompting
+strategies that yield both high plan accuracy and token-efficient reasoning.
+A growing line of prompting frameworks has begun to address complex reasoning. Techniques such
+as Chain-of-Thought (CoT) prompting [17], Program-Aided Language Models (PAL) [2], ReAct
+[21], and Tree-of-Thoughts [22] enable LLMs to decompose problems into intermediate steps or
+integrate tool use. However, most existing methods follow a single-agent paradigm: one monolithic
+LLM handles planning and reasoning in a continuous, verbose natural language stream. This design
+leads to several limitations. First, reasoning traces tend to be overly verbose, causing high token
+usage and latency. Recent studies show that standard CoT solutions often use significantly more
+tokens than necessary, highlighting significant inefficiency [18]. Second, conflating all roles (planner,
+solver, verifier) into one sequence can hinder clarity and correctness. LLMs often stumble when
+simultaneously planning and executing solutions, as errors can be compounded without clear modular
+structures [12]. Finally, current prompting strategies largely ignore the cost of tokens—they aim
+to maximize task success but do not explicitly minimize token consumption. This oversight is
+problematic as context window limits and API costs become bottlenecks for deploying LLM agents.
+In summary, today’s prompting approaches for complex tasks are not token-efficient, are limited
+to single-agent scenarios, and rely on free-form language that may be unnecessarily verbose or
+ambiguous.
+To address these issues, we propose CodeAgents: a framework for token-efficient multi-agent
+reasoning that encodes multi-agent problem solving as structured pseudocode. The key idea is
+to treat a complex reasoning task like a program, with different modules (or agents) handling
+planning, execution, and feedback in a coordinated way. Instead of prompting the model with a
+verbose natural language dialogue, we provide a pseudocode template that the LLM fills in and
+follows. This pseudocode explicitly represents multi-agent interactions: a Planner outlines high-
+level plans, a Solver executes detailed reasoning, and a Reviewer provides feedback. Components
+communicate clearly through well-defined variables, iterating as needed within a coherent prompt.
+Our structured approach significantly reduces ambiguity and verbosity, prompting the model in a
+concise, algorithmic style.A summary comparison of Codifying-Agent against existing prompting
+strategies is shown in Table 1, where it demonstrates higher success rates and lower token costs while
+supporting dynamic replanning.
+Crucially, our framework introduces several technical innovations to enhance expressivity and
+efficiency. First, we incorporate typed variables, enabling clear distinctions between different
+data types and reducing errors. Second, we leverage control flow structures such as loops and
+conditionals, enabling dynamic reasoning strategies and branching logic, unlike linear natural-
+language prompts. Third, we create reusable subroutines encapsulating common reasoning patterns,
+improving modularity and token efficiency. Finally, our entire prompting approach prioritizes token-
+cost awareness, explicitly optimizing prompt length and token usage, making efficient use of LLM
+resources without sacrificing reasoning quality.
+We validate our framework on challenging benchmarks, demonstrating its effectiveness. Our contri-
+butions can be summarized as follows:
+
+       • Code-First Multi-Agent Prompting: We introduce a novel framework encoding com-
+         plex reasoning tasks as modular pseudocode, orchestrating specialized agents (planning,
+         reasoning, feedback) within a single LLM, significantly reducing verbosity.
+       • Token Efficiency as a Core Metric: We explicitly optimize token usage in prompt design
+         and evaluation, achieving superior efficiency and practicality under strict context limits.
+       • Empirical Performance Gains: Extensive experiments demonstrate that our framework
+         consistently outperforms existing prompting strategies on benchmarks including GAIA[8],
+         HotpotQA[20], and VirtualHome[9], delivering higher accuracy and solution quality with
+         substantially reduced token usage.
+
+
+2   Methodology
+We propose a Codified Prompting framework that reformulates all components of LLM-driven agent
+reasoning into a unified representation of structured, typed pseudocode. This includes agent roles,
+task decomposition plans, tool invocations, intermediate feedback, and observational outcomes. By
+
+
+                                                   2
+Table 1: Comparison of prompting strategies for LLM planning and execution. Codifying-Agent
+achieves better success with fewer tokens via structured re-usable plans.
+
+       Method                    Token Cost (M)       Success Rate     Supports Replanning
+       Chain-of-Thought [17]           High             Moderate                 ✗
+       Plan-and-Solve [13]             High             Moderate                 ✗
+       ProgPrompt [12]                 Low              Medium                   ✗
+       ReAct [21]                      High             Medium                   ✓
+       CodeAgents                      Low               High                    ✓
+
+
+
+
+Figure 1: Architecture of our VirtualHome agent loop. The agent executes modular plans containing
+in-plan assert checks for local error recovery and invokes a global feedback loop to re-plan on
+critical failures.
+
+
+encoding these elements programmatically, the framework enhances interpretability, reduces token
+overhead, and improves the traceability of multi-step reasoning processes. Unlike conventional
+prompting methods that rely on a single agent emitting unconstrained natural language, our approach
+orchestrates a multi-agent system composed of specialized roles—such as Planner, ToolCaller,
+and Replanner. Each agent is tasked with a specific functional responsibility, and their inter-
+actions are mediated through modular pseudocode messages. These messages incorporate typed
+variables, conditional logic, and control structures, thereby supporting composability and reusability
+of reasoning steps.
+By shifting from natural language to a code-like intermediate representation, the framework supports
+precise coordination, error localization, and automated evaluation of reasoning traces. This code-
+first design also facilitates downstream integration with external tools and APIs, enabling more
+robust agent behavior in complex environments. Overall, Codified Prompting enables structured,
+interpretable, and cost-efficient LLM-based reasoning through a principled abstraction over multi-
+agent interaction.
+
+
+                                                  3
+2.1   Single-Agent Codified Reasoning Framework
+
+Figure 1 illustrates our single-agent architecture, demonstrated on the watch TV task in a simulated
+VirtualHome environment. The agent generates structured pseudocode plans and executes them
+step-by-step, using runtime feedback for iterative replanning. Assertion checks are embedded to
+catch and locally recover from errors, or escalate to global plan revisions when needed. A concrete
+case is shown in Figure 2.
+Structured Task Prompting. The system prompt defines available actions and objects using Python-
+like syntax. Typed variables and few-shot examples guide the LLM to generate semantically aligned
+pseudocode, concluding with a partial function header to elicit structured completions.
+Function-Based Planning. Each task is encoded as a named function composed of sequential action
+calls with typed arguments. Inline comments clarify intent and context, enhancing plan interpretability.
+While not executable, the code serves as a formal, readable scaffold for reasoning.
+Precondition Assertions. Assertions check critical preconditions (e.g., object visibility, possession)
+before actions. Failures invoke local recovery routines (e.g., else branches) to avoid unnecessary
+replanning and ensure resilience to minor errors.
+Feedback-Driven Replanning. Major failures trigger a replanning loop: the system constructs a
+structured diagnostic trace—including the failed step, error type, and current state—which is passed
+back to the LLM for sub-plan regeneration. This loop enables robustness in dynamic, long-horizon
+tasks.
+Task Prompt:                                           Error Feedback:
+from actions import walk<obj>, grab<obj>,              def initial_plan_for_eat_bread_on_sofa():
+    find<obj>, sit<obj>, eat<obj>                          # Step 1: Locate sofa and bread
+objects = ["sofa", "bread", ...]                           ...
+                                                           # Step 2: Pick up the bread
+# Example tasks                                            ...
+def throw_away_apple():                                    # Step 3: Sit on the sofa
+    ...                                                    ...
+def watch_tv():                                        error_step = "sit('sofa')"
+    ...                                                feedback_message = (
+                                                         "not close to <sofa> when [SIT]"
+# Next Task                                            )
+def initial_plan_for_eat_bread_on_sofa():              environmental_information = [
+                                                         "sofa is visible but not near",
+                                                         "agent is holding bread"
+LLM Response:                                          ]
+                                                       items_in_hand = ["bread"]
+def initial_plan_for_eat_bread_on_sofa():              def updated_plan_for_eat_bread_on_sofa():
+    # Step 1: Locate sofa and bread
+    walk('livingroom')
+    find('sofa')                          LLM Response:
+    # Step 2: Pick up the bread
+    assert('close' to 'bread')            def updated_plan_for_eat_bread_on_sofa():
+        else: find('bread')                   # Step 3: Ensure near the sofa
+    grab('bread')                             assert('close' to 'sofa')
+    # Step 3: Sit on the sofa                     else: find('sofa')
+    sit('sofa')                               sit('sofa')
+    # Step 4: Eat the bread                   # Step 4: Eat the bread
+    eat('bread')                              eat('bread')
+
+Figure 2: Example of a fully codified prompt for the task eat_bread_on_sofa, combining code,
+comments, assertions, and replanning.
+
+
+2.2   Multi-Agent Codified Reasoning Framework
+
+The CodeAgents framework includes both single-agent and multi-agent variants, which share a
+unified code-first prompting paradigm using structured pseudocode. These variants differ in archi-
+
+
+                                                   4
+Figure 3: CodeAgents architecture for multi-agent coordination. Agents exchange codified prompts,
+plans, and executable tool calls to coordinate planning, execution, and replanning in a modular loop.
+
+
+tectural configuration: the single-agent version integrates planning, execution, and feedback into
+one loop, while the multi-agent version distributes these roles across specialized agents. Though
+methodologically consistent, the two designs are optimized for different task characteristics and are
+not interchangeable. We present both to illustrate the generality and adaptability of our approach
+across diverse reasoning scenarios.
+Figure 3 illustrates the architecture of the proposed Multi-Agent Codified Reasoning Framework,
+wherein specialized agents—namely Planner, ToolCaller, and Replanner—collaborate through
+structured code-based exchanges to solve complex reasoning tasks. The workflow is initiated by a
+codified system prompt derived from user instructions and contextual resources. Agents communicate
+via pseudocode plans, executable tool invocations, and structured feedback, thereby forming a
+modular and iterative reasoning loop. This architecture facilitates transparent agent coordination,
+modular control over execution, and systematic error recovery. A representative interaction trace is
+shown in Figure 4.
+Codified System Prompt. Each agent is initialized using a structured, codified system prompt in
+YAML format. The prompt specifies the agent’s role (e.g., expert_assistant), available tools,
+teammate agents, and execution cycle (e.g., [thought, code, observation]). This declarative
+format enables precise capability control, modular prompt reuse, and interoperability between agents
+via code-oriented input-output schemas.
+Structured Plan Generation. Upon receiving a user-defined instruction, the Planner agent synthe-
+sizes a high-level plan encoded as Python-style pseudocode. The plan consists of declarative steps
+involving variable instantiations, conditional logic, and iterative structures. Each action is annotated
+with natural language comments, which serve as interpretable intermediate thoughts to guide the
+LLM’s decision-making. Compared to traditional natural language Chain-of-Thought prompting, this
+codified planning paradigm reduces semantic ambiguity, supports plan verification, and facilitates
+seamless handoff to downstream agents for execution or revision.
+Executable CodeAct and Tool Invocation. The Planner produces an initial plan in the form of
+structured pseudocode, which is subsequently transformed—also by the planner—into executable
+CodeAct, written in a Python syntax. This codified representation captures both logical flow and
+concrete tool interaction instructions. Once generated, the CodeAct can follow two execution paths:
+it can either be parsed by the ToolCaller to perform structured tool invocations (e.g., JSON-based
+API calls), or it can be executed directly via a Python interpreter to perform general computations.
+This flexible execution strategy decouples planning from execution, supports targeted validation, and
+enables iterative re-planning in response to runtime feedback or errors.
+
+
+                                                   5
+Code-Based Feedback and Replanning. When tool execution fails or produces unsatisfactory
+observations, the Replanner agent is activated. It consumes structured error traces encoded as pseu-
+docode, which include the failed instruction, execution context, and associated metadata (e.g., agent
+ID, timestamp, tool state). Based on this structured diagnostic input, the Replanner synthesizes a
+revised sub-plan that resumes execution from the point of failure. This agent-level modular replanning
+mechanism enhances system robustness, supports adaptive recovery, and enables generalization to
+dynamic or partially observable environments.
+
+System Prompt:                                     Executable Python Code:
+config = {                                            url = GoogleSearchTool("AI chip growth
+   role: 'expert_assistant',                          ,→  driver")[0]['url']
+   tools: 'python_callable',                          VisitTool(url)
+   cycle: [thought, code, observation]                PageDownTool()
+}                                                     text = FinderTool("AI chip")
+available_tools = [                                   drivers = TextInspectorTool(text=text,
+   GoogleSearchTool, VisitTool,                       ,→  focus="growth drivers", count=3)
+   ,→   PageUpTool,
+   PageDownTool, FinderTool,                       Tool Call Examples:
+   ,→   TextInspectorTool
+]                                                     {
+team_agent = [web_browser_agent]                          "tool": "GoogleSearchTool",
+task = "Search the web and summarize 3                    "args": {
+,→    key growth drivers in AI chip                         "query": "AI chip market 2025
+,→    market"                                               site:techcrunch.com"
+                                                          }
+                                                      }
+Initial Plan:
+def initial_plan():                       Error Feedback:
+  # Step 1: Use Google to find relevant   error_message = "URL failed to load"
+  ,→   article                            failed_url =
+  query = "AI chip market 2025            "https://techcrunch.com/example-ai-chip"
+  ,→   site:techcrunch.com"
+  search_result =                         Updated Plan:
+  ,→   GoogleSearchTool(query)
+  doc = search_result[0]['url']           def updated_plan():
+  # Step 2: Open the link                   # Step 2: Retry different URL
+  VisitTool(doc)                            url = GoogleSearchTool("AI chip
+  # Step 3: Scroll until key term            ,→   summary")[0]['url']
+  ,→   appears                              VisitTool(url)
+  while not                                 # Step 3: Scroll
+  ,→   TextInspectorTool.contains("growth   PageDownTool()
+  ,→   driver"):                            # Step 4: Extract and summarize
+     PageDownTool()                         text = FinderTool("AI chip")
+     if too_many_pages_scrolled: break      drivers =
+  # Step 4: Extract and summarize            ,→   TextInspectorTool(text=text,
+  paragraphs = FinderTool(keyword="AI           focus="growth drivers", count=3)
+  ,→   chip")
+  drivers =                               Output Observation:
+  ,→   TextInspectorTool(text=paragraphs,
+                                          driver1 = "Edge computing boom"
+     focus="growth drivers", count=3)
+                                          driver2 = "National policy support"
+  final_answer(drivers)
+                                          driver3 = "Generative AI demand"
+
+Figure 4: A simplified codified agent workflow illustrating structured system prompt initialization,
+pseudocode planning, executable tool invocation, and feedback-driven replanning.
+
+
+
+3   Experiment
+
+This section presents a comprehensive evaluation of code-based prompting strategies across three
+representative benchmarks: VirtualHome, GAIA, and HotpotQA. The goal of these experiments is to
+rigorously assess the impact of structured code-style instructions on the performance and efficiency
+
+
+                                                  6
+of LLM agents. The section is structured to elaborate on the experimental setup, employed models,
+evaluation metrics, and detailed analysis of results in each benchmark setting.
+Our methodology is evaluated on two tracks:
+
+       • VirtualHome[9]: A high-fidelity, single-agent benchmark for evaluating long-horizon task
+         planning in dynamic environments. Our approach draws inspiration from ProgPrompt [12],
+         which introduced code-form planning with local assert-based error handling, and Brain-
+         Body [1], which employed natural language plans augmented with feedback and replanning
+         mechanisms. While both achieved strong results on VirtualHome, they differ in how they
+         handle failures—local vs. global, code vs. language. We use this benchmark to systemati-
+         cally test various combinations of code, natural language, and hybrid formats for planning
+         and recovery, aiming to identify the most effective tradeoff between task accuracy and token
+         efficiency.
+       • GAIA[8] and HotpotQA[20]: We evaluate our framework on two multi-agent reasoning
+         benchmarks that demand advanced coordination, tool usage, and multi-hop reasoning.
+         GAIA (General AI Assistant) is a recently proposed benchmark designed to assess AI
+         assistants’ capabilities in real-world scenarios requiring reasoning, web browsing, and tool
+         use. It comprises 466 human-annotated questions across various domains, emphasizing
+         tasks that are straightforward for humans but challenging for AI systems. GAIA evaluates
+         an agent’s proficiency in integrating multiple skills to provide accurate answers. HotpotQA
+         is a large-scale question-answering dataset with 113K multi-hop questions that require
+         reasoning across multiple Wikipedia documents, challenging models to provide both accurate
+         and interpretable answers—making it a valuable benchmark for evaluating multi-agent
+         coordination and reasoning capabilities.
+
+3.1   Evaluation on the VirtualHome Benchmark
+
+VirtualHome is a 3D simulation platform designed to assess agent behavior in household environ-
+ments. Tasks involve interpreting natural language instructions, generating executable plans, and
+interacting with virtual objects to complete daily routines. We follow the evaluation protocol from
+ProgPrompt [12], utilizing the same train-validation-test split. Our configuration was run five times
+using Gemini-2.0-Flash, and we report the mean and standard deviation. We focus on two key metrics:
+(1) Partial Success Rate (PSR), which captures the degree of goal completion even if not perfectly
+executed, and (2) Success Rate (SR), which measures the proportion of tasks fully completed without
+error.
+Table 2: Comparison of Formats on VirtualHome. For baselines ProgPrompt and BrainBody, token
+statistics were not reported in their original papers. We additionally reproduced a natural language
+variant of our method following the BrainBody scheme.
+ Format                SR           PSR           Input Token       Output Token        Total Token
+ BrainBody [1]     0.54 ± 0.09   0.69 ± 0.04           –                   –                 –
+ ProgPrompt [12]   0.40 ± 0.11   0.72 ± 0.09           –                   –                 –
+ NL(BrainBody)     0.36 ± 0.05   0.71 ± 0.03   10462.02 ± 730.12    217.58 ± 20.08   10679.60 ± 748.21
+ CodeAgents        0.56 ± 0.11   0.73 ± 0.07   5845.28 ± 374.69    484.18 ± 39.08    6329.46 ± 398.07
+
+
+Table 2 compares our approach against prior baselines. Since previous work did not report token
+consumption, we reproduce a natural language version of our prompt using BrainBody’s schema. Our
+structured prompting method achieves the highest SR (0.56) and PSR (0.73), while also significantly
+reducing total tokens (↓40.7%) compared to the natural language variant. This demonstrates the
+effectiveness of our codified format in both execution fidelity and efficiency.
+
+3.2   Evaluation on the GAIA Benchmark
+
+We evaluate our framework on Level 1 tasks from the GAIA validation set, a benchmark targeting
+multi-step reasoning, tool usage, and web interaction. Following our methodology, we compare a
+baseline natural language format—where prompts and plans are expressed in free-form text—with
+our codified format. The natural language baseline is constructed using the default prompt template
+from the SmolAgents framework, which features role-based task descriptions and step-by-step
+
+
+                                                   7
+reasoning in conversational form. It is not designed to reflect state-of-the-art performance, but rather
+to serve as a representative and controlled configuration for isolating the effects of prompt structure.
+In contrast to SOTA natural language systems that often rely on extensive engineering, expert-crafted
+prompts, or system-level optimization, our baseline remains untuned and minimal to ensure fairness
+in comparison. Structured prompts consistently outperform the natural language baseline across
+models. For Gemini-2.5-Flash, our codified approach improves accuracy by 10.7%, while reducing
+input tokens by 67.8% and cost by 67.4%. Gemini-2.5-Pro also achieves a 4.8% accuracy gain with
+over 40% cost savings. We attribute these improvements to the high semantic density and reduced
+ambiguity of the codified format. By eliminating redundant language and standardizing reasoning
+flows, agents require fewer tokens to complete tool-based reasoning cycles (Table 3).
+
+      Table 3: Comparison of Prompt Formats on Accuracy, Token Usage, and Cost on GAIA
+
+                Model / Format        Accuracy      Input (M)     Output (K)   Cost ($)
+
+                Gemini-2.5-Flash
+                  Natural Language       0.56           72.42       314.82      11.05
+                  CodeAgents             0.62           23.28       174.60       3.60
+                  Improvement           +10.7%          ↓67.8%      ↓44.5%      ↓67.4%
+
+                Gemini-2.5-Pro
+                  Natural Language       0.62           31.80       597.25      45.72
+                  CodeAgents             0.65           17.93       386.88      26.28
+                  Improvement           +4.8%           ↓43.6%      ↓35.2%      ↓42.5%
+
+
+
+
+3.3   Evaluation on the HotpotQA Benchmark
+
+We evaluate our framework on HotpotQA, a
+widely used multi-hop QA benchmark requiring
+multi-document reasoning. A 100-example sub-
+set was sampled from the test-fullwiki split
+to compare models under natural language and
+codified prompt formats. As shown in Table 4,
+our formats consistently match or outperform
+natural language in both Accuracy and F1, while
+significantly reducing token usage and cost. For
+example, LLaMA-4-Maverick achieves the high-
+est accuracy (0.52) with a 70.4% reduction in
+cost. Gemini-2.5-Pro improves average F1 from
+0.66 to 0.68 while reducing input tokens by over
+50%. Figure 5 further visualizes accuracy effi-
+ciency across models. We yield higher perfor-
+mance per unit cost across all models, especially       Figure 5: Accuracy per unit cost on HotpotQA.
+in LLaMA and Gemini-Flash, indicating better
+semantic density and reduced redundancy.
+
+
+4     Ablation Study
+4.1   VirtualHome Results
+
+Table 5 reports Success Rate (SR), Partial Success Rate (PSR), Execution Accuracy, and Token usage
+on VirtualHome. The natural language baseline (Row 1) yields 0.20 SR with high token cost (8280
+tokens). Adding replan improves SR to 0.36 but increases tokens by 29% (Row 2). Code-only
+prompting (Row 3) cuts token usage by 88% while raising SR by 50%. Adding replan or assert
+(Rows 4–5) brings further gains, and their combination (Row 6) achieves 0.46 SR and 0.75 execution
+
+
+                                                    8
+       Table 4: Comparison of Formats on HotpotQA (Accuracy, F1, Token Usage, and Cost)
+
+           Model / Format         Accuracy      F1     Input (M)    Output (K)    Cost ($)
+
+           Gemini-2.5-Flash
+             Natural Language       0.47       0.61       4.50         164.60       0.77
+             CodeAgents             0.50       0.64       2.69         96.66        0.46
+             Improvement           +6.4%      +4.9%      ↓40.2%       ↓41.3%       ↓40.3%
+
+           Gemini-2.5-Pro
+             Natural Language       0.51       0.66       2.45         139.80       4.46
+             CodeAgents             0.51       0.68       1.20         105.50       2.56
+             Improvement              –       +3.0%      ↓51.0%       ↓24.5%       ↓42.6%
+
+           GPT-4.1
+             Natural Language       0.46       0.63       2.11         110.74       5.10
+             CodeAgents             0.51       0.64       1.00          42.21       2.34
+             Improvement           +10.9%     +1.6%      ↓52.6%       ↓61.9%       ↓54.1%
+
+           LLaMA-4-Maverick
+             Natural Language       0.49       0.63       5.71         181.63       1.08
+             CodeAgents             0.52       0.65       1.58          83.53       0.32
+             Improvement           +6.1%      +3.2%      ↓72.3%       ↓54.0%       ↓70.4%
+
+
+accuracy—more than double the baseline SR with 42% fewer tokens. The best performance (Row 11)
+comes from combining code, assert, replan, and English comments, reaching 0.56 SR (+180%)
+with 24% fewer tokens. These results highlight the benefits of structured prompting with embedded
+feedback and lightweight annotations for efficient, accurate reasoning.
+
+4.2   HotpotQA Results
+
+Table 6 summarizes ablation results on HotpotQA. The natural language baseline without replan
+(Row 1) achieves 41% accuracy and consumes 4.14 million tokens. Adding replan (Row 2) increases
+accuracy by 19.5% but incurs a 42% token overhead. Code-based prompting with replan (Row 3)
+achieves the highest efficiency, improving accuracy by 24.4% while reducing token usage by 72.2%.
+Adding English comments with or without replan (Rows 4–5) further improves interpretability. The
+best result (Row 5) achieves 52% accuracy (+26.8%) with a 60% reduction in token usage. Including
+Chinese comments (Row 6) shows comparable accuracy with slightly improved efficiency. The GAIA
+ablation study shows similar trends and will be available on our GitHub.
+
+4.3   Analysis
+
+Across both benchmarks, code-based prompting consistently outperforms natural language baselines
+in reasoning accuracy and token efficiency. Feedback mechanisms such as replan and assert
+provide incremental gains by improving execution robustness. Comparing Chinese and English
+comments, we observe a trade-off: Chinese comments slightly reduce token usage, while English
+comments yield marginally higher accuracy. These findings support the effectiveness of our modular
+design and demonstrate the value of integrating structured feedback and annotated code in enhancing
+LLM reasoning under constrained token budgets.
+
+5     Related Work
+Structured Reasoning in LLMs. Chain-of-thought (CoT) prompting enables complex reasoning in
+LLMs[17], but its verbosity and error-proneness have led to more structured alternatives such as Tree-
+of-Thought (ToT)[22] and Algorithm-of-Thought (AoT) [23]. Despite improvements in reasoning
+paths, these methods still rely on natural language, limiting token efficiency and verifiability.
+
+
+                                                  9
+Table 5: Ablation Study of our methodology on VirtualHome. All improvements (∆) are calculated
+relative to the Natural Language baseline (1).
+
+ Format                                      SR     PSR    Exec    Total Token      ∆ SR      ∆ Token
+ Natural Language (1)                       0.20    0.62   0.61      8280.00         –           –
+ Natural Language + Replan (2)              0.36    0.71   0.63     10679.60       +80.0%      +29.0%
+ Code Only (3)                              0.30    0.62   0.68     1010.74       +50.0%       ↓ 87.8%
+   + Replan (4)                             0.38    0.67   0.70     2624.52       +90.0%       ↓ 68.3%
+   + Assert (5)                             0.36    0.69   0.67     4080.76       +80.0%       ↓ 50.7%
+   + Assert + Replan (6)                    0.46    0.70   0.75     4767.68       +130.0%      ↓ 42.4%
+ Code with Comments
+ Code + CN Comment + Assert + Replan (7)    0.52   0.72    0.65      6192.42      +160.0%      ↓ 25.2%
+ Code + EN Comment (8)                      0.34   0.67    0.70      1316.70      +70.0%       ↓ 84.1%
+   + Replan (9)                             0.44   0.72    0.72      3531.58      +120.0%      ↓ 57.3%
+   + Assert (10)                            0.52   0.73    0.69      4137.78      +160.0%      ↓ 50.0%
+   + Assert + Replan (11)                   0.56   0.73    0.70      6329.46      +180.0%      ↓ 23.6%
+
+
+Table 6: Ablation Study on HotpotQA. All improvements (∆) are relative to the Natural Language +
+No Replan baseline (1).
+
+ Format                                    Acc      F1     Total Token (M)       ∆Acc       ∆Token
+ Natural Language (1)                      0.41    0.53           4.14             –           –
+ Natural Language + Replan (2)             0.49    0.63           5.89           +19.5%     ↑ 42.0%
+ Code Only + Replan (3)                    0.51    0.62           1.15           +24.4%     ↓ 72.2%
+ Code with Comments
+   + EN Comment + No Replan (4)            0.42    0.53           1.19           +2.4%      ↓ 71.2%
+   + EN Comment + Replan (5)               0.52    0.65           1.66           +26.8%     ↓ 60.0%
+   + CN Comment + Replan (6)               0.51    0.62           1.61           +24.4%     ↓ 61.2%
+
+
+
+Code-Based Reasoning and Token Efficiency. Code-enhanced reasoning offers structure and
+efficiency. Program-Aided LMs (PAL) use Python interpreters [2], while CodeAct [15] maps agent
+actions to executable code. Other efforts [24] adopt code interpreters for math problems. Pseudocode-
+based approaches like ProgPrompt [12] and CodePlan [18] yield concise, readable plans. Recent
+methods further boost token efficiency: Token-Aware Coding Flow reduces token usage by up to
+50% through refactoring [4], and THINK-AND-EXECUTE improves reasoning via pseudocode
+simulation [7]. Our method differs by generating structured pseudocode with embedded lightweight
+feedback at prompt time—eliminating the need for refactoring or execution.
+Feedback and Replanning Mechanisms. Feedback loops improve LLM adaptability. BrainBody-
+LLM [1] separates planning and control via dual LLMs, supporting closed-loop feedback. Reflex-
+ion [11] and Inner Monologue [5] use self-reflection and internal dialogue, though all rely on natural
+language for feedback. Structured code-based feedback remains underexplored.
+Multi-Agent Collaboration and Communication. Multi-agent frameworks like MegaAgent [14]
+and TalkHier [16] enable scalable collaboration via structured protocols. Others—CAMEL [6],
+MetaGPT [3], AutoGen [19], and SmolAgents [10]—employ role-playing and standard workflows.
+However, most rely on natural language, which increases token costs and introduces ambiguity.
+Structured code-based communication across agents remains largely untapped.
+Positioning Our Work. We unify pseudocode prompting, feedback, and replanning within a
+multi-agent framework. Unlike prior work focused on either code or natural language, we adopt
+a hybrid format that combines structured pseudocode with natural language comments, including
+bilingual annotations, to improve clarity and flexibility. Ablation studies confirm the benefits of each
+module. We also extend planning from single-agent to multi-agent settings, highlighting the role of
+communication protocols and task decomposition in complex scenarios. Our approach is motivated
+by the limitations of language-only agents—such as ambiguity, weak executability, and inconsistent
+reasoning—which led us to explore a codified prompting paradigm. By making reasoning explicit
+and modular, structured prompts offer a more reliable and interpretable interface. We believe this
+direction moves toward verifiable, tool-integrated AI systems beyond free-form generation.
+
+
+                                                   10
+6   Conclusion
+This paper presents a codified prompting framework that enhances LLM reasoning by represent-
+ing agent interactions as typed pseudocode with modular control flows. This structure improves
+transparency, execution reliability, and token efficiency. Empirical results on GAIA, HotpotQA,
+and VirtualHome show that our approach consistently outperforms natural language prompting in
+accuracy, adaptability, and cost-effectiveness, demonstrating its potential for reliable and efficient
+multi-agent coordination.While our findings are encouraging, the framework’s applicability to more
+diverse, real-world tasks remains to be further explored. Our current experiments focus on repre-
+sentative benchmarks, and results on additional tasks will be released on our GitHub page.Beyond
+immediate improvements in performance and cost, we believe codified prompting offers a path toward
+more interpretable and verifiable AI. Looking ahead, integrating multiple language modalities—such
+as mathematics for formal reasoning, natural language for interpretability, and database querying for
+information access—with code as the execution layer may unlock more flexible and robust agent
+capabilities. We hope this work contributes to a broader shift toward structured, tool-integrated, and
+human-aligned AI systems.
+
+References
+ [1] Vineet Bhat, Ali Umut Kaypak, Prashanth Krishnamurthy, Ramesh Karri, and Farshad Khorrami.
+     Grounding llms for robot task planning using closed-loop state feedback. arXiv preprint
+     arXiv:2402.08546, 2024. URL https://arxiv.org/abs/2402.08546.
+ [2] Luyu Gao, Aman Madaan, Shuyan Zhou, Uri Alon, Pengfei Liu, Yiming Yang, Jamie Callan,
+     and Graham Neubig. Pal: Program-aided language models. arXiv preprint arXiv:2211.10435,
+     2023. URL https://arxiv.org/abs/2211.10435.
+ [3] Shixiang Hong, Ming Zhuge, Jie Chen, Xue Zheng, Yuxuan Cheng, Jing Wang, Cheng Zhang,
+     Stephen Yau, Zihan Lin, Lei Zhou, Chunlin Ran, Li Xiao, Chun Wu, and Jürgen Schmidhu-
+     ber. Metagpt: Meta programming for a multi-agent collaborative framework. arXiv preprint
+     arXiv:2308.00352, 2024. URL https://arxiv.org/abs/2308.00352.
+ [4] Junwei Hu, Weicheng Zheng, Yan Liu, and Yihan Liu. Token-aware coding flow: A study
+     with nano surge in reasoning model. arXiv preprint arXiv:2504.15989, 2025. URL https:
+     //arxiv.org/abs/2504.15989.
+ [5] Wenlong Huang, Ishika Singh, Valts Blukis, and Animesh Garg. Inner monologue: Embodied
+     reasoning through planning with language models. arXiv preprint arXiv:2207.05608, 2023.
+     URL https://arxiv.org/abs/2207.05608.
+ [6] Guohao Li, Hasan Abed Al Kader Hammoud, Hani Itani, Dmitrii Khizbullin, and Bernard
+     Ghanem. Camel: Communicative agents for "mind" exploration of large language model society.
+     arXiv preprint arXiv:2303.17760, 2023. URL https://arxiv.org/abs/2303.17760.
+ [7] Yichong Li, Kai Wang, Zhi Lu, et al. Language models as compilers: Simulating pseudocode
+     execution improves algorithmic reasoning in language models. arXiv preprint arXiv:2404.02575,
+     2024. URL https://arxiv.org/abs/2404.02575.
+ [8] Grégoire Mialon, Clémentine Fourrier, Craig Swift, Thomas Wolf, Yann LeCun, and Thomas
+     Scialom. Gaia: A benchmark for general ai assistants. arXiv preprint arXiv:2311.12983, 2023.
+     URL https://arxiv.org/abs/2311.12983.
+ [9] Xavier Puig, Kevin Ra, Marko Boben, Jiaman Li, Tingwu Wang, Sanja Fidler, and Antonio
+     Torralba. Virtualhome: Simulating household activities via programs. In Proceedings of
+     the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 8494–
+     8502, 2018. URL https://openaccess.thecvf.com/content_cvpr_2018/html/Puig_
+     VirtualHome_Simulating_Household_CVPR_2018_paper.html.
+[10] Aymeric Roucher, Albert Villanova del Moral, Thomas Wolf, Leandro von Werra, and Erik
+     Kaunismäki. smolagents: a smol library to build great agentic systems. https://github.
+     com/huggingface/smolagents, 2024. Accessed: 2025-05-11.
+
+
+                                                 11
+[11] Noa Shinn, Francesco Cassano, Avinash Gopinath, Karthik R Narasimhan, and Shinn Yao. Re-
+     flexion: Language agents with verbal reinforcement learning. arXiv preprint arXiv:2303.11366,
+     2023. URL https://arxiv.org/abs/2303.11366.
+[12] Ishika Singh, Valts Blukis, Arsalan Mousavian, Ayush Goyal, Danfei Xu, and Jonathan Tremblay.
+     Progprompt: Generating situated robot task plans using large language models. arXiv preprint
+     arXiv:2209.11302, 2023. URL https://arxiv.org/abs/2209.11302.
+[13] Liang Wang, Wenxuan Xu, Yanyan Lan, Zhiyuan Hu, Yiming Lan, Raymond Lee, and Ee-Peng
+     Lim. Plan-and-solve prompting: Improving zero-shot chain-of-thought reasoning by large
+     language models. arXiv preprint arXiv:2305.04091, 2023. URL https://arxiv.org/abs/
+     2305.04091.
+[14] Qian Wang, Tianyu Wang, Qinbin Li, Jingsheng Liang, and Bingsheng He. Megaagent: A
+     practical framework for autonomous cooperation in large-scale llm agent systems. arXiv preprint
+     arXiv:2408.09955, 2024. URL https://arxiv.org/abs/2408.09955.
+[15] Xingyao Wang, Yangyi Chen, Lifan Yuan, Yizhe Zhang, Yunzhu Li, Hao Peng, and Heng
+     Ji. Executable code actions elicit better llm agents. In Proceedings of the 41st International
+     Conference on Machine Learning (ICML), 2024. URL https://arxiv.org/abs/2402.
+     01030.
+[16] Zhao Wang, Sota Moriyama, Wei-Yao Wang, Briti Gangopadhyay, and Shingo Takamatsu. Talk
+     structurally, act hierarchically: A collaborative framework for llm multi-agent systems. arXiv
+     preprint arXiv:2502.11098, 2025. URL https://arxiv.org/abs/2502.11098.
+[17] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed Chi,
+     Quoc Le, and Denny Zhou. Chain-of-thought prompting elicits reasoning in large language
+     models. arXiv preprint arXiv:2201.11903, 2022. URL https://arxiv.org/abs/2201.
+     11903.
+[18] Jiarui Wen, Jiahua Guan, Haoyu Wang, Wenhao Wu, and Minlie Huang. Codeplan: Unlocking
+     reasoning potential in large language models by scaling code-form planning. arXiv preprint
+     arXiv:2409.12452, 2025. URL https://arxiv.org/abs/2409.12452.
+[19] Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun
+     Zhang, Shaokun Zhang, Jiale Liu, et al. Autogen: Enabling next-gen llm applications via
+     multi-agent conversation. arXiv preprint arXiv:2308.08155, 2023. URL https://arxiv.
+     org/abs/2308.08155.
+[20] Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William W. Cohen, Ruslan Salakhut-
+     dinov, and Christopher D. Manning. Hotpotqa: A dataset for diverse, explainable multi-hop
+     question answering. In Proceedings of the 2018 Conference on Empirical Methods in Natural
+     Language Processing, pages 2369–2380. Association for Computational Linguistics, 2018.
+     URL https://aclanthology.org/D18-1259/.
+[21] Shinn Yao, Jeffrey Zhao, Dian Yu, Yanfei Zhao, Yi Zhang, and Dongyan Zhao. React: Syner-
+     gizing reasoning and acting in language models. arXiv preprint arXiv:2210.03629, 2022. URL
+     https://arxiv.org/abs/2210.03629.
+[22] Shinn Yao, Jeffrey Zhao, Dian Yu, Yanfei Zhao, Yi Zhang, and Dongyan Zhao. Tree of thoughts:
+     Deliberate problem solving with large language models. arXiv preprint arXiv:2305.10601,
+     2023. URL https://arxiv.org/abs/2305.10601.
+[23] Zhuosheng Zhang, Aston Zhang, Mu Li, and Alexander Smola. Algorithm of thoughts: En-
+     hancing exploration of ideas in large language models. arXiv preprint arXiv:2308.10379, 2023.
+     URL https://arxiv.org/abs/2308.10379.
+[24] Aojun Zhou, Kai Wang, Zhi Lu, Weijia Shi, Shuhan Luo, Zhaohui Qin, Shuchang Lu, An Jia,
+     Yifan Liu, Yichong Zhang, et al. Solving challenging math word problems using gpt-4 code
+     interpreter with code-based self-verification. arXiv preprint arXiv:2308.07921, 2023. URL
+     https://arxiv.org/abs/2308.07921.
+
+
+
+                                                12
+

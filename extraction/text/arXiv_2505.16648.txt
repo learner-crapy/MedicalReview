@@ -1,0 +1,497 @@
+                                               Collaboration among Multiple Large Language
+                                                 Models for Medical Question Answering
+                                                      1st Kexin Shang                        2nd Chia-Hsuan Chang                      3rd Christopher C. Yang
+                                            College of Computing & Informatics        College of Computing & Informatics         College of Computing & Informatics
+                                                      Drexel University                         Drexel University                          Drexel University
+                                                     Philadelphia, USA                         Philadelphia, USA                          Philadelphia, USA
+                                                     ks4252@drexel.edu                     shane.chang.tw@gmail.com                     chris.yang@drexel.edu
+
+
+
+
+arXiv:2505.16648v1 [cs.CL] 22 May 2025
+                                            Abstract—Empowered by vast internal knowledge reservoir,        USMLE, we design and evaluate a framework where LLMs
+                                         the new generation of large language models (LLMs) demonstrate     work collaboratively by sharing their reasonings on a medical
+                                         untapped potential to tackle medical tasks. However, there is      question. Our results validate that this process of collaboration
+                                         insufficient effort made towards summoning up a synergic effect
+                                         from multiple LLMs’ expertise and background. In this study,       efficiently mitigate the disagreement among LLMs as well as
+                                         we propose a multi-LLM collaboration framework tailored on         leading to individual and overall improved performance in the
+                                         a medical multiple-choice questions dataset. Through post-hoc      task. Besides, in the setting of conflicting answers from the
+                                         analysis on 3 pre-trained LLM participants, our framework is       other LLMs, we consider an LLM’s tendency to “concede”
+                                         proved to boost all LLMs reasoning ability as well as alleviate    (change its answer) or to “insist” (not change its answer) as
+                                         their divergence among questions. We also measure an LLM’s
+                                         confidence when it confronts with adversary opinions from other    a measure of its inherent “confidence”, observing a positive
+                                         LLMs and observe a concurrence between LLM’s confidence and        pattern between LLM’s reasoning capability and its confidence
+                                         prediction accuracy.                                               degree. Lastly, we observe that all LLMs show a gap in
+                                            Index Terms—Large Language Model, Medical Question An-          consistency between questions they answered correctly and
+                                         swering, AI collaboration, Multi-agent, Prompting.                 incorrectly.
+                                                               I. I NTRODUCTION                                                  II. R ELATED W ORK
+                                            The rapid evolution of generative AI and specifically large     A. Medical QA with LLMs
+                                         language models (LLMs) has spurred interest in adoption of            Multiple studies have evaluated and reported on the use
+                                         these technologies in various fields. In the medical domain,       of LLMs in medical QA using different LLMs and datasets.
+                                         several applications of LLMs have been studied extensively,        These include medical textbook questions on ChatGPT [5],
+                                         including medical question answering (QA), clinical decision       medical licensing exam questions on ChatGPT, GPT-3, and
+                                         support, information extraction from clinical notes, and more.     GPT-4 [6]–[9], and real world patient questions on ChatGPT
+                                            In addition to large general purpose LLMs such as Ope-          and on Google Bard [10], [11]. These studies have primarily
+                                         nAI’s GPT, Google’s Gemini, Meta’s Llama, and Anthropic’s          focused on evaluating the performance of specific LLMs with
+                                         Claude, multiple domain-specific LLMs have emerged, fine-          some additionally analyzing the reasoning provided.
+                                         tuned for specific tasks. For clinical tasks, these include           Lucas et al. [12] proposed a mechanism to improve the
+                                         Med42-70B [1], ClinicalCamel-70B [2], Meditron-70B [3], and        reasoning and consistency of LLMs in medical QA using an
+                                         MedAlpaca-13B [4], among others. While some of these LLMs          ensemble reasoning approach. However, this method, while
+                                         may have overlap in their fine-tuning datasets, they adopt         promising, also involves LLMs reviewing their own reason-
+                                         distinct data preprocessing and training methods and vary in       ings, which can cause LLM hallucinations and is susceptible
+                                         both size and architecture. Different studies have applied these   to confirmation bias [13], [14]. Additionally, it is compu-
+                                         various LLMs to the task of medical QA and compared their          tationally demanding, requiring multiple calls to the API.
+                                         performance, but few have adopted multi-LLM approaches for         Multi-LLM collaborations on medical QA have not been
+                                         this task. Additionally, some studies have proposed different      extensively explored as a mechanism for improved reasoning
+                                         mechanisms to enhance or improve the reasoning of LLMs for         and performance.
+                                         medical QA, but these improvements are typically based on the
+                                         generations of the same LLM. Given the critical role of clinical   B. LLM collaboration
+                                         reasoning in medical tasks, and the variable performance and          Collaboration is commonly understood as the act of working
+                                         reasoning of different LLMs, there is potential to explore         together to complete a given task or achieve a common goal.
+                                         whether multi-LLM collaboration for medical QA can reduce          In the context of LLMs, the concept of collaboration can take
+                                         errors and improve performance.                                    on different forms. Feng et al. [15] propose two multi-LLM
+                                            To explore potential collaboration approach to enhance the      collaboration-based pathways: “cooperate” and “compete” to
+                                         performance of multiple LLMs in a medical QA dataset               identify and mitigate knowledge gaps in LLMs. They enable
+“abstention”, where an LLM, after interacting with other                  TABLE I: Sample Size of USMLE Sub-dataset
+LLMs, should abstain from answering a question incorrectly.                            USMLE Sample Questions
+In the cooperation setting, a “judge” LLM will compare
+                                                                                                   Step 1   Step 2   Step 3
+feedback from other LLMs to determine if a particular LLM                    Number of questions     87      100      118
+should abstain from answering. In the compete setting, an
+LLM is challenged by others with alternative answers and
+if on average it is “swayed” by these conflicting answers                essential for the provision of patient care under supervi-
+then it should abstain. Through this abstention mechanism,               sion.
+their multi-LLM collaboration has the potential to mitigate           • Step 3 assesses the medical knowledge, understanding of
+hallucinations.                                                          biomedical and clinical science essential for the unsuper-
+   Zhang et al. [16] take a psycho-social view to exploring              vised practice of medicine.
+LLM collaboration. They conceptualize LLM agents as having            Unlike the actual USMLE exam, the sample exams only
+the traits of either being “easy-going” or “overconfident”         comprise multiple-choice questions, providing a comprehen-
+and craft prompts to enable these traits. They then define         sive dataset to serve our purpose of multi-LLM collaboration
+two “thinking patterns” in multi-round LLM conversations:          study in medical QA. Since all LLMs used in this study
+“debate” and “reflection” and evaluate different collaborative     are text-only models, we follow the data processing pro-
+strategies by simulating a “machine society” comprising dif-       posed in the previous work [12] to filter out questions with
+ferent LLM agents and permuting the two thinking patterns.         complex structure such as having tables, charts, text-based
+   Fang et al. [17] propose “CounterFactual Multi-Agent De-        patient records or pictures. After streamlining our dataset, the
+bate (CFMAD)”, a framework where a “critic” LLM is crafted         distribution of questions is shown in Table I.
+to always hold counterfactual viewpoints to the “assistant”
+LLM. These two LLMs debate on every possible choice option         Algorithm 1 Zero-shot           Chain-of-Thought      with   Self-
+of a multiple-choice question, and their debate transcript         Consistency (ZS-CoT-SC)
+is subsequently examined by a third-party “judge” LLM to           Require: a question q, an LLM ϕ, a repeat number n, a
+decide the final answer. Their experiment results suggest that         summarizer ψ
+CFMAD helps reduce or eliminate hallucinations in LLMs.             1: for i ∈ {1, n} do                    ▷ Apply self-consistency
+   In the domain of medical QA, Yang et al. [18] investigate
+                                                                    2:      ri = ϕ(Treasoning (q))
+an ensemble approach, LLM-Synergy, comparing two different
+                                                                    3:      yi = ϕ(Tanswer (q, ri ))
+ensembling methods and finding improvements in accuracy.
+                                                                    4: end for
+While their method does not involve the constituent LLMs
+                                                                    5: ŷq,ϕ = MajorityVote({yi |1 ≤ i ≤ n})        ▷ Pick the most
+exchanging information, they leverage the diversity and ca-
+                                                                       consistent answer
+pabilities of different LLMs for medical QA. However, their
+                                                                    6: r̂q,ϕ = {ri |1 ≤ i ≤ n, yi = ŷq,ϕ }     ▷ Collect reasonings
+approach does not incorporate the LLMs reasoning.
+                                                                       associated with the majority vote
+   The highlighted studies propose and evaluate various forms
+                                                                    7: ŝq,ϕ = ψ(Tsummary (r̂q,ϕ ))          ▷ Summarize the list of
+of multi-LLM collaboration, using differing mechanisms.
+                                                                       reasonings
+However, we note two gaps. While some of the collaboration
+                                                                    8: return Rq,ϕ = (ŷq,ϕ , ŝq,ϕ )
+mechanisms involve debate or exchanging opinions on a
+question, they may not use the chain-of-thought [19], [20] ap-
+proach to obtain the LLM reasoning for the generated answer,
+                                                                   Algorithm 2 Collaboration Procedure
+which has been demonstrated to improve model performance.
+Additionally, there is a lack of studies specifically looking at   Require: a set of disagreed questions Qdis , a set of LLMs Φ,
+medical QA where clinical reasoning is a crucial part of any           a summarizer ψ, initial predictions {Rq,ϕ |q ∈ Qdis , ϕ ∈
+decision making and question answering.                                Φ}
+                                                                    1: while P con ≤ 80% do
+              III. M ETHODS AND M ATERIALS                          2:     for q ∈ Qdis do
+A. Data Source and Preparation                                      3:         T ransq = {Rq,ϕ |ϕ ∈ Φ}
+   We use a medical question dataset from the sample exams of       4:         for ϕ ∈ Φ do
+the United States Medical Licensing Examination (USMLE).            5:             Rq,ϕ = ZS-COT-SC(q + T ransq , ϕ, ψ)
+This exam contains three steps that assess medical profession-         ▷ Re-apply Algorithm 1 with a different prompt
+als’ foundational knowledge across medical science, clinical           Treasoning review
+medicine, biomedical science and other domain skills [21].          6:         end for
+Each step has different emphasis:                                   7:     end for
+   • Step 1 assesses important concepts of the sciences basic       8:     Update Qdis and P con based on the updated predic-
+     to the practice of medicine.                                      tions
+   • Step 2 assesses an examinee’s ability to apply medical         9: end while
+     knowledge, skills, and understanding of clinical science
+B. Iterative Collaboration Framework (ICF)                                generated from the preceding ZS-CoT-SC step. For each
+   We propose a multi-LLM Iterative Collaboration Frame-                  disagreed question q ∈ Qdis , we aggregate predictions across
+work (ICF) to facilitate the information exchange of multiple-            all LLMs and their associated summarized reasoning into an
+choice questions among LLMs. As shown in Fig. 1, ICF                      integrated transcript T ransq (i.e., line 3). This co-produced
+consists of two parts: Zero-shot Chain-of-Thought with Self-              transcript allows the entire team share expansive reasoning
+consistency (ZS-CoT-SC) and Collaboration Loop.                           pathways from each other.
+   1) Zero-shot Chain-of-Thought with Self-consistency (ZS-                  Then ZS-CoT-SC is reused to have each base model re-
+CoT-SC): At the first step of ICF, we apply self-consistency              viewed each disagreed question and the corresponding tran-
+decoding strategy and zero-shot chain-of-thought prompting                script. Unlike using two sequential prompts Treasoning and
+[20] (ZS-CoT) to LLM inference. We define this process as                 Tanswer in the initial ZS-CoT-SC, we use a single prompt
+“Zero-shot Chain-of-Thought with Self-Consistency (ZS-CoT-                template Treasoning review (Fig. 2) for ZS-CoT-SC to guide
+SC)” (Fig.1 a.). Its pseudocode is shown in Algorithm 1.                  LLMs to critically examine reasonings from all team members
+   Denoting Q a collection of questions, for each question                and re-decide their answers (i.e., line 5).
+q ∈ Q, we use a base LLM ϕ to generate n = 10 responses                      As an LLM’s new answer might be or not be the same, we
+(i.e., line 1 - line 3). During this process, ZS-CoT [20]                 update the Qdis and re-calculate new consensus percentage
+is utilized to first elicit a step-wise reasoning with prompt             P con (i.e., line 8). This collaboration loop will continue to
+template Treasoning and then a letter choice with prompt                  circulate Qdis among LLMs until P con meets the termination
+template Tanswer . Next, the most consistent letter choice out            criterion.
+of n generations will be selected as the majority vote ŷq,ϕ for q        C. LLM Participants
+given ϕ (i.e., line 5). After identifying ŷq,ϕ , all of its associated
+reasonings will be extracted and concatenated in line 6. To                  It is our purpose to construct an LLM team with diversity,
+reduce the information redundancy of the concatenated rea-                hoping every model can leverage its expertise and fill up the
+sonings, they are summarized into one paragraph, ŝq,ϕ , by an            knowledge gap of its teammates in various medical fields.
+external summarizer LLM ψ with prompt template Tsummary                   Therefore, three open-source LLMs from unique backgrounds
+(i.e., line 7). At the end of ZS-CoT-SC step, each question q is          are selected to assemble a multi-LLM system: med42-70B-
+paired with a consolidated context Rq,ϕ containing its majority           v1 [1], ClinicalCamel-70B [2], and Mixtral 8x7B [22]. For
+vote ŷq,ϕ and the summary of its reasoings ŝq,ϕ (i.e., line 8).         brevity, we will refer to their short name, Med42, ClinCamel,
+The prompt templates Treasoning , Tanswer , and Tsummary can              and Mixtral in the rest of this paper.
+be found in Fig. 2 and 3.                                                    The first model, Med42, has 70B parameters and is specif-
+   Having collected results of Q across all LLM participants              ically refined from Llama-2-70B [23] architecture for med-
+in ZS-CoT-SC step, we determine if LLMs have consensus                    ical tasks. It is fine-tuned with 411,064 medical samples
+or disagreement on q by aligning their majority votes: if                 and 295,649 general samples arranging from clinical articles,
+all LLMs propose the same majority vote towards, they are                 dialogue, medical professional tests to clinical reports and
+said to reach consensus on q; else, if at least one LLM                   so on. Another medical specialized LLM, ClinCamel has
+proposes a different majority vote than others, they are said to          the same parameter size of 70B and uses the same base
+have disagreement on q. Following this process, Q is further              architecture Llama-2-70B with difference that it is fined-tuned
+classified into two subsets after ZS-CoT-SC:                              from an extensive data collection of clinical dialogue and
+         con                                                              utilizes QLoRA technique [24] during fine-tune. Mixtral is a
+   • Q        : Question set where all LLMs have consensus
+         dis                                                              general purpose mixture of experts (MoE) model with 46.7B
+   • Q       : Question set where LLMs have disagreement
+                                                                          parameters. In addition to demonstrating strong performance
+   On the top of this classification scheme, we denote the                in multilingual understanding tasks, Mixtral has a 10240-token
+consensus rate P con across all LLMs as:                                  long context window, which makes it an ideal LLM to retrieve
+                                                                          and summarize information. Thus, we create two separate
+                                |Qcon |
+                      P con =           ∗ 100%                     (1)    instances of Mixtral for different purposes: one is a team
+                                 |Q|                                      member in ICF and the other is an external helper agent ψ
+  P con is used as a termination criterion to decide if team              who summarizes opinions from other two teammates (line 7,
+members are diverging enough on dataset Q to necessitate an               Algorithm 1).
+opinion exchange in the later collaboration loop (Fig.1, b).                 All three models are reported to either match or surpass the
+We set P con ≥ 80% at this point to control the iteration of              performance of OpenAI’s GPT-3.5 LLM on most benchmarks
+collaboration loop appropriately: if LLMs fail to reach at least          [1], [2], [22].
+80% consensus rate at the end of ZS-CoT-SC, a collaboration                  As LLMs can be very sensitive to prompt formatting [25],
+loop will kick off.                                                       we tailor each model the most suitable prompts for zero-
+                                                                          shot and collaboration inference through testing a variation of
+   2) Collaboration Loop: In the next procedure, collabora-               prompting formats on randomly selected 30 sample questions.
+tion loop (Algorithm 2), LLMs resolve their divergence on                 The best prompts gain highest accuracy and is thus selected
+all disagreed questions by exchanging their initial prediction            as template for this experiment. We set the temperature at 1
+                 Fig. 1: ICF Framework consisted of two parts: (a) ZS-CoT-SC and (b) Collaboration Loop
+
+
+for all LLMs and retain all other parameters at their default     answer). We consider this tendency of an LLM as its intrinsic
+values.                                                           “confidence”.
+   We quantize three LLMs to int8 precision to save computa-         We define Qinsist
+                                                                                    ϕ      ⊆ Qdis as disagreed questions where
+tional resource and conduct our experiment on two NVIDIA          LLM ϕ insists to its original answer and notice LLMs’ choice
+A40 GPUs for Mixtral inference and four NVIDIA A40 GPUs           is significantly affected by an group-level factor: whether there
+for Med42 and ClinCamel inference.                                is teammate support. Our preliminary experiment shows a
+                                                                  base LLM “insists” less frequently when all other LLMs
+D. Metrics                                                        against it but more frequently if at least one LLM supports it.
+                                                                  In other words, an LLM possess different “confidence” level
+   1) Accuracy: We use prediction accuracy as a metric of
+                                                                  depending on teammates support level.
+LLM’s reasoning capacity because it is the major metric for the
+medical Q&A task [17], [26], [27]. Accuracy is calculated as         To address this gap, we first classify Qdis by the level of
+the frequency of correctly predicted multiple-choice questions    teammate support:
+divided by the total question number in our dataset.                • S + : disagreed questions where at least one teammate hold
+   2) Confidence: Each time a base LLM reviews conflicting            the same answer as the base model (with support)
+                                                                        −
+reasonings and makes new decision in the collaboration loop, it     • S : disagreed questions where none of teammate propose
+may “concede” (change its answer) or “insist” (not change its         the same answer as the base model (without support)
+                                                                 Summarization Prompt
+
+   ZS-CoT-SC Prompt                                                                   Tsummary
+                                                                 <s>[INST] You are an expert medical professional
+                        Treasoning                               who helps to summarize opinions from a panel of
+   <|System|>: You are an expert medical profes-                 experts regarding a medical multiple choice question.
+   sional who helps to reason multiple choice questions.
+                                                                 Majority answers and aggregated 10 reasonings from
+   <|Question|>: {question} {choices}                            one base LLM
+
+   <|Assistant|>: Let us think step by step. First,              Please read all the response above. Then extractively
+                                                                 summarize their opinions into one paragraph.
+   Step-wise reasoning from base LLM
+   ...                                                           [/INST]Summary:
+   ...
+
+                           Tanswer                            Fig. 3: Prompt templates of summerizer LLM ψ. In this ex-
+   Therefore, among choice {first letter} through {last       periment, we deploy Mixtral to summarize repetitive reasoning
+   letter}, the answer (letter) is:                           pathways from self-consistency sampling. The highlighted part
+                                                              is a integrated context of the majority vote and n = 10
+   A                                                          generated reasonings from one LLM participant in ICF.
+
+
+                                                                 Then we intersect Qinsist
+                                                                                         ϕ    with S+ and S- respectively,
+   Collaboration Loop Prompt                                                     insist
+                                                              creating a vector pϕ      :
+                     Treasoning review                                                      + insist 
+                                                                                            |S ∩Qϕ       |
+   <|System|>: You are a medical professional who                              pinsist
+                                                                                                   +
+                                                                                                |S |
+                                                                                       =  |S − ∩Qinsist
+                                                                                                                        (2)
+                                                                                ϕ                        |
+   helps resolve disagreements among other experts re-                                             ϕ
+                                                                                                |S − |
+   garding a medical question by critically reviewing their
+   reasoning.                                                   Ranging from 0 to 1, larger component of pinsist
+                                                                                                           ϕ      indicates
+                                                              the LLM is more consistent to insist under specific situation
+   <|Prompter|>: {question} {choices} {answers                S+ or S- .
+   and reasonings integrated from all LLMs}                     Given by we only have two levels in teammate support, we
+                                                              average the pinsist
+                                                                           ϕ      vector to measure the overall confidence
+   After reviewing experts’ choices and reasonings, which     of ϕ:
+   do you agree with and why? Please first output the                                         P insist
+   answer (letter) and then your reasoning:                                                      pϕ
+                                                                                Confidence =                            (3)
+                                                                                               |pinsist
+                                                                                                 ϕ      |
+   <|Assistant|>:
+                                                                 So far, we have built a standard confidence metric for a
+                                                              model ϕ in Equation 3. It can have maximum confidence as 1 if
+                                                              it insists every time in every scenario and minimal confidence
+                                                              as 0 if it always compromises in case of any conflict.
+                                                                 3) Consistency: Proposed by Wang et al. [28], self-
+Fig. 2: Prompt templates of Med42 in ZS-CoT-SC and collab-    consistency is a decoding strategy induces an LLM to generate
+oration loop of ICF. (Upper) In ZS-CoT-SC, two sequential     a diverse set of reasoning paths and determine the most
+prompts Treasoning and Tanswer jointly formulate the basic    consistent answer. Through experiments, we observed that
+ZS-CoT template, where the highlighted part is base LLM’s     consistency level is a unique characteristic varying across
+response. Then each ZS-CoT template is applied 10 times       different LLMs. We use arithmetic average metric to measure
+on a question via self-consistency. (Lower) Collaboration     an LLM’s consistency in a multiple-choice task.
+loop applies Treasoning review for every recursive ZS-CoT-       To calculate the consistency, we denote
+SC, presenting all LLM’s reasoning pathways and ask for re-            Count(ŷq,ϕ ) = |{yi |1 ≤ i ≤ n, yi = ŷq,ϕ }|
+decision at the same time.
+                                                              as the frequency of the majority vote ŷq,ϕ of a question q by
+                                                              the LLM ϕ, where n is the parameter of self-consistency con-
+                                                              trolling the number of repeats. For example, Count(ŷq,ϕ ) = 6
+             TABLE II: Consensus Convergence                        TABLE III: Accuracy(%) of Med42, ClinCamel, and Mixtral
+                     Consensus Rate (P con )                        (a)
+          USMLE (|Q|)     ZS-CoT-SC      Collaboration                                                  Med42
+          Step 1 (87)     56.32          86.21 (↑ 29.89)                          USMLE         ZS-CoT-SC         Collaboration
+          Step 2 (100)    41.00          74.00 (↑ 33.00)                          Step 1        81.61             85.06 (↑ 3.45)
+          Step 3 (118)    55.08          87.29 (↑ 32.21)                          Step 2        64.00             70.00 (↑ 6.00)
+          Average         50.82          82.62 (↑ 31.80)                          Step 3        70.34             76.27 (↑ 5.93)
+                                                                                  Average       71.48             76.72 (↑ 5.24)
+
+refers to there are six votes supporting the majority vote for      (b)
+the question q predicted by LLM ϕ. With this, we define                                             ClinCamel
+the consistent level of an LLM as the arithmetic average of                       USMLE         ZS-CoT-SC         Collaboration
+Count(ŷq,ϕ ) across the dataset Q, adjusted by a repeat number                   Step 1        65.52             80.46 (↑ 14.94)
+n:                                                                                Step 2        64.00             67.00 (↑ 3.00)
+                                                                                  Step 3        75.42             78.81 (↑ 3.39)
+                                     P      Count(ŷq,ϕ )                         Average       68.85             75.41 (↑ 6.56)
+                                         q∈Q         n
+         consistency of LLM ϕ =                              (4)
+                                               |Q|                  (c)
+   An LLM can have a maximum consistency level as 1 if                                                  Mixtral
+it consistently gives out the same letter choice per multiple-                    USMLE         ZS-CoT-SC         Collaboration
+choice question no matter how many times of repetition.                           Step 1        72.41             79.31 (↑ 6.90)
+                                                                                  Step 2        64.00             74.00 (↑ 10.00)
+                 IV. R ESULTS AND A NALYSIS                                       Step 3        77.12             78.81 (↑ 1.69)
+A. Consensus Convergence                                                          Average       71.47             77.38 (↑ 5.91)
+   At the initial ZS-SC-SC round, three LLMs only reach
+consensus on 50.82% questions on average from Q consists of
+305 sample questions, but this consensus rate surges to 82.62%      TABLE IV: Confidence Level of Med42, ClinCamel, and
+after two collaboration loop iterations (Table II), which asserts   Mixtral
+our hypothesis in that collaboration mitigate the disagreements
+                                                                                                  ZS-CoT-SC vs Collaboration
+among LLMs.
+                                                                           Pinsist (%)            Med42       ClinCamel        Mixtral
+B. Accuracy of Med42, ClinCamel, and Mixtral                               W/O support (S − )     45.33       12.99            42.24
+   Taking the accuracy of ZS-CoT-SC as baseline, we ob-                    W/ support (S + )      68.10       52.11            69.90
+serve every LLM has gained solid improvement after going                   Confidence             0.57        0.33             0.56
+through two collaboration loops (Table III). This improvement
+resonates with the conclusion from prior studies regarding
+LLM’s surprising team-working ability [26]. It is worth noting
+that our simple framework does not relay on back-and-forth          the variation of consistency between two situations. Results
+communication among LLMs yet still proved to boost their            from both ZS-CoT-SC and collaboration are presented.
+individual performance.                                                First, all LLM non-exclusively tend to maintain high self-
+C. Confidence                                                       consistency level when their majority vote hit the ground truth
+                                                                    but become unstable when the majority vote miss a shot.
+   In table IV, we summarize the confidence of Med42,
+ClinCamel, and Mixtral. For each base model, its pinsist   is          Secondly, LLMs with greater capability and confidence
+                                                      ϕ
+determined by checking how many original answers at ZS-             such as Med42 and Mixtral also show greater ∆ while
+CoT-SC still remain unchanged after two collaboration loops         ClinCamel, which slightly underperforms the other two models
+in disregard for disagreement from other teammates. Our             in both accuracy and confidence, also has less segregation of
+results suggest Med42 is the most confident model with 0.51         confidence between correct and incorrect questions.
+confidence, followed by Mixtral (0.49). ClinCamel is the most          Thirdly, compared to ZS-CoT-SC, the ∆ surges for Med42
+soft-minded one with only 0.23 confidence.                          and Mixtral after two collaboration loops but slightly decline
+                                                                    for ClinCamel. In other words, stronger and more confident
+D. Consistency                                                      LLMs become even more affirmative with the help from
+  In Table V, we measure LLMs’ average count of majority            teammates but it is the opposite to those weaker and easy-
+vote as a metric of their consistency defined in equation 4.        going LLMs – them might fail to improve their consistency
+Due to the significant gap we observed, we separate the mea-        via such a collaboration work mode since ClinCamel, as an
+surement in two situations: when the question was answered          example, seems loss its perception of those questions it’s able
+correctly and incorrectly, and use difference (∆) to indicate       to answer correctly or not.
+ TABLE V: Consistency of Med42, ClinCamel, and Mixtral           0.49 and 0.51. We utilize the Spearman’s rank correlation [30]
+(a) ZS-CoT-SC                                                    to compute a rank-based correlation coefficient rs between
+                    Average Majority Vote Count
+                                                                 accuracy improvement and confidence and obtain rs = −0.5.
+                                                                 While this moderate negative association is consistent with our
+                            Med42   ClinCamel     Mixtral
+           When Correct     6.01    5.02          7.46           observation, due to the small sample size (three LLMs) in our
+           When Incorrect   1.95    1.59          1.65           experiment, this test does not have statistical significance (P
+           Difference ∆     4.06    3.43          5.81           value = 0.67) and thus we prudentially report this result as an
+                                                                 optional reference only.
+(b) Collaboration                                                  We discuss this “weaker LLMs make greater progress”
+                    Average Majority Vote Count                  phenomenon from a perspective of LLM’s innate assessment
+                            Med42   ClinCamel     Mixtral
+                                                                 ability: weaker LLM, although is not good at reasoning in its
+           When Correct     8.63    4.63          9.22           own way, still possess an acute sense when judging stronger
+           When Incorrect   0.34    1.79          0.42           ones’ reasoings and successfully align itself with the correct
+           Difference ∆     8.29    2.84          8.8            answer in most cases. Resonate to our finding, a study by
+                                                                 Khan et al. [31] unveils non-weaker models (non-experts)
+                                                                 achieving 32% higher accuracy when overseeing stronger
+                                                                 models (experts) debate each other than predicting alone. They
+                          V. D ISCUSSION                         envision this collaboration a potential solution to aligning
+   This paper explores whether collaboration mitigates LLMs’     models in the absence of ground truth.
+divergence and improves their reasoning performance in medi-
+                                                                 B. ICF Efficiency
+cal multiple-choice questions through a tailored workflow ICF.
+The results confirm both of our hypothesis and highlight some       It is noteworthy that our framework is computationally light
+overseen facts which are discussed below.                        compared to related studies.
+                                                                    Refer to Zhang et al. [16], conversation-based LLM col-
+A. Confidence Plays a Role in LLM Collaboration                  laboration has to deal with the trade-off between conversation
+   Prior to our study, little research has cast light on LLM’s   length and computational cost: while LLM’s conformity gen-
+confidence in inter-LLM collaboration and the importance         erally grows with the conversation round increases, it demands
+confidence in such an LLM team-working setting has been          larger consumption accordingly. However, other studies indi-
+understudied.                                                    cate that conversation length has a more dedicated effect on
+   A relative pioneer study in this field [29] use the same      LLM’s joint performance. Fang et al. [17] state accuracy turns
+LLM as the backbone to create three agents, either prompted      out to decrease with the increase of debate rounds. Du et al.
+to be “overconfident” or “easy-going”, to build up multiple      [26] also point out that as debates get longer, LLMs struggle
+LLM “societies” and compared their accuracy. However, this       to fully process input information.
+prompting-based confidence customization lacks quantitative         Unlike the mentioned LLM collaboration frameworks that
+design and is not comparable between different backbone          requires multiple rounds of reciprocal communication between
+LLMs.                                                            LLMs, the “collaboration loop” in ICF (Fig. 1, b) has an
+   Feng et al. [27] in their work on AbstainQA briefly allude    unidirectional circular structure that allows information flow
+to the idea of LLM “confidence” in multi-LLM collaboration,      through each base model once per round. This design greatly
+stating that if an LLM, on average, changes its generations      streamlines the pipeline and reduces the redundant encoding
+when presented with conflicting information, then it demon-      process of LLM inference. In addition, to prevent conversation
+strates low confidence. They suggest that LLMs, by design,       transcripts from being too bulky to process, we set up a
+should abstain from generating outputs with low confidence.      termination criterion P con to exit the collaboration loop on
+However, they do not evaluate the role or effect of LLM          time when the LLMs no longer divergent. Lastly, the external
+confidence on multi-LLM collaboration.                           summarizer LLM helps to condense the repetitive information
+   In our study, we do observe a pattern that suggests LLM’s     from the lengthy concatenated paragraphs generated by self-
+confidence’s interplay within a team. First of all, during       consistency, compacting the input length in advance while
+ZS-CoT-SC, more confident LLMs yield higher accuracy             preserving essential information. With fewer tokens and sim-
+when working solely, but this trend vanished after two           pler workflow to jointly predict each medical QA question,
+rounds of collaboration. However, in terms of improvement        ICF fulfills its mission well and efficiently, improving LLM
+or progress in teamwork, less confident LLM benefits more        insiders’ accuracy while offering a straightforward way to
+from collaboration with more accuracy increase before and        measure their confidence.
+after collaboration. Taking both Table III and Table IV into
+account, ClinCamel gained substantial accuracy growth of         C. Consistency Adds to LLM’s Interpretability
+6.56% with only 0.23 confidence while Mixtral and Med42            Refer to Table V, in our post-hoc analysis, LLMs exhibit
+gained lower accuracy improvement of 5.91% and 5.24%             an evident gap in consistency with questions they predicted
+respectively, which corresponds to their higher confidence of    correctly and incorrectly.
+   This interesting trait offers us a new perspective to interpret               [5] Y. Kumah-Crystal, S. Mankowitz, P. Embi, and C. U. Lehmann,
+LLM’s behavior: the inconsistent answers might be signals                            “ChatGPT and the clinical informatics board examination: the
+                                                                                     end of unproctored maintenance of certification?” Journal of the
+of hallucination issue. When an LLM lacks factual knowledge                          American Medical Informatics Association, vol. 30, no. 9, pp.
+about the task, it tends to answer a question with false content.                    1558–1560, Jun. 2023, eprint: https://academic.oup.com/jamia/article-
+Since the generation of false content is relatively random, it                       pdf/30/9/1558/51141429/ocad104.pdf.            [Online].       Available:
+                                                                                     https://doi.org/10.1093/jamia/ocad104
+is easily detected through self-consistency sampling as low                      [6] T. H. Kung, M. Cheatham, A. Medenilla, C. Sillos, L. De Leon,
+consistency.                                                                         C. Elepaño, M. Madriaga, R. Aggabao, G. Diaz-Candido, J. Maningo,
+   Holding this assumption, we reckon it is practical to con-                        and V. Tseng, “Performance of ChatGPT on USMLE: Potential for
+                                                                                     AI-assisted medical education using large language models,” PLOS
+sider LLMs’ consistency a potential indicator of its correct-                        Digital Health, vol. 2, no. 2, p. e0000198, Feb. 2023. [Online].
+ness, which could be utilized in unsupervised learning.                              Available: https://dx.plos.org/10.1371/journal.pdig.0000198
+                                                                                 [7] A. Gilson, C. W. Safranek, T. Huang, V. Socrates, L. Chi, R. A. Taylor,
+                                                                                     and D. Chartash, “How Does ChatGPT Perform on the United States
+                          VI. C ONCLUSION                                            Medical Licensing Examination (USMLE)? The Implications of Large
+                                                                                     Language Models for Medical Education and Knowledge Assessment,”
+   In summary, our study ensembles three LLMs in a crafted                           JMIR Medical Education, vol. 9, p. e45312, Feb. 2023. [Online].
+framework (ICF) for medical QA tasks, where LLMs re-                                 Available: https://mededu.jmir.org/2023/1/e45312
+                                                                                 [8] H. Nori, N. King, S. M. McKinney, D. Carignan, and
+cursively exchange reasonings on disagreed questions until                           E. Horvitz, “Capabilities of GPT-4 on Medical Challenge
+reaching a consensus threshold. We discover that collaboration                       Problems,” Apr. 2023, arXiv:2303.13375 [cs]. [Online]. Available:
+boosts all LLM’s accuracy as well as rapidly converge their                          http://arxiv.org/abs/2303.13375
+disagreement. We propose an arithmetic metric for LLM’s                          [9] A. J. Thirunavukarasu, R. Hassan, S. Mahmood, R. Sanghera,
+                                                                                     K. Barzangi, M. El Mukashfi, and S. Shah, “Trialling a Large Language
+confidence and find that LLMs with higher confidence tend                            Model (ChatGPT) in General Practice With the Applied Knowledge
+to yield higher accuracy but low-confident LLM gains more                            Test: Observational Study Demonstrating Opportunities and Limitations
+improvement in accuracy than overconfident LLMs. Last,                               in Primary Care,” JMIR Medical Education, vol. 9, p. e46599, Apr.
+                                                                                     2023. [Online]. Available: https://mededu.jmir.org/2023/1/e46599
+LLMs’ self-consistency is highly imbalanced among questions                     [10] M. Chowdhury, E. Lim, A. Higham, R. McKinnon, N. Ventoura, Y. He,
+they predict successively and not.                                                   and N. De Pennington, “Can Large Language Models Safely Address
+                                                                                     Patient Questions Following Cataract Surgery?” in Proceedings of
+                                                                                     the 5th Clinical Natural Language Processing Workshop. Toronto,
+                    VII. ACKNOWLEDGMENTS                                             Canada: Association for Computational Linguistics, 2023, pp. 131–137.
+                                                                                     [Online]. Available: https://aclanthology.org/2023.clinicalnlp-1.17
+  This work was supported in part by the National Science                       [11] Z. W. Lim, K. Pushpanathan, S. M. E. Yew, Y. Lai, C.-H.
+Foundation under the Grants IIS-1741306 and IIS-2235548,                             Sun, J. S. H. Lam, D. Z. Chen, J. H. L. Goh, M. C. J.
+                                                                                     Tan, B. Sheng, C.-Y. Cheng, V. T. C. Koh, and Y.-C. Tham,
+and by the Department of Defense under the Grant DoD                                 “Benchmarking large language models’ performances for myopia care:
+W91XWH-05-1-023. This material is based upon work sup-                               a comparative analysis of ChatGPT-3.5, ChatGPT-4.0, and Google
+ported by (while serving at) the National Science Foundation.                        Bard,” eBioMedicine, vol. 95, p. 104770, Sep. 2023. [Online]. Available:
+                                                                                     https://linkinghub.elsevier.com/retrieve/pii/S2352396423003365
+Any opinions, findings, and conclusions or recommendations                      [12] M. M. Lucas, J. Yang, J. K. Pomeroy, and C. C. Yang,
+expressed in this material are those of the author(s) and                            “Reasoning with large language models for medical question
+do not necessarily reflect the views of the National Science                         answering,” Journal of the American Medical Informatics Association,
+                                                                                     vol. 31, no. 9, pp. 1964–1975, Sep. 2024. [Online]. Available:
+Foundation. In addition, we would like to express our sincere                        https://academic.oup.com/jamia/article/31/9/1964/7705627
+gratitude to Mary M. Lucas at Drexel University College of                      [13] J. Huang, X. Chen, S. Mishra, H. S. Zheng, A. W. Yu, X. Song,
+Computing and Informatics for her assistance in reviewing,                           and D. Zhou, “LARGE LANGUAGE MODELS CANNOT SELF-
+verifying, and providing insightful feedback to this work.                           CORRECT REASONING YET,” 2024.
+                                                                                [14] J. Xie, K. Zhang, J. Chen, R. Lou, and Y. Su, “Adaptive Chameleon or
+                                                                                     Stubborn Sloth:,” 2024.
+                             R EFERENCES                                        [15] S. Feng, W. Shi, Y. Wang, W. Ding, V. Balachandran, and Y. Tsvetkov,
+                                                                                     “Don’t Hallucinate, Abstain: Identifying LLM Knowledge Gaps via
+ [1] C. Christophe, P. K. Kanithi, P. Munjal, T. Raha, N. Hayat,                     Multi-LLM Collaboration.”
+     R. Rajan, A. Al-Mahrooqi, A. Gupta, M. U. Salman, G. Gosal,                [16] J. Zhang, X. Xu, N. Zhang, R. Liu, B. Hooi, and S. Deng, “Exploring
+     B. Kanakiya, C. Chen, N. Vassilieva, B. B. Amor, M. A. Pimentel, and            collaboration mechanisms for LLM agents: A social psychology view,”
+     S. Khan, “Med42 – evaluating fine-tuning strategies for medical llms:           in Proceedings of the 62nd Annual Meeting of the Association
+     Full-parameter vs. parameter-efficient approaches,” 2024. [Online].             for Computational Linguistics (Volume 1: Long Papers), L.-W. Ku,
+     Available: https://arxiv.org/abs/2404.14779                                     A. Martins, and V. Srikumar, Eds. Bangkok, Thailand: Association
+ [2] A. Toma, P. R. Lawler, J. Ba, R. G. Krishnan, B. B. Rubin, and                  for Computational Linguistics, Aug. 2024, pp. 14 544–14 607. [Online].
+     B. Wang, “Clinical camel: An open expert-level medical language                 Available: https://aclanthology.org/2024.acl-long.782
+     model with dialogue-based knowledge encoding,” 2023. [Online].             [17] Y. Fang, M. Li, W. Wang, H. Lin, and F. Feng, “Counterfactual
+     Available: https://arxiv.org/abs/2305.12031                                     debating with preset stances for hallucination elimination of llms,”
+ [3] Z. Chen, A. Hernández-Cano, A. Romanou, A. Bonnet, K. Matoba,                  2024. [Online]. Available: https://arxiv.org/abs/2406.11514
+     F. Salvi, M. Pagliardini, S. Fan, A. Köpf, A. Mohtashami, A. Sallinen,    [18] H. Yang, M. Li, H. Zhou, Y. Xiao, Q. Fang, and R. Zhang, “One
+     A. Sakhaeirad, V. Swamy, I. Krawczuk, D. Bayazit, A. Marmet, S. Mon-            LLM is not Enough: Harnessing the Power of Ensemble Learning
+     tariol, M.-A. Hartley, M. Jaggi, and A. Bosselut, “Meditron-70b: Scaling        for Medical Question Answering,” Dec. 2023. [Online]. Available:
+     medical pretraining for large language models,” 2023.                           http://medrxiv.org/lookup/doi/10.1101/2023.12.21.23300380
+ [4] T. Han, L. C. Adams, J.-M. Papaioannou, P. Grundmann, T. Oberhauser,       [19] J. Wei, X. Wang, D. Schuurmans, M. Bosma, B. Ichter, F. Xia,
+     A. Löser, D. Truhn, and K. K. Bressem, “Medalpaca – an open-source             E. Chi, Q. Le, and D. Zhou, “Chain-of-thought prompting elicits
+     collection of medical conversational ai models and training data,” 2023.        reasoning in large language models,” 2023. [Online]. Available:
+     [Online]. Available: https://arxiv.org/abs/2304.08247                           https://arxiv.org/abs/2201.11903
+[20] T. Kojima, S. S. Gu, M. Reid, Y. Matsuo, and Y. Iwasawa, “Large                 https://arxiv.org/abs/2305.14314
+     language models are zero-shot reasoners,” 2023. [Online]. Available:       [25] M. Sclar, Y. Choi, Y. Tsvetkov, and A. Suhr, “Quantifying
+     https://arxiv.org/abs/2205.11916                                                Language Models’ Sensitivity to Spurious Features in Prompt
+[21] A. Ghaffari-Rafi, R. E. Lee, R. Fang, and J. D. Miles, “Multivariable           Design or: How I learned to start worrying about prompt
+     analysis of factors associated with USMLE scores across U.S. medical            formatting,” Oct. 2023, arXiv:2310.11324 [cs]. [Online]. Available:
+     schools,” BMC Medical Education, vol. 19, no. 1, p. 154, May 2019.              http://arxiv.org/abs/2310.11324
+     [Online]. Available: https://doi.org/10.1186/s12909-019-1605-z             [26] Y. Du, S. Li, A. Torralba, J. B. Tenenbaum, and I. Mordatch, “Improving
+[22] A. Q. Jiang, A. Sablayrolles, A. Roux, A. Mensch, B. Savary,                    Factuality and Reasoning in Language Models through Multiagent
+     C. Bamford, D. S. Chaplot, D. de las Casas, E. B. Hanna, F. Bressand,           Debate.”
+     G. Lengyel, G. Bour, G. Lample, L. R. Lavaud, L. Saulnier, M.-A.           [27] S. Feng, W. Shi, Y. Wang, W. Ding, V. Balachandran, and Y. Tsvetkov,
+     Lachaux, P. Stock, S. Subramanian, S. Yang, S. Antoniak, T. L. Scao,            “Don’t Hallucinate, Abstain: Identifying LLM Knowledge Gaps via
+     T. Gervet, T. Lavril, T. Wang, T. Lacroix, and W. E. Sayed, “Mixtral            Multi-LLM Collaboration,” Feb. 2024, arXiv:2402.00367 [cs]. [Online].
+     of experts,” 2024. [Online]. Available: https://arxiv.org/abs/2401.04088        Available: http://arxiv.org/abs/2402.00367
+[23] H. Touvron, L. Martin, K. Stone, P. Albert, A. Almahairi, Y. Babaei,
+     N. Bashlykov, S. Batra, P. Bhargava, S. Bhosale, D. Bikel, L. Blecher,     [28] X. Wang, J. Wei, D. Schuurmans, Q. Le, E. Chi, S. Narang,
+     C. C. Ferrer, M. Chen, G. Cucurull, D. Esiobu, J. Fernandes, J. Fu,             A. Chowdhery, and D. Zhou, “Self-consistency improves chain of
+     W. Fu, B. Fuller, C. Gao, V. Goswami, N. Goyal, A. Hartshorn,                   thought reasoning in language models,” 2023. [Online]. Available:
+     S. Hosseini, R. Hou, H. Inan, M. Kardas, V. Kerkez, M. Khabsa,                  https://arxiv.org/abs/2203.11171
+     I. Kloumann, A. Korenev, P. S. Koura, M.-A. Lachaux, T. Lavril,            [29] J. Zhang, X. Xu, N. Zhang, R. Liu, B. Hooi, and S. Deng,
+     J. Lee, D. Liskovich, Y. Lu, Y. Mao, X. Martinet, T. Mihaylov,                  “Exploring Collaboration Mechanisms for LLM Agents: A Social
+     P. Mishra, I. Molybog, Y. Nie, A. Poulton, J. Reizenstein, R. Rungta,           Psychology View,” Feb. 2024, arXiv:2310.02124 [cs]. [Online].
+     K. Saladi, A. Schelten, R. Silva, E. M. Smith, R. Subramanian,                  Available: http://arxiv.org/abs/2310.02124
+     X. E. Tan, B. Tang, R. Taylor, A. Williams, J. X. Kuan, P. Xu,             [30] J.     H.     Zar,     Spearman       Rank    Correlation:    Overview.
+     Z. Yan, I. Zarov, Y. Zhang, A. Fan, M. Kambadur, S. Narang,                     John Wiley & Sons, Ltd, 2014. [Online]. Available:
+     A. Rodriguez, R. Stojnic, S. Edunov, and T. Scialom, “Llama 2: Open             https://doi.org/10.1002/9781118445112.stat05964
+     foundation and fine-tuned chat models,” 2023. [Online]. Available:         [31] A. Khan, J. Hughes, D. Valentine, L. Ruis, K. Sachan, A. Radhakrishnan,
+     https://arxiv.org/abs/2307.09288                                                E. Grefenstette, S. R. Bowman, T. Rocktäschel, and E. Perez, “Debating
+[24] T. Dettmers, A. Pagnoni, A. Holtzman, and L. Zettlemoyer, “Qlora:               with more persuasive llms leads to more truthful answers,” 2024.
+     Efficient finetuning of quantized llms,” 2023. [Online]. Available:             [Online]. Available: https://arxiv.org/abs/2402.06782
+

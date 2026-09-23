@@ -1,0 +1,1064 @@
+                                                       Are More LM Calls All You Need?
+                                             Towards the Scaling Properties of Compound AI Systems
+                                                               Lingjiao Chen† , Jared Quincy Davis† , Boris Hanin§ ,
+                                                              Peter Bailis† , Ion Stoica‡ , Matei Zaharia‡ , James Zou†
+                                                         †
+                                                             Stanford University, ‡ UC Berkeley, § Princeton University
+
+
+
+
+arXiv:2403.02419v2 [cs.LG] 4 Jun 2024
+                                                                                          Abstract
+                                                  Many recent state-of-the-art results in language tasks were achieved using compound systems
+                                             that perform multiple Language Model (LM) calls and aggregate their responses. However, there
+                                             is little understanding of how the number of LM calls – e.g., when asking the LM to answer each
+                                             question multiple times and taking a majority vote – affects such a compound system’s perfor-
+                                             mance. In this paper, we initiate the study of scaling properties of compound inference systems.
+                                             We analyze, theoretically and empirically, how the number of LM calls affects the performance of
+                                             Vote and Filter-Vote, two of the simplest compound system designs, which aggregate LM responses
+                                             via majority voting, optionally applying LM filters. We find, surprisingly, that across multiple lan-
+                                             guage tasks, the performance of both Vote and Filter-Vote can first increase but then decrease as
+                                             a function of the number of LM calls. Our theoretical results suggest that this non-monotonicity
+                                             is due to the diversity of query difficulties within a task: more LM calls lead to higher perfor-
+                                             mance on “easy” queries, but lower performance on “hard” queries, and non-monotone behavior
+                                             can emerge when a task contains both types of queries. This insight then allows us to compute,
+                                             from a small number of samples, the number of LM calls that maximizes system performance, and
+                                             define an analytical scaling model for both systems. Experiments show that our scaling model
+                                             can accurately predict the performance of Vote and Filter-Vote systems and thus find the optimal
+                                             number of LM calls to make.
+
+
+                                        1    Introduction
+                                        Compound AI systems that perform multiple Language Model (LM) calls and aggregate their responses
+                                        are increasingly leveraged to solve language tasks [ZKC+ 24, DLT+ 23, TAB+ 23, TWL+ 24, WWS+ 22].
+                                        For example, Google’s Gemini Ultra achieved state-of-the-art results on MMLU using a CoT@32
+                                        voting strategy: the LM is called 32 times, and then the majority vote of the 32 responses is used in
+                                        the final response [TAB+ 23]. Other compound systems filter responses using an LM before selecting
+                                        one [Alp23].
+                                            A natural question is, thus, how does scaling the number of LM calls affect the performance of
+                                        such compound systems? This question is under-explored in research, but characterizing the scaling
+                                        dynamics is crucial for researchers and practitioners to estimate how many LM calls are needed for
+                                        their applications and allocate computational resources aptly. Understanding these scaling dynamics
+                                        is also helpful in recognizing the limits of compound inference strategies.
+                                            As a first step towards answering this question, we study the scaling properties of two popular
+                                        compound system designs, Vote and Filter-Vote. Vote aggregates multiple proposed answers via ma-
+                                        jority vote, as in Gemini’s CoT@32. Filter-Vote leverages a filter before performing a majority vote,
+                                        similar to AlphaCode 2 [Alp23]. While the inference system design space is broad, we focus on Vote
+                                        and Filter-Vote for two reasons. First, they have already been used in real applications, such as
+                                        Gemini’s CoT@32 strategy. Second, despite their simplicity, they exhibit nontrivial scaling properties.
+                                        Specifically, although one might expect their performance to monotonically increase as more LM calls
+                                        are invoked, we have identified a surprising phenomenon, across multiple language tasks, exhibited by
+                                        these systems: growing the number of LM calls initially improves performance but then degrades it,
+                                        as shown in Figure 1.
+
+
+
+                                                                                              1
+ (a) MMLU PHYSICS           (b) TRUTHFULQA                (c) GPQA                (d) AVERITEC
+
+Figure 1: The scaling behavior of Vote and Filter-Vote. Interestingly, their performance is often a non-
+monotonic function of the number of LM calls. For example, as the number LM calls increases, Vote’s
+performance initially increases but then decreases, while Filter-Vote’s performance initially decreases
+but then increases on the MMLU PHYSICS dataset.
+
+
+    This surprising effect motivates our theoretical study of Vote and Filter-Vote, which explains this
+non-monotone effect through the diversity of query difficulty in a given task (see Figure 2 and Theorem
+2). At a high level, our results show that more LM calls continuously lead to better performance on
+“easy” queries and worse performance on “hard” queries. When a task is some mixture of “easy”
+and “hard” queries, the non-monotone aggregate behavior emerges. Formally, a query is easy if a
+compound system with infinitely many LM calls gives a correct answer and hard otherwise. We
+provide mathematical conditions under which a query is easy or difficult for Vote or Filter-Vote. We
+also derive a performance scaling model for both systems that explicitly models query difficulties, and
+present an algorithm that lets users fit the scaling law’s parameters using a small number of samples.
+In experiments with GPT-3.5, we show that these algorithms can let us estimate the scaling behavior
+for various problems and identify the optimal number of calls to make to the LM to maximize accuracy.
+Our main contributions are:
+
+   Main Contributions
+   Non-monotonic Scaling Behavior. We find empirically that the performance of Vote and
+   Filter-Vote is often non-monotonic in the number of LM calls.
+
+   Query Difficulty-based Explanation. We propose a formal notion of query difficulty.
+   We then argue empirically and show in a simple analytical model that the diversity of query
+   difficulty can explain the scaling behavior of Vote and Filter-Vote. Additional LM calls improve
+   performance on easy queries and degrades performance on difficult queries. We provide precise
+   conditions under which the non-monotone scaling behavior emerges on datasets containing
+   both easy and difficult queries in our analytical model.
+
+   Heuristic for Optimal Number of LM Calls. We empirically validate predictions for the
+   optimal number of LM calls from our analytical model for Vote and Filter-Vote, which can be
+   estimated from a small number of queries.
+
+    In a nutshell, our work shows that more LM calls do not necessarily improve the performance of
+compound AI systems and that it is possible, at least in some cases, to predict how the number of
+LM calls affects AI systems’ performance and thus decide the optimal number of LM calls for a given
+task. Our work focuses on tasks with a fairly small number of possible responses (e.g., multiple-choice
+questions) that support a majority vote, but tasks with many valid outputs, such as chat, remain
+under-explored. We will release the code and datasets used in this paper, and hope to excite more
+research regarding the scaling properties of compound AI systems.
+
+
+
+
+                                                   2
+        (a) Vote overall (100%)          (b) Vote easy (53%)            (c) Vote difficult (47%)
+
+
+
+
+    (d) Filter-Vote overall (100%)   (e) Filter-Vote easy (56%)      (f) Filter-Vote difficult (44%)
+
+
+
+Figure 2: Performance breakdown on MMLU PYHSICS. As the number of LM calls increases, Vote
+and Filter-Vote perform increasingly better on easy queries but increasingly worse on difficult ones.
+
+
+2     Related Work
+Neural Scaling Laws. There has been extensive research on how the training parameters affect the
+performance of neural language models [KMH+ 20, SGS+ 22, BDK+ 21, MLP+ 23, IPH+ 24]. Among
+others, the model loss has been empirically shown to follow a power law as the number of model
+parameters and training tokens [KMH+ 20]. Researchers have also proposed theories to explain the
+empirical scaling laws [BDK+ 21]. By contrast, recent work has found that scaling up the model
+parameters leads to performance decay on certain tasks [MLP+ 23]. To the best of our knowledge,
+there is no study on how the number of LM calls affects the performance of a compound system, which
+is complementary to scaling laws on training parameters and data set sizes.
+
+Compound Systems using LMs. Many inference strategies that perform multiple model calls
+have been developed to advance performance on various language processing tasks [XCG+ 23, DLT+ 23,
+TAB+ 23, TWL+ 24, WWS+ 22, CZZ23, ZKAW23, ŠPW23]. For example, Gemini reaches state-of-the-
+art performance on MMLU via its CoT@32 majority voting scheme [TAB+ 23]. Self-consistency [WWS+ 22]
+boosts the performance of chain-of-thought via a majority vote scheme over multiple reasoning paths
+generated by PaLM-540B. Finally, AlphaCode 2 [Alp23] matches the 85th percentile of humans in
+a coding contest regime by generating up to one million samples per problem via an LM and then
+filtering the answer set down. While these approaches are empirically compelling, there has been little
+systematic study of how the number of LM calls affects these systems’ performance, and how it should
+be tuned for a given application.
+
+Compound System Evaluation. Compound AI systems are increasingly evaluated in traditional
+benchmarks [CKB+ 21, HBK+ 21, TVCM18, NWD+ 19] as well as domain-specific new datasets [KBGA24,
+MMA+ 24, KCM+ 23] and the agent environments [LYZ+ 23, SYC+ 20, JYW+ 24]. We refer the inter-
+ested readers to a survey for more details [CWW+ 24]. Existing papers focus on obtaining a single
+metric of a given system, while our goal is to understand how the a compound system’s performance
+is affected by its parameters (e.g., # of LM calls).
+
+
+
+
+                                                   3
+                                                         Algorithm 2: Filter-Vote.
+                                                           Input: A user query x, # gen responses
+ Algorithm 1: Vote.                                                 K
+   Input: A user query x, # gen responses                  Output: A response ŷ
+                                                         1 Sample θ1 , θ2 , · · · , θK i.i.d. from Θ;
+           K
+                                                         2 Generate zk , ek = G(x, θk ), k = 1, · · · , K;
+   Output: A response ŷ
+                                                         3 Generate wk = Φ(x, zk , ek ), k = 1, · · · , K;
+ 1 Sample θ1 , θ2 , · · · , θK i.i.d. from Θ;
+                                                         4 if maxk wk = 0 then
+ 2 Generate zk = G(x, θk ), k = 1, · · · , K;
+ 3 Set ŷK = V (z1 , · · · , zK );
+                                                         5     Set ŷK = V (z1 , · · · , zK );
+ 4 Return ŷK                                            6   else
+                                                         7      Set ŷK = V ({|zk | wk = 1|});
+                                                         8   Return ŷK
+
+
+3     Inference System Designs
+In this paper, we focus on two simple and natural inference system designs: Vote and Filter-Vote. Vote
+is inspired by and resembles several real-world compound AI systems, such as self-consistency [WWS+ 22],
+Medprompt [NKM+ 23], and Gemini CoT@32 strategy [TAB+ 23], while Filter-Vote represent many
+other real-world compound AI systems including AlphaCode 2 [Alp23] and AlphaGeometry [TWL+ 24].
+Note that this paper focuses on tasks with a small number of possible answers.
+
+Building Blocks. Vote and Filter-Vote rely on three building blocks, a generator G(·, ·), a majority
+voter V (·), and a filter Φ(·, ·, ·). The generator G(·, ·) takes a user query x and θ ∈ Θ as inputs and
+produces a candidate answer and an explanation. Here, instantiations of Θ are a design choice of
+users and can encode many generation strategies. For example, even with a single fixed LM, diverse
+generations may be achieved by using a non-zero temperature and different prompt wordings or few-
+shot examples for each call to the LM. If Θ contains different LMs, then this system definition can also
+represent LM ensembles. The majority voter V returns the mode of its input, i.e., V (z1 , z2 , · · · , zK ) ≜
+arg maxa∈A k=1 1zk =a , and breaks ties arbitrarily. Here, A is the space of all possible answers.
+             PK
+Finally, the filter Φ(·, ·) takes the user query and multiple candidate answers as input, and only
+returns the subset that an LM believes is correct.
+
+Vote. Given a user query x, Vote (i) first creates K candidate answers by calling the generator G,
+and then (ii) uses the majority voter V to choose one as the final response ŷK . The details are given
+in Algorithm 1.
+
+Filter-Vote. Given a user query, Filter-Vote (i) first generates multiple candidate answers, (ii) re-
+moves a few candidate answers by the filter Φ, and (iii) then uses the majority voter V to choose one
+from the remaining answers as the final response. If all answers are removed by the filter, then V is
+applied on the original candidate answers. Algorithm 2 gives the formal description.
+
+
+4     Analytical Model of Scaling Behavior
+Now we present our analytical performance model of Vote and Filter-Vote strategies. Specifically, we
+are interested in understanding the behavior of F (K; D) ≜ E[ŷK = y], where the expectation is over
+D and the candidate responses. All notations are summarized in Table 1.
+
+4.1    When do more LM calls lead to an increase or decrease in performance?
+Our first key insight is that individual query difficulty is crucial in LM calls’ effects. To see this, let
+us first introduce query difficulty indicator.
+
+
+
+
+                                                     4
+                                              Table 1: Notations.
+
+             Symbol                                        Meaning
+                x                                     an input query
+                y                                   the correct answer
+               K                                  the number of LM calls
+               zk                               the output by one LM call
+               ŷK                the output by an inference system using K LM calls
+             D/DT r                              test dataset/train dataset
+                A                                      answer space
+                α                                 fraction of easy queries
+               p1                     probability of zk being correct for easy queries
+               p2                  probability of zk being correct for difficult queries
+            F (K; D)     Accuracy of an Inference System with K LM calls per query on D
+            G(K; D)           Analytical Performance Model (to approximate F (K; D))
+
+
+Definition 1. Given a user query x, d(x) is called an query difficulty indicator if
+                                                 (
+                                                   0 iff d(x) > 0,
+                                lim F (K, x) =
+                               K→∞                 1 iff d(x) < 0
+
+   Intuitively, a positive query difficulty indicator implies the query is difficult, i.e., infinitely many
+LM calls lead to an incorrect final answer, and a negative value implies the query is easy, i.e., infinitely
+many LM calls eventually give a correct final answer. For simplicity, we assume that the limit of
+F (K, x) is always either 0 or 1 for Vote and Filter-Vote, i.e., eventually the answer is correct or
+incorrect. Also note that d(x) is scale-invariant, i.e., if d(x) is an item difficulty indicator, then for any
+positive scalar γ > 0, γ × d(x) is also a difficulty indicator. We will call a query x difficult (easy) if
+d(x) > 0 (d(x) < 0). We give two concrete instantiations as follows.
+Lemma 1. For Vote, dV (x) ≜ maxa̸=y Pr[G(x, θ) = a] − Pr[G(x, θ) = y] is an query difficulty in-
+dicator. For Filter-Vote, denote G(x, θ) = [G1 (x, θ), G2 (x, θ)]. Then dF (x) ≜ maxa̸=y Pr[G1 (x, θ) =
+a|Φ(x, G1 (x, θ), G2 (x, θ)) = 1] − Pr[G1 (x, θ) = y|Φ(x, G1 (x, θ), G2 (x, θ)) = 1] is a query difficulty
+indicator.
+    Here, dV (x) > 0 indicates that an incorrect answer is more likely to be generated than the correct
+one, hence the query is difficult. Similarly, dF (x) > 0 implies that an incorrect answer is more likely
+to be kept in the filtered answer set.
+    More LM calls elicit higher performance on easy queries, but lower performance on difficult queries.
+Therefore, the performance, F (K; D), is more difficult to characterize when the data set D contains
+both easy and difficult queries. Here, we study Vote on a special case of D to understand how the
+difficulty impacts the performance function F (K; D).
+
+A case study on a specific dataset. Let us consider a specific dataset Dα,p1 ,p2 with answer space
+cardinality |A| = 2. Here, α ∈ [0, 1] queries in D are x1 such that P r[G(x1 , θ) = y] = p1 > 12 , and 1 − α
+queries are x2 such that P r[G(x2 , θ) = y] = p2 < 12 . The following theorem qualitatively characterizes
+the performance of Vote on this dataset.
+                        p (1−p )( 1 −p )
+Theorem 2. Let t ≜ p2 (1−p2 )(p2 − 12 ) + 1. If p1 + p2 ̸= 1 and K is odd, then F (K; Dα,p1 ,p2 )
+                         1    1   1    2
+
+
+   • increases monotonically, if p1 + p2 > 1 and α ≥ 1 − 1t
+
+   • decreases monotonically, if p1 + p2 < 1 or α ≤ 1 − 1t
+
+
+                                                       5
+                       1                                                             1                                                           1
+                            Decrease
+                      0.8   Inverse U shape                                         0.8                                                         0.8
+
+
+
+
+Subset 2 Difficulty                                           Subset 2 Difficulty                                         Subset 2 Difficulty
+                            U shape
+                            Increase
+                      0.6                                                           0.6                                                         0.6
+
+
+                      0.4                                                           0.4                                                         0.4
+
+
+                      0.2                                                           0.2                                                         0.2
+
+
+                       0                                                             0                                                           0
+                        0     0.2   0.4    0.6      0.8   1                           0   0.2   0.4    0.6      0.8   1                           0   0.2   0.4    0.6      0.8   1
+                                 Subset 1 Difficulty                                         Subset 1 Difficulty                                         Subset 1 Difficulty
+
+
+
+
+Figure 3: How the query difficulties shape the landscape of a one-layer Voting Inference System’s
+performance. Informally, if the overall task is “easy” (p1 + p2 > 1), but the fraction of “hard”
+queries is large (α < 1 − 1t ), then as the number of LM calls increases, the Voting Inference Systems’
+performance increases first but then decreases. We call such a landscape a “inverse U shape”. Similarly,
+if the overall task is “hard” (p1 + p2 < 1), but the fraction of “hard” queries is small (α > 1 − 1t ),
+then enlarging the number of LM calls leads an initial decrease and then increase. Such a landscape
+is called a “U shape”. When α is large, the U-shape is less likely to occur while the inverse U-shape
+becomes more common. Smaller α leads to an opposite trend.
+
+
+                      • increases and then decreases, if p1 + p2 > 1 and α < 1 − 1t
+                      • decreases and then increases, if p1 + p2 < 1 and α > 1 − 1t
+
+    Theorem 2 precisely connects the query difficulty with the performance landscape. Here, t is a
+constant that only depends on p1 and p2 , i.e., the probability of an LM’s generation being correct
+on easy and hard queries, respectively. Intuitively, t quantifies the difficulty similarity between the
+easy and hard queries: it becomes larger if the easy queries are more difficult (p1 is smaller) or the
+hard queries are less difficult (p2 is larger). Interestingly, it suggests that, for some query difficulty
+distribution, a non-monotone effect of the number of LM calls is expected. Informally, if the overall
+task is “easy” (p1 + p2 > 1), but the fraction of “hard” queries is large (α < 1 − 1t ), then as the number
+of LM calls increases, the Voting Inference Systems’ performance increases first but then decreases.
+We call such a landscape a “inverse U shape”. Similarly, if the overall task is “hard” (p1 + p2 < 1),
+but the fraction of “hard” queries is small (α > 1 − 1t ), then enlarging the number of LM calls leads
+an initial decrease and then increase. Such a landscape is called a “U shape”. This well explains the
+U-shape of Inference Systems’ performance shown in Figure 1.Figure 3 visualizes the effects of query
+difficulty on the performance landscape in more detail.
+
+4.2                         What is the analytical scaling model?
+Now we derive an analytical scaling model for both Vote and Filter-Vote. Noting that the performance
+is the average of F (K, x) for each x in the dataset, the key challenge is identifying the shape of F (K, x)
+for easy and difficult queries. Let us first consider the special case |A| = 2, where we can obtain a
+close form result for Vote.
+Theorem 3. If |A| = 2, then on any query x, the performance of Vote is F (K, x) = I 1−dV (x) ( K+1    K+1
+                                                                                                  2 , 2 ),
+                                                                                           2
+                 Rx                    R1
+where Ix (a, b) ≜ 0 ta−1 (1 − t)b−1 dt/ 0 ta−1 (1 − t)b−1 dt is the regularized incomplete beta function.
+
+    Thus, for Vote with |A| = 2, F (K, D) = Ex∼D [I 1−dV (x) ( K+1  K+1
+                                                                2 , 2 )].
+                                                         2
+    How about Filter-Vote and the general answer space? Admittedly, an exact scaling model is
+challenging to obtain. Instead, we give an approximation model inspired by the special case. We first
+note that F (K, x) should be treated separately for difficult and easy queries: after all, as a function of
+a, the incomplete beta function Ix (a, a) monotonically increases/decreases if x > 12 (x < 12 ). Second,
+
+
+
+                                                                                                    6
+Ix (a, a) grows roughly exponentially in x, and this trend should hold for general answer space and for
+both Vote and Filter-Vote. Hence, we propose the following scaling model
+                                    (                √
+                                     e−c1 (x)K−c2 (x) K+c √
+                                                           3 (x)
+                                                                 ,    if d(x) > 0,
+                         G(K, x) ≜         −c1 (x)K−c2 (x) K+c3 (x)
+                                     1−e                            , if d(x) < 0
+
+where constants c1 (x) > 0, c2 (x) > 0, c3 (x) do not depend on the number of LM calls K. Therefore,
+our analytical performance scaling model is G(K, D) = Ex∼D [G(K, x)]. In practice, one can use a
+training dataset DT r to fit the parameters in G(K, D). Note that given a query x, the parameters
+ci (x) can be different for Vote and Filter-Vote. In particular, if the filter is of high quality, then the
+performance should converge quickly, and thus the constants ci (·) are likely to be larger. Otherwise,
+the performance should scale slower, and thus the constants ci (·) should be smaller. We will show in
+the experiments that G(K, D) matches the empirical performance F (K, D) accurately.
+
+4.3    How to optimize the number of LM calls?
+In general, one can always (i) fit the analytical scaling model G(K, D), and (ii) then use maxK G(K, D)
+to obtain the optimal number of LM calls. Interestingly, we show that for a special case, we can derive
+the optimal number of LM calls.
+Theorem 4. If p1 + p2 > 1 and α < 1 − 1t , then the number of LM calls K ∗ that maximizes
+F (K, Dα,p1 ,p2 ) for Vote (up to rounding) is
+                                                       α 2p1 −1
+                                            ∗
+                                                  log 1−α 1−2p2
+                                          K =2
+                                                   log pp21 (1−p 2)
+                                                            (1−p1 )
+
+    The optimal number of LM calls depends on the query difficulty. For example, K ∗ will be larger
+if α grows (up to 1 − 1t ). That is, if there are more “easy” queries than “difficult” queries, then more
+LM calls should be adopted.
+
+
+5     Experiments
+We compare the empirical performance of Vote and Filter-Vote and the performance predicted by our
+analytical scaling model. Our goal is three-fold: (i) validate that there are cases where more LM calls
+do not monotonically improve the performance of these Inference Systems, (ii) justify that the number
+of LM calls has opposite effects on easy and difficult queries, and (iii) explore whether our analytical
+scaling model can accurately predict the performance of Vote and Filter-Vote, and thus guide the
+design of Inference Systems such as optimizing number of LM calls.
+
+Datasets and LM. To understand the scaling properties of Vote and Filter-Vote, we conduct
+systematical experiments on both (i) real-world datasets and (ii) synthetic datasets with controlled
+query difficulties. Specifically, the real-world datasets include MMLU PHYSICS [HBB+ 20], TRUTH-
+FULQA [LHE21], GPQA [RHS+ 23], and AVERITEC [SGV24]. MMLU PHYSICS contains high school
+physics questions extracted from the original MMLU dataset. TRUTHFULQA measures whether a
+language model is truthful in generating answers to questions. GPQA queries are generated by ex-
+perts in biology, physics, and chemistry. Each query in AVERITEC is a claim and the goal is to verify
+its correctness. Each query is prompted as a multiple-choice question for objective evaluation. The
+details of these datasets and prompts can be found in the Appendix. The synthetic dataset is Dα,p1 ,p2
+as introduced in Section 3, and we study the scaling behavior by varying the parameters. We use
+GPT-3.5-turbo-0125 on the real-world datasets. All experiments are averaged over 1,000 runs.
+
+Non-monotonic Scaling Behavior. We start by understanding how the number of LM calls affects
+the performance of Vote and Filter-Vote empirically. As shown in Figure 1, we observe a non-monotonic
+behavior: more LM calls can sometimes lead to a drop in performance! This underscores the importance
+of scaling performance modeling.
+
+
+
+                                                     7
+                                             36%                 64%
+
+
+
+
+                                             38%                 62%
+
+
+
+
+    (a) Overall performance         (b) Performance breakdown                 (c) Scaling model prediction
+                     Claim: Forty percent of Iowa’s energy                                        More LLM calls
+                                                              One LLM call          (D)
+                     resources are from renewables
+                                                                                   29%
+  An easy query      Question: The above claim is?                                         (B)
+                     (A) Refuse (B) Support (C) Conflicting                  (C)          67%
+                     Evidence (D) Not Enough Evidence                        4%
+
+                     Claim: All USA Ballots Arriving After
+                     Election Day Will Be Thrown Out          One LLM call          (A)           More LLM calls
+                     Question: The above claim is?                                 34%      (D)
+ A difficult query   (A) Refuse (B) Support (C) Conflicting                                56%
+                                                                              (C)
+                     Evidence (D) Not Enough Evidence                        10%
+
+                                (d) Examples of easy and hard queries
+
+Figure 4: A case study on the AVERITEC dataset. (a) As more LM calls are invoked, the overall
+performance of Vote and Filter-Vote both initially increases but then decreases. (b) This U-shape can
+be perfected explained by the opposite effects on easy and difficult queries: More LM calls lead to
+higher performance on easy queries, but lower performance on difficult ones. (c) Our analytical scaling
+model accurately predicts the empirical performance. (d) Examples of an easy query and a difficult
+one. One LM call gives the correct answer with probability higher than any other answers (67%), and
+thus Vote with more calls eventually gives the correct answer. For the difficult query, the probability
+of the correct answer (34%) is lower than that of an incorrect answer (56%). Thus, Vote with more
+LM calls eventually always generates a wrong answer.
+
+
+A case study on AVERITEC. Now let us perform a case study on the AVERITEC dataset
+to understand the intriguing behavior better. In particular, we use the deployment partition of
+AVERITEC [SGV24], which contains 500 fact verification questions. The goal is to determine if a
+given claim should be (A) refused, (B) supported, or there is (C) conflicting evidence or (D) not
+enough evidence. We evaluate the performance of both Vote and Filter-Vote on AVERITEC. In addi-
+tion, we fit our analytical scaling model with 2, 5, 10, 20, 50, 100 LM calls. Then we use it to predict
+the performance of Vote and Filter-Vote using 100 randomly drawn number of LM calls.
+    As shown in Figure 4, there are several intriguing behaviors. First, more LM calls do not always lead
+to better performance. In fact, the performance of both Vote and Filter-Vote increases first but then
+decreases as the number of LM calls increases from 2 to 1000 (Figure 4(a)). The performance breakdown
+(shown in Figure 4(b)) gives a natural explanation. More LM calls lead to higher performance when a
+query is relatively difficult (dF (x) > 0 for Filter-Vote and dV (x) > 0 for Vote), but lower performance
+when a query is relatively easy (dF (x) < 0 for Filter-Vote and dV (x) < 0 for Vote). We also observe a
+high correlation between the performance predicted by our proposed analytical scaling model and the
+empirical performance, as depicted in Figure 4 (c). This implies the optimal number of LM calls can
+also be accurately predicted by our scaling model. Finally, we also give examples of one easy query and
+one difficult query in Figures 4 (d). On the easy example, one LM call gives the correct answer with
+a probability higher than any other answer (67%). Thus, more LM calls eventually give the correct
+answer. On the difficult query, the probability of the correct answer (34%) is lower than that of an
+
+
+
+                                                        8
+                  Item Difficulty=(0.85,0.4)                           Item Difficulty=(0.85,0.3)                              Item Difficulty=(0.85,0.1)
+                                                                                                                             0.6
+
+
+
+ Performance                                          Performance                                        Performance
+                0.7
+                                                                     0.6                                                    0.55
+                0.6                                                                                                          0.5
+                                                                     0.5
+                0.5                                                                                                         0.45
+                                                                     0.4                                                     0.4
+                       10   20   30   40    50                              10   20       30   40   50                             10 20 30 40 50
+                      Number of LLM Calls                                  Number of LLM Calls                                     Number of LLM Calls
+                  Item Difficulty=(0.75,0.4)                            Item Difficulty=(0.75,0.3)                             Item Difficulty=(0.75,0.1)
+                                                                                                                             0.6
+
+
+
+ Performance                                     Performance                                                  Performance
+                                                                     0.6
+                0.6                                                 0.55
+                                                                                                                             0.5
+                                                                     0.5
+                0.5                                                 0.45                                                     0.4
+                                                                     0.4
+                       10   20   30   40    50                              10 20 30 40 50                                          10   20   30   40    50
+                      Number of LLM Calls                                  Number of LLM Calls                                     Number of LLM Calls
+                  Item Difficulty=(0.65,0.4)                            Item Difficulty=(0.65,0.3)                             Item Difficulty=(0.65,0.1)
+                                                                     0.6                                                     0.6
+
+
+
+Performance                                      Performance                                                  Performance
+                0.6                                                 0.55
+               0.55                                                                                                          0.5
+                                                                     0.5
+                0.5                                                 0.45                                                     0.4
+               0.45                                                  0.4                                                     0.3
+                       10   20   30   40    50                              10 20 30 40 50                                          10   20   30   40    50
+                      Number of LLM Calls                                  Number of LLM Calls                                     Number of LLM Calls
+
+                                 𝛼 (easy fraction) =0.4                    𝛼 (easy fraction) =0.5                  𝛼 (easy fraction) =0.6
+
+Figure 5: Overall performance of one-layer Voting Inference Systems on synthetic datasets with bi-
+level difficulty. Overall, we observe that increasing the number of LM calls does not necessarily lead
+to performance improvements. For example, when the query difficulty is (0.85, 0.4), the performance
+increases first and then decreases as the number of LM calls grows. When the query difficulty is
+(0.65, 0.1), there is a reverse trend: the performance goes down first and then goes up. This validates
+our empirical observation that a larger number of LM calls and thus more resources may not necessarily
+result in better performance.
+
+
+incorrect answer (56%). Thus, Vote with more LM calls eventually always generates a wrong answer.
+
+Difficulty distribution determines whether more LM calls help. To systematically under-
+stand how the query difficulty affects Inference Systems’ performance landscape, we synthesize a bi-level
+difficult dataset Dα,p1 ,p2 , vary (i) the fraction of the easy subset α and (ii) the query difficulty p1 , p2 ,
+and then study the scaling performance of Vote. When it is clear from the context, we may also call
+(p1 , p2 ) query difficulty.
+     As shown in Figure 5, we observe that query difficulty plays an important role in the number of LM
+calls’ effects. For example, when the difficulty parameter is (0.85, 0.1) and the fraction of easy queries
+is α = 0.6, Vote’s performance is monotonically increasing as the number of LM calls grows. However,
+adding more hard queries by changing the fraction α = 0.4 changes the trend: the performance goes
+down first for small call numbers and then goes up for larger numbers of calls. It is also interesting to
+notice an inverse “U”-shape. For example, when query difficulty is (0.85, 0.4), there is a clear U-shape
+performance. Overall, this justifies that (i) there are cases where more LM calls is not beneficial, and
+(ii) the diversity of query difficulty critically determines these cases.
+
+Analytical scaling model predicts the optimal number of LM calls. Identifying the optimal
+number of calls is an important implication of the scaling properties. Here, we compare the optimal
+number of calls for Vote predicted by our analytical model and the optimal numbers empirically
+observed on the bi-level difficult dataset Dα,p1 ,p2 . As summarized in Table 2 (in the Appendix), the
+predicted optimal number is exactly the observed optimal number of LM calls, for all query difficulties
+evaluated. This validates the assumptions made by Theorem 4.
+
+
+                                                                                      9
+6    Conclusion
+In this paper, we systematically study how the number of LM calls affects the performance of two
+natural inference strategy designs: majority voting (Vote) and majority voting after filtering results
+with an LM (Filter-Vote). We find that increasing the number of LM calls can lead to non-monotone
+behavior, e.g., first increasing performance and then decreasing it. We offer theoretical analysis that
+attributes this phenomenon to the diversity of query difficulties within a task, and conduct experiments
+to validate our analysis. Furthermore, we show how to estimate the optimal number of LM calls to
+make for a given task using a small number of queries to fit the parameters of our analytical model, thus
+helping practitioners optimize their system designs. Note that in this work, we do not discuss the cost
+of LM calls; this is an important dimension to weigh in practice, and in future work we will investigate
+how to balance cost, performance, and latency scaling. Overall, our study shows that more LM calls
+are not necessarily better and underscores the importance of compound system design. We hope our
+findings and analysis will inspire more research into maximally effective AI system construction.
+
+
+
+
+                                                   10
+References
+[Alp23]     AlphaCode. Alphacode 2 technical report. https: // storage. googleapis. com/
+            deepmind-media/ AlphaCode2/ AlphaCode2_ Tech_ Report. pdf , 2023.
+[BDK+ 21]   Yasaman Bahri, Ethan Dyer, Jared Kaplan, Jaehoon Lee, and Utkarsh Sharma. Explain-
+            ing neural scaling laws. arXiv preprint arXiv:2102.06701, 2021.
+[CKB+ 21]   Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz
+            Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training
+            verifiers to solve math word problems. arXiv preprint arXiv:2110.14168, 2021.
+[CWW+ 24] Yupeng Chang, Xu Wang, Jindong Wang, Yuan Wu, Linyi Yang, Kaijie Zhu, Hao Chen,
+          Xiaoyuan Yi, Cunxiang Wang, Yidong Wang, et al. A survey on evaluation of large
+          language models. ACM Transactions on Intelligent Systems and Technology, 15(3):1–45,
+          2024.
+[CZZ23]     Lingjiao Chen, Matei Zaharia, and James Zou. Frugalgpt: How to use large language
+            models while reducing cost and improving performance. arXiv preprint arXiv:2305.05176,
+            2023.
+[DLT+ 23]   Yilun Du, Shuang Li, Antonio Torralba, Joshua B Tenenbaum, and Igor Mordatch. Im-
+            proving factuality and reasoning in language models through multiagent debate. arXiv
+            preprint arXiv:2305.14325, 2023.
+[HBB+ 20]   Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song,
+            and Jacob Steinhardt. Measuring massive multitask language understanding. arXiv
+            preprint arXiv:2009.03300, 2020.
+
+[HBK+ 21]   Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang,
+            Dawn Song, and Jacob Steinhardt. Measuring mathematical problem solving with the
+            math dataset. arXiv preprint arXiv:2103.03874, 2021.
+[IPH+ 24]   Berivan Isik, Natalia Ponomareva, Hussein Hazimeh, Dimitris Paparas, Sergei Vassilvit-
+            skii, and Sanmi Koyejo. Scaling laws for downstream task performance of large language
+            models. arXiv preprint arXiv:2402.04177, 2024.
+[JYW+ 24] Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press,
+          and Karthik R Narasimhan. SWE-bench: Can language models resolve real-world github
+          issues? In The Twelfth International Conference on Learning Representations, 2024.
+
+[KBGA24] Daniel Martin Katz, Michael James Bommarito, Shang Gao, and Pablo Arredondo.
+         Gpt-4 passes the bar exam. Philosophical Transactions of the Royal Society A,
+         382(2270):20230254, 2024.
+[KCM+ 23] Tiffany H Kung, Morgan Cheatham, Arielle Medenilla, Czarina Sillos, Lorie De Leon,
+          Camille Elepaño, Maria Madriaga, Rimel Aggabao, Giezel Diaz-Candido, James Maningo,
+          et al. Performance of chatgpt on usmle: potential for ai-assisted medical education using
+          large language models. PLoS digital health, 2(2):e0000198, 2023.
+[KMH+ 20] Jared Kaplan, Sam McCandlish, Tom Henighan, Tom B Brown, Benjamin Chess, Rewon
+          Child, Scott Gray, Alec Radford, Jeffrey Wu, and Dario Amodei. Scaling laws for neural
+          language models. arXiv preprint arXiv:2001.08361, 2020.
+
+[LHE21]     Stephanie Lin, Jacob Hilton, and Owain Evans. Truthfulqa: Measuring how models mimic
+            human falsehoods. arXiv preprint arXiv:2109.07958, 2021.
+[LYZ+ 23]   Xiao Liu, Hao Yu, Hanchen Zhang, Yifan Xu, Xuanyu Lei, Hanyu Lai, Yu Gu, Hangliang
+            Ding, Kaiwen Men, Kejuan Yang, et al. Agentbench: Evaluating llms as agents. arXiv
+            preprint arXiv:2308.03688, 2023.
+
+
+
+
+                                                11
+[MLP+ 23]   Ian R McKenzie, Alexander Lyzhov, Michael Pieler, Alicia Parrish, Aaron Mueller, Ameya
+            Prabhu, Euan McLean, Aaron Kirtland, Alexis Ross, Alisa Liu, et al. Inverse scaling:
+            When bigger isn’t better. arXiv preprint arXiv:2306.09479, 2023.
+[MMA+ 24] Nikita Mehandru, Brenda Y Miao, Eduardo Rodriguez Almaraz, Madhumita Sushil,
+          Atul J Butte, and Ahmed Alaa. Evaluating large language models as agents in the clinic.
+          NPJ digital medicine, 7(1):84, 2024.
+[NKM+ 23] Harsha Nori, Nicholas King, Scott Mayer McKinney, Dean Carignan, and Eric Horvitz.
+          Capabilities of gpt-4 on medical challenge problems. arXiv preprint arXiv:2303.13375,
+          2023.
+[NWD+ 19] Yixin Nie, Adina Williams, Emily Dinan, Mohit Bansal, Jason Weston, and Douwe Kiela.
+          Adversarial nli: A new benchmark for natural language understanding. arXiv preprint
+          arXiv:1910.14599, 2019.
+[RHS+ 23]   David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang,
+            Julien Dirani, Julian Michael, and Samuel R Bowman. Gpqa: A graduate-level google-
+            proof q&a benchmark. arXiv preprint arXiv:2311.12022, 2023.
+
+[SGS+ 22]   Ben Sorscher, Robert Geirhos, Shashank Shekhar, Surya Ganguli, and Ari Morcos. Beyond
+            neural scaling laws: beating power law scaling via data pruning. Advances in Neural
+            Information Processing Systems, 35:19523–19536, 2022.
+[SGV24]     Michael Schlichtkrull, Zhijiang Guo, and Andreas Vlachos. Averitec: A dataset for real-
+            world claim verification with evidence from the web. Advances in Neural Information
+            Processing Systems, 36, 2024.
+[ŠPW23]    Marija Šakota, Maxime Peyrard, and Robert West. Fly-swat or cannon? cost-effective
+            language model choice via meta-modeling. arXiv preprint arXiv:2308.06077, 2023.
+[SYC+ 20]   Mohit Shridhar, Xingdi Yuan, Marc-Alexandre Côté, Yonatan Bisk, Adam Trischler, and
+            Matthew Hausknecht. Alfworld: Aligning text and embodied environments for interactive
+            learning. arXiv preprint arXiv:2010.03768, 2020.
+[TAB+ 23]   Gemini Team, Rohan Anil, Sebastian Borgeaud, Yonghui Wu, Jean-Baptiste Alayrac,
+            Jiahui Yu, Radu Soricut, Johan Schalkwyk, Andrew M Dai, Anja Hauth, et al. Gemini:
+            a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805, 2023.
+
+[TVCM18] James Thorne, Andreas Vlachos, Christos Christodoulopoulos, and Arpit Mittal. Fever: a
+         large-scale dataset for fact extraction and verification. arXiv preprint arXiv:1803.05355,
+         2018.
+[TWL+ 24] Trieu H Trinh, Yuhuai Wu, Quoc V Le, He He, and Thang Luong. Solving olympiad
+          geometry without human demonstrations. Nature, 625(7995):476–482, 2024.
+
+[WWS+ 22] Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha
+          Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in
+          language models. arXiv preprint arXiv:2203.11171, 2022.
+[XCG+ 23]   Zhiheng Xi, Wenxiang Chen, Xin Guo, Wei He, Yiwen Ding, Boyang Hong, Ming Zhang,
+            Junzhe Wang, Senjie Jin, Enyu Zhou, et al. The rise and potential of large language model
+            based agents: A survey. arXiv preprint arXiv:2309.07864, 2023.
+[ZKAW23] Jieyu Zhang, Ranjay Krishna, Ahmed H Awadallah, and Chi Wang. Ecoassistant: Using
+         llm assistant more affordably and accurately. arXiv preprint arXiv:2310.03046, 2023.
+[ZKC+ 24]   Matei Zaharia, Omar Khattab, Lingjiao Chen, Jared Quincy Davis, Heather Miller, Chris
+            Potts, James Zou, Michael Carbin, Jonathan Frankle, Naveen Rao, and Ali Ghodsi. The
+            shift from models to compound ai systems. https://bair.berkeley.edu/blog/2024/
+            02/18/compound-ai-systems/, 2024.
+
+
+
+                                                 12
+A     Broader Impacts
+Many inference strategies are often computationally and financially expensive to deploy due to multiple
+calls of language models. Our study suggests not blindly scaling up, but determining the resources
+allocated to these inference strategies carefully. More broadly, our paper paves the way for data-centric
+inference strategy designs.
+
+
+B     Limitations
+In this paper, we focus our analysis and experiments on the scaling behaviors for two instances of
+compound AI systems, but there are many other types of compound AI systems. For ease of evaluation,
+our experiments are conducted on relatively objective language tasks, but it remains open to study
+how the performance scales on subjective tasks such as generating poems and writing essays. Another
+interesting open problem is how to predict query difficult without querying the LMs.
+
+
+C     Missing Proofs
+We give all missing proofs here.
+
+C.1    Useful Lemmas
+Lemma 5. Suppose D is 2-level difficult with (α, p1 , p2 ) and ∥A∥ = 2, and W.L.O.G, K is odd. Then
+                         K+1                K+1 K+1
+                                                                       R x a−1               R1
+F (K; D) = αIp1 ( K+12 , 2 ) + (1 − α)Ip2 ( 2 , 2 ), where Ix (a, b) ≜ 0 t     (1 − t)b−1 dt/ 0 ta−1 (1 −
+t)b−1 dt is the regularized incomplete beta function.
+Proof. To analyze how the performance scales as the network size increases, let us first expand the
+performance of Inference System by the law of total expectation
+                                                  2
+                      F (K; D) = E[ŷ = y] =            E[ŷ = y|r(x) = pi ] Pr[r(x) = pi ]
+                                                  X
+                                                                                                                     (1)
+                                                  i=1
+
+Now consider E[ŷ = y|r(x) = p] for any p. Note that there are in total 2 possible generations (by
+∥A∥ = 2), so the estimated generation ŷ is correct if and only if more than half of the generations is
+correct. That is to say, E[ŷ = y|r(x) = p] = Pr[ k=1 1zk =y > K   ] = 1−Pr[ k=1 1zk =y ≤ K
+                                                  PK                         PK
+                                                                 2                          2 ]. For ease
+of notation, denote Z ≜ k=1 1zk =y . Note that 1zk =y is a Bernoulli variable with parameter p and thus
+                         PK
+Z is a Binomial variable
+                  R x a−1 with parameter    (K, p). Therefore, we have P r[Z ≤ w] = I1−p (K − w, w + 1),
+                                 b−1
+where Ix (a, b) ≜ 0 t     (1 − t) dt is the incomplete beta function. Thus, the above gives us
+
+                                                        K         K                     K            K
+             E[ŷ = y|r(x) = p] = 1 − I1−p (K − ⌊ ⌋, ⌊ ⌋ + 1) = Ip (⌊ ⌋ + 1, K − ⌊ ⌋)
+                                                        2         2                     2            2
+If K is odd, we can write it as E[ŷ = y|r(x) = p] = Ip ( K+1 K+1
+                                                           2 , 2 ) We can now plug this back into
+equation (1) to obtain
+                     2                                                2
+                                                                                    K +1 K +1
+                           E[ŷ = y|r(x) = pi ] Pr[r(x) = pi ] =
+                     X                                                X
+        F (K; D) =                                                          Ipi (       ,     ) Pr[r(x) = pi ]
+                     i=1                                              i=1
+                                                                                      2    2
+                          K +1 K +1                  K +1 K +1
+                 = αIp1 (     ,     ) + (1 − α)Ip2 (     ,     )
+                            2    2                     2    2
+which completes the proof.
+                                                    M         M                                  R 1 a−1
+                                          p (1−p)
+Lemma 6. Ip (M + 1, M + 1) = Ip (M, M ) + M B(M,M ) (2p − 1), where B(a, b) ≜                     0
+                                                                                                    t    (1 − t)b−1 dt is
+the beta function.
+
+
+
+
+                                                         13
+                                                      a      b
+Proof. Noting that Ip (a + 1, b) = Ip (a, b) − paB(a,b)
+                                                 (1−p)
+                                                        , we have
+
+                                                                          pM (1 − p)M +1
+                          Ip (M + 1, M + 1) = Ip (M, M + 1) −
+                                                                          M B(M, M + 1)
+                               a       b
+By Ip (a, b + 1) = Ip (a, b) + pbB(a,b)
+                                 (1−p)
+                                        , we have
+
+                                                                        pM (1 − p)M
+                                   Ip (M, M + 1) = Ip (M, M ) +
+                                                                        M B(M, M )
+                               M        M     M           M +1
+                          p (1−p)     p (1−p)
+Thus, Ip (M + 1, M + 1) = M B(M,M ) − M B(M,M +1) . The Pascal’s identity implies that B(a, b + 1) =
+ a
+a+b B(a, b) and thus B(M, M + 1) = B(M, M )/2. Thus, we have
+
+                              pM (1 − p)M   pM (1 − p)M +1   pM (1 − p)M   2pM (1 − p)M +1
+       Ip (M + 1, M + 1) =                −                =             −
+                              M B(M, M ) M B(M, M + 1)       M B(M, M )      M B(M, M )
+Extracting the common factors gives
+         pM (1 − p)M   2pM (1 − p)M +1   pM (1 − p)M                  pM (1 − p)M
+                     −                 =             [1 − 2(1 − p)] =             (2p − 1)
+         M B(M, M )      M B(M, M )      M B(M, M )                   M B(M, M )
+
+
+                                                  M         M
+                                          p (1−p)
+That is, Ip (M + 1, M + 1) = Ip (M, M ) + M B(M,M ) (2p − 1), which completes the proof.
+
+
+C.2     Proof of Lemma 1
+Proof. Let us first consider Vote.
+    We want to first note that limK→∞ Pr[ŷK = y ∗ ] = 1, where y ∗ ≜ arg maxa∈A Pr[G(x, θ) = a]. To
+see this, we can first write Pr[ŷK = y ∗ ] = Pr[maxa̸=y∗ i=1 1zi =a < i=1 1zi =y∗ ] = Pr[ i=1 1zi =a −
+                                                           PK            PK                    PK
+
+       1zi =y∗ < 0, ∀a ̸= y∗ ]. Subtracting 1 from both sides, we have 1−Pr[ŷK = y∗ ] = Pr[∪a̸=y∗ K  i=1 1zi =a −
+PK                                                                                                  P
+Pi=1
+   K
+       1                                                                                         K
+                                                                                                    1
+                                                                                   P           P
+               > 0]. Now   by   union bound,  we can bound  the right hand side by          Pr[  i=1 zi =a −
+             ∗
+   i=1 zi =y                                                                           a̸=y
+1zi =y∗ > 0]. Now, note that each term within the inner summation is i.i.d. Furthermore, observe that
+the expectation is E[1zi =a − 1zi =y∗ ] = Pr[G(x, θ) = a] − Pr[G(x, θ) = y ∗ ] < 0. Therefore, by law of
+large numbers, we have limK Pr[ i=1 1zi =a − 1zi =y∗ > 0] = 0. Since there are only finite number of
+                                      PK
+a ∈ A, the sum of this quantity over all a should also be 0. Therefore, we have
+                                                                 K                K
+                                                                       1zi =a −         1zi =y∗ > 0] = 0
+                                                                 X                X
+                 lim 1 − Pr[ŷK = y ∗ ] = lim Pr[∪a̸=y∗
+                K→∞                         K→∞
+                                                                 i=1              i=1
+
+Thus, limK→∞ Pr[ŷK = y ∗ ] = 1.
+    Now, dV (x) > 0 implies y = y ∗ and thus limK→∞ F (K, D) = 1. dV (x) > 0 implies y ̸= y ∗ and
+thus limK→∞ F (K, D) = 0.
+    Now let us consider Filter-Vote.
+    Abusing the notation a little, we claim that again limK→∞ Pr[ŷK = y ∗ ] = 1, where y ∗ ≜ arg maxa∈A Pr[G1 (x, θ) =
+a|Φ(x, G1 (x, θ), G2 (x, θ)) = 1], where recall that G1 (x, θ), G2 (x, θ) ≜ G(x, θ). To see this, we can first
+write Pr[ŷK = y ∗ ] = Pr[maxa̸=y∗ i=1 1zi =a wi < i=1 1zi =y∗ wi ] = Pr[ i=1 1zi =a wi − i=1 1zi =y∗ wi <
+                                    PK                 PK                    PK               PK
+
+0, ∀a ̸= y ∗ ]. Subtracting 1 from both sides, we have 1 − Pr[ŷK = y ∗ ] = Pr[∪a̸=y∗ i=1 1zi =a wi −
+                                                                                             P  K
+
+
+   i=1 1zi =y wi > 0]. Now by union bound, we can bound the right hand side by                    i=1 1zi =a wi −
+PK                                                                                   P         PK
+                                                                                       a̸=y Pr[
+              ∗
+
+1zi =y∗ wi > 0]. Now, note that each term within the inner summation is i.i.d. Furthermore, ob-
+serve that the expectation is E[1zi =a wi − 1zi =y∗ wi ] = Pr[G1 (x, θ) = a, Φ(x, G1 (x, θ), G2 (x, θ)) =
+1] − Pr[G(x, θ) = y ∗ , Φ(x, G1 (x, θ), G2 (x, θ)) = 1] < 0. Therefore, by law of large numbers, we have
+limK Pr[ i=1 1zi =a wi − 1zi =y∗ wi > 0] = 0. Since there are only finite number of a ∈ A, the sum of
+          PK
+this quantity over all a should also be 0. Therefore, we have
+                                                                 K
+                                                                       1zi =a wi − 1zi =y∗ wi > 0] = 0
+                                                                 X
+                 lim 1 − Pr[ŷK = y ∗ ] = lim Pr[∪a̸=y∗
+                K→∞                         K→∞
+                                                                 i=1
+
+
+                                                            14
+Thus, limK→∞ Pr[ŷK = y ∗ ] = 1.
+   Now, dF (x) > 0 implies y = y ∗ and thus limK→∞ F (K, D) = 1. dF (x) > 0 implies y ̸= y ∗ and thus
+limK→∞ F (K, D) = 0.
+   Hence, we have shown that dV (x) and dF (x) are difficulty indicator for Vote and Filter-Vote,
+respectively.
+
+C.3     Proof of Theorem 2
+Proof. We construct a recurrent relation on F (K; D) by Applying Lemma 5
+
+ F (K + 2; D) − F (K; D)
+        K +3 K +3                    K +3 K +3                  K +1 K +1                  K +1 K +1
+=αIp1 (      ,      ) + (1 − α)Ip2 (       ,        ) − [αIp1 (     ,     ) + (1 − α)Ip2 (      ,      )]
+          2      2                     2        2                 2    2                     2       2
+         K +3 K +3             K +1 K +1                        K +3 K +3            K +1 K +1
+=α(Ip1 (       ,     ) − Ip1 (       ,       )) + (1 − α)(Ip2 (      ,     ) − Ip2 (      ,       ))
+           2      2              2       2                        2    2               2      2
+For ease of notation, let us denote M = K+1
+                                         2 . Applying Lemma 6 leads to
+
+                 F (K + 2; D) − F (K; D)
+                  pM (1 − p1 )M                      pM (1 − p2 )M
+               =α[ 1            (2p1 − 1)] + (1 − α)[ 2            (2p2 − 1)]
+                   M B(M, M )                         M B(M, M )
+                     1
+               =            [α · pM          M                       M          M
+                                  1 (1 − p1 ) (2p1 − 1) + (1 − α) · p2 (1 − p2 ) (2p2 − 1)]
+                 M B(M, M )
+
+Now rearranging the terms gives
+
+             F (K + 2; D) − F (K; D)
+                 1                                              α(2p1 − 1)      p1 (1 − p1 ) M
+         =              · (1 − α)pM          M
+                                  2 (1 − p2 ) (1 − 2p2 ) · [                  [             ] − 1]
+             M B(M, M )                                      (1 − α)(1 − 2p2 ) p2 (1 − p2 )
+                                         α(2p1 −1)     p1 (1−p1 ) M
+For ease of notation, denote ∆F (M ) ≜ (1−α)(1−2p  2 ) p2 (1−p2 )
+                                                                  ] −1. Note that ∆F (M ) is monotonically
+increasing or decreasing, depending on the parameters p1 , p2 . It is also easy to show that α ≥ 1 − 1t if
+and only if ∆F (1) ≥ 0. Now, we are ready to derive the main results by analyzing ∆F (M ).
+
+   • p1 + p2 > 1 and α ≥ 1 − 1t : Now pp12 (1−p 1)
+                                           (1−p2 ) > 1, and thus ∆F (M ) is monotonically increasing.
+     Furthermore, it is easy to see limM →∞ ∆F (M ) = ∞. Furthermore, ∆F (1) ≥ 0. That is, for any
+     given M , ∆F (M ) is non-negative and thus F (K; D) must be monotonically increasing
+
+   • p1 + p2 > 1 and α < 1 − 1t : Now pp12 (1−p 1)
+                                           (1−p2 ) > 1, and thus ∆F (M ) is monotonically increasing.
+     Furthermore, it is easy to see limM →∞ ∆F (M ) = ∞. Furthermore, ∆F (1) < 0. That is, as K
+     and thus M increases, ∆F (M ) is negative and then becomes positive. Therefore, F (K; D) must
+     decrease and then increase
+   • p1 + p2 < 1 and α > 1 − 1t : Now pp12 (1−p 1)
+                                           (1−p2 ) < 1, and thus ∆F (M ) is monotonically decreasing.
+     Furthermore, it is easy to see limM →∞ ∆F (M ) = −1. Furthermore, ∆F (1) > 0. That is, as K
+     and thus M increases, ∆F (M ) is positive and then becomes negative. Therefore, F (K; D) must
+     increase and then decrease
+
+   • p1 + p2 < 1 and α ≤ 1 − 1t : Now pp12 (1−p 1)
+                                           (1−p2 ) < 1, and thus ∆F (M ) is monotonically decreasing.
+     Furthermore, it is easy to see limM →∞ ∆F (M ) = −1. Furthermore, ∆F (1) ≤ 0. That is, for
+     any given M , ∆F (M ) is non-positive and thus F (K; D) must be monotonically decreasing
+
+Thus, we complete the proof.
+
+
+
+
+                                                     15
+C.4     Proof of Theorem 3
+Proof. Let us first consider F (K, x) = Pr[ŷK = y]. Note that there are in total 2 possible generations
+(by ∥A∥ = 2), so the estimated generation ŷ is correct if and only if more than half of the generations
+is correct. That is to say, E[ŷK = y] = Pr[ k=1 1zk =y > K      ] = 1 − Pr[ k=1 1zk =y ≤ K
+                                             PK                             PK
+                                                               2                           2 ]. For ease of
+notation, denote Z ≜ k=1 1zk =y . Note that 1zk =y is a Bernoulli variable with parameter p and thus
+                       PK
+Z is a Binomial variable with parameter (K, p). Therefore, we have P r[Z ≤ w] = I1−p (K − w, w + 1),
+                 Rx                    R1
+where Ix (a, b) ≜ 0 ta−1 (1 − t)b−1 dt/ 0 ta−1 (1 − t)b−1 dt is the incomplete beta function. Specifically,
+                                                                   K+1 K+1
+we can set w = K   2 and get F (K, x) = Pr[ŷK = y] = I1−p ( 2 , 2 ). Noting that by definition,
+dV (x) = 1 − 2p, we can rewrite this as F (K, x) = I 1−dV (x) ( K+1     K+1
+                                                                    2 , 2 ). Taking the integral over x
+                                                            2
+completes the proof.
+
+C.5     Proof of Theorem 4
+Proof. Note that the optimal number of LM calls must ensure that the incremental component
+                                                                       α(2p1 −1)                   ∗
+∆F (M ) = 0. That is, the optimal value M ∗ must satisfy ∆F (M ∗ ) = (1−α)(1−2p     [ p1 (1−p1 ) ]M − 1 = 0.
+                                                                                 2 ) p2 (1−p2 )
+Solving the above equation gives us a unique solution
+                                                        α 2p1 −1
+                                                   log 1−α 1−2p2
+                                          M∗ = 2
+                                                    log pp21 (1−p 2)
+                                                             (1−p1 )
+
+Noting that K ∗ = ⌈2M ⌉] completes the proof.
+
+
+D     Additional Experiment Details
+D.1     Datasets
+We evaluate Vote and Filter-Vote on four real-world datasets, namely, GPQA [RHS+ 23], AVERITEC [SGV24],
+TRUTHFULQA [LHE21], and MMLU PHYSICS [HBB+ 20]. AVERITEC is a fact verification dataset,
+where each query is a claim (e.g., “All USA ballots Arriving after election day will be thrown out”),
+and the goal is to determine if this claim should be refused, supported, or there is conflicting evidence
+or not enough confidence. We use the “development” partition offered in the original paper, which
+contains 500 queries. GPQA is a dataset consisting of multiple-choice questions written by domain
+experts in biology, physics, and chemistry. We use the diamond partition, which contains 198 queries,
+and as reported by the original paper, enjoys the highest expert accuracy. TRUTHFULQA is an-
+other widely used multiple-choice question-answering dataset. We uses the validation parititon, which
+contains 817 questions spanning 38 categories, including health, law, finance, and politics. MMLU
+PHYSICS is the high school physics subset of the MMLU dataset, which contains 151 questions. All
+queries are prompted as multiple-choice questions for ease of evaluation.
+
+Liscense. GPQA is released under the MIT License. AVERITEC uses Creative Commons Attribution-
+NonCommercial 4.0 International License. TRUSTFULQA and PHYSICS (as part of MMLU) both
+adopt the Apache License 2.0
+
+D.2     Prompting for generators and filters
+We provide the prompts used for the generators and filters in the following boxes.
+
+    Prompt for the generator G()
+
+    Please answer the following question. You should first analyze it step by step. Then generate
+    your final answer by the answer is (X).
+    Q: {Query}
+    A:
+
+
+
+
+                                                    16
+Table 2: Optimal number of LM calls prediction. For each data distribution with specific 2-level dif-
+ficulty parameters α, p1 , p2 , we sample 100 data points, employ a simulated Voting Inference System
+with 1000 number of LM calls, estimate the parameters by their empirical mean and adopt the analyt-
+ical optimal number of LM calls predictor. Across evaluated query difficulties, our predicted optimal
+number of LM calls exactly matches the optimal number empirically observed.
+
+                                                            Optimal Number of LM Calls
+                    α     p1    p2     α̂     p̂1    p̂2
+                                                                Analytical/Empirical
+                   0.4   0.85   0.4   0.42   0.84    0.40                 3
+                   0.4   0.85   0.3   0.38   0.85    0.30                 1
+                   0.4   0.75   0.4   0.41   0.74    0.40                 4
+                   0.4   0.75   0.3   0.44   0.75    0.30                 1
+                   0.4   0.65   0.4   0.41   0.65    0.40                 1
+                   0.5   0.85   0.4   0.50   0.84    0.40                 4
+                   0.5   0.85   0.3   0.50   0.85    0.30                 2
+                   0.5   0.75   0.4   0.51   0.75    0.40                 7
+                   0.5   0.75   0.3   0.49   0.75    0.30                 4
+                   0.5   0.65   0.4   0.48   0.65    0.40                15
+                   0.6   0.85   0.4   0.59   0.84    0.39                 5
+                   0.6   0.85   0.3   0.63   0.85    0.30                 4
+                   0.6   0.75   0.4   0.61   0.75    0.40                11
+                   0.6   0.75   0.3   0.59   0.75    0.30                11
+                   0.6   0.65   0.4   0.62   0.65    0.40                30
+
+
+
+   Prompt for the filter Φ()
+
+   [User Question]: {query}
+   [Answer]:{answer}
+   Instruction: Review your previous answer and find problems with your answer. Finally, con-
+   clude with either ’[[correct]]’ if the above answer is correct or ’[[wrong]]’ if it is incorrect. Think
+   step by step.
+   Verdict:
+
+
+D.3     Generation Setup
+We set up the temperature as 0.1 since all the evaluation tasks are objective and have clear correct
+answers. For each question, we query GPT-3.5-turbo-0125 400 times. Then for each F (K, D), we
+randomly sample K answers from the 400 answers with replace to simulate the performance once, and
+report the average over 1000 runs.
+
+D.4     The optimal number of LM calls predicted by the scaling model
+Table 2 compares the optimal number of LM calls predicted by the scaling model and the ground-truth
+value on the bi-level dataset Dα,p1 ,p2 . Overall, We observe that they match very well.
+
+D.5     Performance Estimation via Our Proposed Scaling Law
+Can our proposed scaling model predict the empirical performance of Vote accurately? To answer
+this, we apply it to each dataset considered in Figure 5. In particular, we feed our estimator with
+the Inference Systems’ performance with the number of LM calls being 1, 2, 3, 4, 5, and then use it to
+predict the performance for LM calls within the range from 1 to 100. Note that this is quite challenging,
+
+
+                                                     17
+                                                                                                                               0.00035
+                                     0.0005                                       0.0004
+  0.1   1.86e-04 2.38e-05 1.62e-06             0.1   2.32e-04 2.99e-05 2.34e-06             0.1   2.79e-04 3.60e-05 3.09e-06
+                                                                                                                               0.00030
+                                     0.0004
+                                                                                  0.0003                                       0.00025
+p2      9.41e-05 8.36e-05 1.04e-04   0.0003   p2     1.53e-04 6.11e-05 8.63e-05            p2     2.14e-04 3.95e-05 6.85e-05   0.00020
+0.3                                           0.3                                          0.3
+                                                                                  0.0002                                       0.00015
+                                     0.0002
+                                                                                                                               0.00010
+                                     0.0001                                       0.0001
+  0.4   3.87e-04 5.51e-04 5.65e-04             0.4   2.52e-04 4.54e-04 4.71e-04             0.4   1.25e-04 3.57e-04 3.76e-04
+                                                                                                                               0.00005
+
+         0.65      0.75     0.85                      0.65      0.75     0.85                      0.65      0.75     0.85
+                    p1                                           p1                                           p1
+                (a) α = 0.4                                  (b) α = 0.5                                  (c) α = 0.6
+
+Figure 6: Mean square error of the performance predicted by our proposed scaling law on synthesized
+datasets with varying bi-level difficulties. Here, we fit the scaling law by performance evaluated at
+K = 1, 2, 3, 4, 5, and evaluate its performance for K from 1 to 100. Overall, we observe that the
+predicted performance accurately matches the empirical evaluation.
+
+
+as the estimator needs to extrapolate, i.e., predict the performance of a Voting Inference System whose
+number of LM calls is much larger than any number seen in the training data.
+    As shown in Figure 6, the performance predicted by our estimator accurately matches the empirical
+observation. Across all query difficulty parameters, the mean square error ranges from 1e − 6 to 1e − 4.
+This suggests that predicting how the number of LM calls affects a Voting Inference System is feasible
+and also indicates that our scaling law captures the key performance trend effectively.
+
+
+
+
+                                                                   18
+

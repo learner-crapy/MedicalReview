@@ -1,0 +1,1995 @@
+                                        AgenticRAGTracer: A Hop-Aware Benchmark for Diagnosing Multi-Step
+                                                       Retrieval Reasoning in Agentic RAG
+                                                                Qijie You1 * , Wenkai Yu2 * , Wentao Zhang2,3,4
+                                                                1
+                                                                  University of Science and Technology Beijing
+                                                                               2
+                                                                                 Peking University
+                                                                           3
+                                                                             Zhongguancun Academy
+                                                4
+                                                  Beijing Key Laboratory of Data Intelligence and Security (Peking University)
+                                                        u202342615@xs.ustb.edu.cn, {ywk, wentao.zhang}@pku.edu.cn
+
+                                                                 Abstract                         1   Introduction
+
+                                          With the rapid advancement of agent-based               With the rapid evolution of the agentic paradigm,
+
+
+
+
+arXiv:2602.19127v2 [cs.CL] 2 Jul 2026
+                                          methods in recent years, Agentic RAG has un-            Large Language Models (LLMs) have expanded
+                                          doubtedly become an important research direc-           beyond simple text generation to master complex
+                                          tion. Multi-hop reasoning, which requires mod-          workflows and broad tool usage. Among these ca-
+                                          els to engage in deliberate thinking and multi-         pabilities, Retrieval-Augmented Generation (RAG)
+                                          step interaction, serves as a critical testbed for      is pivotal, enabling LLMs to access information be-
+                                          assessing such capabilities. However, exist-
+                                                                                                  yond their parametric memory, thereby enhancing
+                                          ing benchmarks typically provide only final
+                                          questions and answers, while lacking the in-            generalization and mitigating hallucinations. Con-
+                                          termediate hop-level questions that gradually           sequently, advancing the capabilities of Agentic
+                                          connect atomic questions to the final multi-            RAG—systems that autonomously plan, retrieve,
+                                          hop query. This limitation prevents researchers         and reason—has become a central research focus.
+                                          from analyzing at which step an agent fails                Compared to single-hop queries (e.g.,
+                                          and restricts more fine-grained evaluation of           NQ (Kwiatkowski et al., 2019), TriviaQA (Joshi
+                                          model capabilities. Moreover, most current
+                                                                                                  et al., 2017)), multi-hop questions serve as a
+                                          benchmarks are manually constructed, which
+                                          is both time-consuming and labor-intensive,             rigorous testbed for Agentic RAG by demanding
+                                          while also limiting scalability and generaliza-         iterative reasoning and multi-document retrieval.
+                                          tion. To address these challenges, we introduce         However, current evaluations predominantly rely
+                                          AgenticRAGTracer , the first Agentic RAG                on benchmarks designed for traditional RAG, such
+                                          benchmark that is primarily constructed au-             as HotpotQA (Yang et al., 2018), 2WikiMulti-
+                                          tomatically by large language models and de-            hopQA (Ho et al., 2020), and MuSiQue (Trivedi
+                                          signed to support step-by-step validation. Our
+                                                                                                  et al., 2022). These datasets generally provide
+                                          benchmark spans multiple domains, contains
+                                          1,305 data points, and has no overlap with              only final QA pairs with short supporting passages,
+                                          existing mainstream benchmarks. Extensive               assuming a retrieve-then-read paradigm where all
+                                          experiments demonstrate that even the best              content is processed at once. For Agentic RAG,
+                                          large language models perform poorly on our             which inherently relies on dynamic, multi-step
+                                          dataset. For instance, GPT-5 attains merely             interactions, evaluating performance solely on
+                                          22.6% EM accuracy on the hardest portion of             the final outcome fails to capture the intricate
+                                          our dataset. Hop-aware diagnosis reveals that           decision-making process. Through a rigorous
+                                          failures are primarily driven by distorted rea-
+                                                                                                  analysis of existing benchmarks (see Appendix B),
+                                          soning chains—either collapsing prematurely
+                                          or wandering into over-extension. This high-            we identify four critical limitations that hinder
+                                          lights a critical inability to allocate steps consis-   the effective diagnosis of Agentic RAG systems:
+                                          tent with the task’s logical structure, providing       Authenticity of Multi-hop Reasoning. The
+                                          a diagnostic dimension missing in traditional           complexity labels in existing datasets are often
+                                          evaluations. We believe our work will facilitate        inflated. We find that questions labeled as
+                                          research in Agentic RAG and inspire further             multi-hop can frequently be answered directly by
+                                          meaningful progress in this area. Our code and
+                                                                                                  the model’s internal knowledge or require fewer
+                                          data are available at https://github.com/
+                                          YqjMartin/AgenticRAGTracer.                             reasoning steps than claimed. This misalignment
+                                                                                                  compromises the validity of reasoning evaluations.
+                                         * Equal contribution.                                    Faithfulness to RAG Settings. While the logical
+                         Step1: Initial Data Filtering                                                                 Step2: Atomic QA Generation
+
+  Ensure diversity:                                                                        Input Doc: Amherst, Victoria ... By 1857, there was also a Wesleyan (Methodist) church
+          Art              Sports               Economics             Politics   ······            Generated atomic QA pairs:
+                                                                                                   Q: What type of church was established in Amherst, Victoria by the year 1857?
+  Avoid Overlap:                                                                                   A: Wesleyan (Methodist) church
+                                                                                          LLM
+            Hotpotqa        2WikiMultihopQA           MuSiQue         BamboogleQA
+
+                                                                                                                       Step3: Atomic QA Filtering
+                       Step4: MultiHop QA Generation
+                                                                                            overly long responses           multi-part answers         only numbers answer
+   Wesleyan (Methodist) church                     Retrieved Doc: Wesleyanism ...
+                                                   the Wesleyan tradition has been        Query LLM with Generated Question:
+                                                   associated with Arminianism
+                                                                                                    ① Direct Inference without Support. —— Too Simple QA pairs
+   Generated new atomic QA pairs:
+                                                                                                    ② Inference Failure with Support. —— Too Hard QA pairs
+           Q: With which theological perspective is the Wesleyan (Methodist)               LLM      ③ Successful Inference with Support. —— Valid QA pairs
+           church closely associated?
+   LLM     A: Arminianism                                                                                             Step5: MultiHop QA Filtering
+   Merged multihop QA pairs:
+                                                                                                                 lacks key information from a specific hop
+           Q: With which theological perspective is the type of church established in
+           Amherst, Victoria by the year 1857 associated?                                                      simply copy one of the atomic sub-questions
+   LLM     A: Arminianism
+                                                                                           Check             question directly include an intermediate answer
+
+   Query LLM with Generated Question:
+                                                                                                       Inference Semantic Filtering         Comparison Semantic Filtering
+          ① Direct Inference without Info. —— Too Simple QA pairs                           LLM
+
+          ② Successful Inference with Insufficient Info. —— Too Simple QA pairs                                     Step6: Final Filtering and Human Review
+    LLM ③ Inference Failure with Sufficient Info. —— Too Hard QA pairs
+                                                                                                       Disambiguation via
+          ④ Successful Inference with Sufficient Info. —— Valid QA pairs                                                                                          Manual Check
+                                                                                                       Wikipedia SPARQL
+
+
+
+
+                                                               Figure 1: Data construction workflow.
+
+connections between hops may appear plausible                                             with final human verification. Evaluation results
+to humans, the provided supporting documents                                              on mainstream LLMs reveal significant challenges
+often fail to supply explicit links. in such cases, the                                   in multi-hop reasoning, highlighting the need for
+model is forced to implicitly rely on human prior                                         this diagnostic tool.
+knowledge rather than actual retrievable evidence,                                           Our main contributions are summarized as fol-
+violating the fundamental premise of RAG systems.                                         lows:
+Neglect of Intermediate Reasoning. Most
+benchmarks provide only the final supporting                                                  • We propose AgenticRAGTracer , a benchmark
+documents (or sentences) without the complete                                                   consisting of 1,305 examples, all of which are
+reasoning trajectory. For modern agents equipped                                                rigorously human-verified to ensure logical in-
+with retrieval tools, errors often occur at specific                                            tegrity. To the best of our knowledge, it is the
+intermediate steps (e.g., query formulation or                                                  first benchmark to enable hop-aware analysis,
+document selection). Current benchmarks fail                                                    providing the granular evidence necessary to
+to capture which step fails, treating the agent as                                              diagnose model performance at each specific
+a black box. Lack of Knowledge Bases and                                                        reasoning and retrieval step.
+Indices. Existing benchmarks typically do not
+release the specific corpus and retrieval index used                                          • We design an automatic pipeline for con-
+during construction. This omission not only makes                                               structing high-quality multi-hop Agentic RAG
+evaluation cumbersome but also severely hinders                                                 data, featuring a multi-stage verification proto-
+reproducibility, as retrieval performance is highly                                             col that blends automated logic filtering with
+sensitive to the underlying index construction.                                                 human-in-the-loop adjudication. This frame-
+                                                                                                work enables the scalable and convenient gen-
+   To address these limitations, we propose Agenti-                                             eration of diverse, high-fidelity datasets span-
+cRAGTracer , a Hop-Aware benchmark specifically                                                 ning multiple domains.
+designed for diagnosing multi-step retrieval rea-
+soning in Agentic RAG. We design an automated                                                 • Through a comprehensive evaluation of 13
+pipeline to generate high-quality questions with                                                mainstream models, we demonstrate that
+clear topological structures: Inference (Sequential)                                            existing LLMs—even state-of-the-art sys-
+and Comparison (Parallel). By simulating the in-                                                tems—exhibit severe degradation on com-
+teractive workflow of agents, we iteratively com-                                               plex multi-hop agentic reasoning. Leveraging
+bine atomic questions and apply rigorous filtering                                              hop-aware analysis, our benchmark uncovers
+      how errors accumulate across reasoning steps,      MINTQA (He et al., 2025). Yet, these approaches
+      specifically how the mismatch between rea-         also face shortcomings: MoreHopQA simply ex-
+      soning steps and task structure leads to col-      tends the hop length of existing benchmarks,
+      lapsed or over-extended trajectories that di-      while MultiHop-RAG and MINTQA rely on di-
+      verge from the required logical progression,       rectly prompting LLMs to generate questions from
+      highlighting limitations that are not captured     raw Wikipedia documents, without ensuring fine-
+      by conventional end-task evaluations.              grained quality control.
+
+2     Related Work                                       2.3      Data Synthesis
+
+2.1    Agentic RAG                                       Recently, data synthesis has emerged as an im-
+                                                         portant technique for improving the performance
+Retrieval-Augmented Generation (RAG) was origi-
+                                                         of large language models (LLMs) (Liang et al.,
+nally introduced to combine sequence generation
+                                                         2026; Bai et al., 2024; An et al., 2025; Guo et al.,
+with retrieval, allowing models to leverage exter-
+                                                         2025; Lin et al., 2025; An et al., 2024; Luo et al.,
+nal knowledge (Lewis et al., 2020). Subsequent
+                                                         2024). Prior work has extensively explored data
+research developed Advanced (Gao et al., 2024a),
+                                                         synthesis for both textual and multimodal domains.
+Modular (Gao et al., 2024b), and Graph RAG (Peng
+                                                         In the text domain, LLM-driven data synthesis
+et al., 2024) systems, which improved performance
+                                                         pipelines are typically constructed using complex,
+but largely operated as static pipelines. Recently,
+                                                         workflow-based systems such as DataFlow (Liang
+the field has shifted towards Agentic RAG, which
+                                                         et al., 2025a; Cai et al., 2025; Shen et al., 2025;
+integrates autonomous agent capabilities—such as
+                                                         Zheng et al., 2024; Liang et al., 2024), enabling
+planning, tool use, and reflection—into the retrieval
+                                                         high-quality synthetic data generation and achiev-
+framework. Recent studies formalize these systems,
+                                                         ing strong performance across a wide range of
+highlighting how agents can dynamically decide
+                                                         downstream tasks. In the multimodal domain, data
+what to retrieve and orchestrate multi-step inter-
+                                                         synthesis has also proven effective. For example,
+actions (Singh et al., 2025; Liang et al., 2025b).
+                                                         prior studies synthesize large-scale image caption
+Parallel efforts explore reinforcement learning to
+                                                         datasets (Liu et al., 2024) or multimodal verifi-
+optimize these reasoning-search trajectories (Jin
+                                                         cation trajectories (Sun et al., 2025) to enhance
+et al., 2025; Chen et al., 2025), transforming RAG
+                                                         the training and reasoning capabilities of vision-
+from a static process into an adaptive, goal-oriented
+                                                         language models.
+workflow. For more advanced data-centric agenti-
+crag approaches, please refer to Deng et al. (2025).
+                                                         3       Data Construction
+2.2    Benchmarks for Multi-hop Retrieval
+                                                         3.1      Initial Data Filtering
+With the rapid development of Agentic RAG in
+recent years, there is a growing need for bench-         As shown in Figure 1, we first randomly sampled a
+marks that can effectively evaluate its performance.     collection of documents from the Wikipedia dump1 .
+Multi-hop questions are particularly suitable for        To avoid overlap with existing benchmarks (includ-
+this purpose, as they require logical decomposi-         ing HotpotQA, 2Wiki, and MuSiQue), we com-
+tion and the use of multiple documents, making           pared their titles against those provided in the exist-
+them a natural testbed for assessing agent capabil-      ing datasets and removed duplicates. We then em-
+ities. Currently, most evaluations still rely on ear-    ployed an LLM 2 to annotate their types. This step
+lier benchmarks created through manual synthesis,        prevents an overrepresentation of any single ques-
+such as HotpotQA, 2WikiMultihopQA, MuSiQue,              tion type and ensures diversity within our bench-
+and BamboogleQA. However, the construction of            mark.
+these datasets is labor-intensive, as it requires man-
+                                                             1
+ually consulting large numbers of documents, and               Given that numerous recent Agentic RAG training
+                                                         efforts have adopted the index and corpus released by
+they also suffer from several inherent limitations.      FlashRAG, we follow the same collection to construct
+   More recently, benchmarks supported by LLM-           our benchmark, https://www.modelscope.cn/datasets/
+assisted question generation have been proposed,         hhjinjiajie/FlashRAG_Dataset thereby ensuring a fair
+                                                         and comparable evaluation of model performance.
+including MoreHopQA (Schnitzler et al., 2024),               2
+                                                               by default GPT-4o-mini, unless otherwise specified in the
+MultiHop-RAG (Tang and Yang, 2024), and                  paper
+                      ' D W D  6 W D W L V W L F V  R I  W K H  ' D W D V H W                                                                                                            ' L V W U L E X W L R Q  R I  ' D W D  ' R P D L Q V
+                                                                                                                                              $ U W                                                                                                                                                          
+                K R S                                                         K R S
+                                                                                                                                        6 S R U W V                                                                                                                                                
+                                                                    
+                                                                                                                                      & X O W X U H                                                                                                                             
+   K R S                                     , Q I H U H Q F H
+                                                                                                             ( F R Q R P L F V  % X V L Q H V V                                                                                                             
+                                                                                                                                      3 R O L W L F V                                                                                  
+                                                                                                                                      + L V W R U \                                                                      
+
+                                                                                                             6 F L H Q F H  7 H F K Q R O R J \                                                                   
+                                                                                                    K R S
+                                                                                                                                 ( G X F D W L R Q                                                      
+                                                                                                                                   ( W K Q L F L W \                                       
+                                       & R P S D U L V R Q                  
+                                                                                                                                 ( F R O R J \                                   
+           K R S                                                                     K R S                                      0 L O L W D U \                           
+                                                                                                                                         2 W K H U                                                                                    
+
+                                                                                                                                                                                                                                                                                             
+                                                                                                                                                                                                                     3 H U F H Q W D J H    
+
+                                                                                                               Figure 2: Data Statistics
+
+
+3.2           Atomic Question Generation                                                                                                                     tion protocol:
+                                                                                                                                                             1) Structural Integrity Filtering. We discard
+We synthesized atomic QA pairs from the filtered
+                                                                                                                                                             candidates with obvious syntactic or logical flaws.
+Wikipedia documents using an LLM, followed by
+                                                                                                                                                             Crucially, we filter out questions exhibiting infor-
+a rigorous quality assurance pipeline. The prompts
+                                                                                                                                                             mation leakage (where intermediate answers are
+used for data construction are provided in Ap-
+                                                                                                                                                             explicitly revealed in the question text) and those
+pendix C. First, we applied heuristic filtering to
+                                                                                                                                                             resulting from trivial concatenation (where sub-
+remove malformed responses; crucially, we ex-
+                                                                                                                                                             questions are simply joined without semantic inte-
+cluded answers consisting solely of numbers to
+                                                                                                                                                             gration).
+preserve semantic context, thereby preventing rel-
+                                                                                                                                                             2) Semantic Logic Verification. An LLM au-
+evance drift in subsequent retrieval hops. Next, to
+                                                                                                                                                             ditor is employed to reject incoherent reasoning
+ensure the necessity of retrieval, we discarded ques-
+                                                                                                                                                             chains. For inference questions, we eliminate spu-
+tions that the LLM could correctly answer using
+                                                                                                                                                             rious links, such as forcefully connecting unrelated
+only its parametric knowledge. Finally, we verified
+                                                                                                                                                             entities or conflating distinct entities with similar
+grounding solvability by re-prompting the LLM
+                                                                                                                                                             names. For comparison questions, we discard in-
+with the source document, retaining only those
+                                                                                                                                                             valid comparisons between dissimilar concepts or
+questions where the provided context was sufficient
+                                                                                                                                                             those lacking a clear comparative basis.
+to derive the correct answer.
+                                                                                                                                                             3) Multi-hop Necessity & Solvability Check. To
+                                                                                                                                                             guarantee the validity of the reasoning chain, we
+3.3           Design of Multi-hop Questions
+                                                                                                                                                             enforce three criteria: (i) Retrieval Necessity: The
+To comprehensively evaluate agentic reasoning, we                                                                                                            question must not be answerable by the model’s
+design two distinct question topologies: Sequen-                                                                                                             parametric memory alone; (ii) Dependency Irre-
+tial (Inference), which requires a stepwise logical                                                                                                          ducibility: Given the full document set, removing
+chain where intermediate answers bridge to the                                                                                                               any single supporting document must render the
+next step; and Parallel (Comparison), which ne-                                                                                                              question unanswerable; (iii) Grounded Solvability:
+cessitates gathering independent information about                                                                                                           The model must successfully derive the correct an-
+multiple entities before synthesizing a final answer.                                                                                                        swer when provided with the complete evidence
+Construction of 2-hop Questions. We synthesize                                                                                                               set.
+2-hop queries by retrieving additional documents                                                                                                             Extension to 3–4 Hop Questions. To challenge
+relevant to our atomic QA pairs, explicitly exclud-                                                                                                          the limits of sequential and parallel planning, we
+ing documents present in existing benchmarks to                                                                                                              iteratively extend verified 2-hop questions by ap-
+prevent leakage. An LLM is then prompted to                                                                                                                  pending additional inference steps. These higher-
+combine original and retrieved atomic pairs into                                                                                                             order questions undergo the same stringent filter-
+complex queries, dynamically selecting between                                                                                                               ing pipeline described above to ensure they remain
+inference or comparison templates. Each candidate                                                                                                            natural and logically solvable, yielding the final
+question undergoes a rigorous three-stage verifica-                                                                                                          benchmark.
+               Table 1: Results of Closed-Sourced and Open-Sourced LLMs on our AgenticRAGTracer.
+
+                                       Comparison                                                          Inference
+
+      Models           2hop                 3hop                 4hop                 2hop                   3hop                 4hop
+                EM     F1     LLM    EM     F1     LLM    EM     F1     LLM    EM     F1     LLM    EM       F1     LLM    EM     F1     LLM
+                                                          Closed-Sourced LLMs
+   o4-mini      77.7   85.1   86.0   67.6   74.0   79.1   35.9   47.7   54.7   47.8   57.2   66.2   41.4     45.4   48.7   21.4   31.8   34.5
+   GPT-5        76.2   85.4   88.1   69.8   76.0   81.3   26.6   39.3   45.3   48.4   59.0   70.0   33.3     40.3   42.3   22.6   34.0   39.3
+   GPT-4o       69.2   76.3   75.2   51.7   58.5   59.9   15.6   23.8   20.3   24.9   33.0   35.1   13.5     18.4   17.1   4.8    10.0    7.1
+   Grok-4       80.7   87.0   89.0   66.5   73.8   81.9   32.8   46.9   53.1   41.7   51.9   61.6   34.2     40.4   40.5   20.2   28.9   31.0
+   Grok-3       75.6   84.3   83.4   63.7   70.8   75.8   23.4   37.7   39.1   34.6   43.4   50.4   19.8     24.4   24.3   4.8    10.8   10.7
+                                                          Open-Sourced LLMs
+ DeepSeek-R1    74.1   82.0   81.7   43.4   52.7   59.9   15.6   24.3   32.8   27.7   37.7   43.3   16.2     21.8   20.7   4.8    10.7    7.1
+ DeepSeek-V3    66.0   72.1   72.2   37.4   41.7   44.0   15.6   23.7   23.4   22.9   30.1   33.3   10.8     15.3   15.3   2.4     7.5    6.0
+ Qwen2.5-72B    78.8   85.0   84.3   62.1   73.2   81.9   21.9   34.1   35.9   37.7   46.8   53.4   18.0     25.1   26.1   8.3    14.3   11.9
+ Qwen2.5-32B    70.7   77.5   76.7   50.6   60.3   64.8   18.8   26.8   26.6   34.6   42.4   48.4   11.7     14.5   16.2   6.0     9.1    9.5
+ Qwen2.5-7B     52.4   65.1   70.5   36.8   44.0   47.3   7.8    16.1   9.4    24.7   32.8   35.1   7.2      13.1   13.5   2.4     8.2    4.8
+  R-Search      72.2   80.9   78.3   39.0   47.7   51.7   14.1   22.3   15.6   26.0   36.0   41.5   13.5     23.8   20.7   7.1    13.0    9.5
+  Search-R1     64.5   74.5   65.4   44.5   53.9   48.9   15.6   25.7   12.5   25.5   34.8   37.4   11.7     16.4   14.4   6.0     9.5    7.1
+  ReSearch      60.3   69.9   67.7   47.3   56.6   55.0   12.5   25.7   21.9   28.2   37.5   41.2   17.1     20.3   20.7   4.8     9.2    7.1
+
+
+
+3.4     Human Review and Quality Control                                a balanced evaluation. The question topology (left)
+In the final stage, we apply Wikipedia SPARQL                           features a balanced composition of Inference and
+queries to remove potentially ambiguous cases                           Comparison types, facilitating a comprehensive as-
+where multiple entities share the same name in                          sessment of both sequential and parallel reasoning
+Wikipedia. Following this automated disambigua-                         capabilities. Moreover, the dataset spans a diffi-
+tion, to strictly guarantee data quality, we con-                       culty spectrum from fundamental 2-hop queries to
+ducted a full-scale manual verification of the entire                   complex 3- and 4-hop challenges. This progressive
+dataset.                                                                design allows for a fine-grained analysis, stepwise
+   Specifically, each generated data were indepen-                      unveiling the capability boundaries of agentic mod-
+dently evaluated by three trained human annotators.                     els. Due to space constraints, representative exam-
+The evaluation was formulated as a binary deci-                         ples of our benchmark are provided in Appendix A
+sion (Retain or Discard) driven by two primary                          to illustrate its structure and complexity.
+dimensions: (1) general quality checks to ensure
+strict factuality, faithfulness to the source text, and                 4      Experiments
+grammatical fluency; and (2) type-specific checks
+                                                                        4.1     Setup
+to validate the validity of intermediate reasoning
+steps and the dimensional consistency for compari-                      We evaluate a diverse set of LLMs on our bench-
+son questions.                                                          mark, including closed-source models (GPT and
+   To assess the reliability of the human evalua-                       Grok series), open-source models (DeepSeek
+tion, we calculated Fleiss’ Kappa (κ), achieving                        (DeepSeek-AI et al., 2025b,a) and Qwen (Qwen
+a score of 0.65, which indicates substantial inter-                     et al., 2025) series), as well as checkpoints of recent
+annotator agreement. For non-unanimous cases,                           Agentic RAG models trained from Qwen2.5-7B-
+the final labels were rigorously determined through                     Instruct (Search-R1 (Jin et al., 2025), ReSearch
+a consensus discussion involving both the annota-                       (Chen et al., 2025), and R-Search (Zhao et al.,
+tors and the authors. Further details are provided                      2025)). To ensure a fair comparison, all models
+in Appendix E.                                                          are evaluated under a unified experimental setting
+                                                                        using the Qwen-Agent framework, which follows
+3.5     Data statistics                                                 the ReAct (Yao et al., 2023) paradigm to interleave
+As shown in Figure 2, our benchmark exhibits both                       reasoning and actions. We report Exact Match
+semantic diversity and structural complexity. The                       (EM), F1 score, and LLM-as-a-Judge scores, com-
+domain distribution (right) spans over 11 categories                    bining objective metrics with model-based evalu-
+ranging from Art to Military, with no single domain                     ation. Regarding the LLM-as-a-Judge scores, we
+dominating more than 16% of the dataset, ensuring                       employ GPT-4o-mini with the temperature set to 0
+Table 2: Reasoning depth and average steps on AgenticRAGTracer. MaxD denotes the maximum reasoning depth
+reached by each model. C-Steps and I-Steps denote the average number of steps on correctly and incorrectly
+answered samples, respectively.
+
+                                  Comparison                                                             Inference
+      Models            3hop                        4hop                                   3hop                                 4hop
+                MaxD   Steps-C   Steps-I   MaxD    Steps-C   Steps-I      MaxD            Steps-C     Steps-I    MaxD      Steps-C            Steps-I
+                                                  Closed-Sourced LLMs
+      o4-mini   2.62    3.02      5.87     3.23     4.34      6.03          1.77           3.02        5.87       2.11          4.72           7.78
+      GPT-5     2.70    3.13      5.85     3.20     4.10      7.03          1.79           3.14        5.85       2.40          4.48           8.25
+      GPT-4o    2.43    3.15      3.38     2.81     4.08      4.18          0.96           3.16        3.38       1.02          3.83           4.92
+      Grok-4    2.70    3.19      3.76     3.16     4.65      5.57          1.65           3.19        3.76       2.00          4.69           6.95
+      Grok-3    2.53    3.01      3.00     3.00     4.44      4.62          1.09           3.01        3.00       0.94          4.44           5.47
+                                                  Open-Sourced LLMs
+ DeepSeek-R1    2.38    3.04      3.26     2.94     4.10      3.28          1.04           3.05        3.26       0.93          4.17           2.76
+ DeepSeek-V3    2.07    3.08      2.81     2.53     4.07      3.49          0.86           3.09        2.81       0.83          4.20           3.61
+ Qwen2.5-72B    2.76    3.28      3.54     3.03     4.30      4.41          1.16           3.28        3.55       0.94          4.50           7.03
+ Qwen2.5-32B    2.49    3.08      2.83     2.46     4.18      3.51          1.03           3.08        2.83       0.83          4.13           2.96
+ Qwen2.5-7B     2.20    2.95      3.04     2.52     4.50      3.41          0.93           3.01        3.04       0.89          5.00           3.66
+  R-Search      2.32    3.08      2.97     2.78     4.20      3.65          0.96           3.09        2.97       0.93          4.13           3.57
+  Search-R1     2.28    3.03      2.83     2.27     4.38      3.88          1.03           3.03        2.83       0.90          4.17           4.50
+  ReSearch      2.26    3.26      2.99     2.58     4.21      3.88          1.09           3.26        2.99       0.85          4.00           4.06
+
+
+                                                                                                                                                      5.0
+to ensure deterministic and reproducible results. To                   o4-mini     3.84       4.09     4.08     4.47     3.99          3.52
+verify the rationality and stability of this protocol,                  GPT-5      4.94       4.98     4.09     4.67     4.02          3.12           4.5
+
+we cross-checked the judge’s verdicts on a random                      GPT-4o      1.24       1.27     1.27     1.93     1.58          1.76
+                                                                                                                                                      4.0
+                                                                       Grok-4      4.84       4.87     4.69     4.67     4.38          4.00
+sample (20 instances per subset) against stronger
+                                                                       Grok-3      4.99       5.00     5.00     4.98     4.91          4.88
+models—specifically GPT-5 and Grok-4, as well as                                                                                                      3.5
+                                                                DeepSeek-R1        3.30       2.96     2.55     3.50     3.54          3.13
+human annotations. The results demonstrate near-
+                                                                DeepSeek-V3        1.02       1.02     1.03     1.20     1.03          1.06           3.0
+perfect agreement across these evaluators, confirm-                                3.07       2.95     3.03     3.85     3.99          2.82
+                                                                Qwen2.5-72B
+ing that the LLM judge provides a reliable and                  Qwen2.5-32B        3.96       3.80     3.81     4.50     4.56          4.43
+                                                                                                                                                      2.5
+
+unbiased measure of model performance. The de-                   Qwen2.5-7B        3.66       3.60     3.45     3.95     4.47          4.15
+                                                                                                                                                      2.0
+tailed prompts used for the evaluation are provided                  R-Search      3.78       3.19     2.94     4.39     4.25          3.66
+in the Appendix C.                                                Search-R1        4.14       3.83     3.66     4.22     4.36          4.22           1.5
+
+                                                                     Research     3.52        3.44     3.25      4.14     4.05      3.99
+4.2     Main Results                                                             2hop_c      3hop_c   4hop_c    2hop_i   3hop_i    4hop_i
+
+The primary results of our evaluation on the pro-                                   Figure 3: Average top-k values.
+posed benchmark are detailed in Table 1. We sum-
+marize the main findings below:
+   Overall, the benchmark poses a challenge to                    Closed-source models such as GPT-5, o4-mini,
+LLM’s multi-hop reasoning capability. Even GPT-                and Grok-4 generally outperform most open-source
+5 only has a 22.6% EM score on the 4-hop infer-                counterparts, demonstrating their stronger inte-
+ence benchmark.                                                grated reasoning and retrieval coordination abil-
+   Across all models, performance declines as the              ities. However, an exception is GPT-4o, which
+number of reasoning hops increases from two to                 performs unexpectedly poorly on our benchmark.
+four across both Comparison and Inference sub-                 To investigate the underlying causes of this perfor-
+sets; however, the magnitude of this degradation               mance discrepancy, we conducted a quantitative
+varies substantially across models, revealing dif-             analysis of the retrieval behavior across different
+ferent levels of robustness to long-chain reasoning.           models, specifically examining the retrieval volume
+Similarly, while all models perform worse on the               per step.
+Inference subset, the resulting performance gap                   As illustrated in Figure 3, there is a distinct corre-
+differs markedly, indicating that the benchmark ef-            lation between the retrieval strategy and overall per-
+fectively differentiates models in their ability to            formance. Top-tier models like Grok-4 and GPT-5
+handle serial reasoning and dependency tracking.               consistently employ larger top-k values, reflecting
+a strategy of broad evidence integration. In the con-    cRAGTracer demonstrates its ability to stress agen-
+text of agentic RAG, this "information-seeking"          tic reasoning beyond end-task accuracy. Instead
+behavior is crucial, as missing a single piece of        of reporting only overall accuracy, this cross-hop
+evidence in the early hops of a multi-step chain can     evaluation provides a layered, interpretable view
+irreversibly derail the entire reasoning process.        of reasoning behavior, revealing that a model may
+   In stark contrast, GPT-4o adopts a highly conser-     succeed in 2-hop reasoning but struggle with 3- or
+vative retrieval strategy, consistently retrieving far   4-hop chains, which is unattainable with traditional
+fewer documents per step—a behavior pattern no-          benchmarks.
+tably similar to DeepSeek-V3. This restrictive ap-          We also analyze the relationship between the
+proach creates an information bottleneck, resulting      reasoning step count and answer correctness on the
+in limited information accumulation that fails to sat-   3- and 4-hop subsets (Table 2), which represents
+isfy the grounded solvability requirements of com-       the challenging and representative setting of our
+plex multi-hop queries. Consequently, even with          benchmark. Across all models, correct responses
+strong internal reasoning capabilities, the model        exhibit step counts closely aligned with the target
+fails because it operates on an incomplete context.      hop number, indicating structurally consistent rea-
+This finding not only explains GPT-4o’s degrada-         soning trajectories. In contrast, incorrect responses
+tion but also highlights a key diagnostic capability     show significantly more diverse behavior, with both
+of our benchmark: it effectively exposes subop-          over-extended and prematurely terminated reason-
+timal retrieval strategies (e.g., over-confidence or     ing chains. This gap reveals that success in mul-
+premature stopping) that limit multi-hop reasoning       tihop RAG depends not on longer reasoning but
+effectiveness, which traditional single-hop bench-       on allocating an appropriate number of steps con-
+marks may overlook.                                      sistent with task structure, which is a distinction
+   Within open-source model families, perfor-            enabled by our benchmark but obscured in prior
+mance scales positively with model size: Qwen2.5-        evaluations.
+72B-Instruct consistently outperforms its 32B and
+7B variants, suggesting that larger capacity im-         4.4   Error Case Study
+proves multistep reasoning stability. And Qwen2.5-       To gain a deeper understanding of model failures,
+72B-Instruct outperforms the DeepSeek series, in-        we conducted a systematic analysis of the agentic
+dicating a stronger tool-calling and information         reasoning trajectories. Our findings reveal that the
+retrieval capability. Moreover, checkpoints de-          vast majority of failures are not isolated errors in
+rived from Qwen2.5-7B-Instruct substantially out-        tool usage but rather cascading failures fundamen-
+perform the base model; in some cases, they ap-          tally rooted in a breakdown of initial task decom-
+proach larger open-source models, though a gap to        position (Figure 4). As illustrated in the figure, the
+closed-source models remains.                            LLM incorrectly placed the specific token ’sixth ca-
+                                                         reer game-winner’ into the first reasoning step; sub-
+4.3   Multi-Hop Analysis                                 sequently, it introduced a spurious subgoal—’the
+To better understand model performance on multi-         professional football team he first faced’—which
+step reasoning, we examine the maximal reason-           lacked a logical basis in the original query. This
+ing depth that models can handle when failing on         initial analytical misstep propagated a chain of er-
+higher-hop questions. For each 3- and 4-hop ques-        rors throughout the reasoning trajectory, ultimately
+tion, we record the average of the highest corre-        rendering the final inference completely incorrect.
+sponding lower-hop questions that the model an-             The core bottleneck lies in the model’s inability
+swers correctly (Table 2). This metric captures the      to correctly partition a complex, multi-hop query
+depth of reasoning that a model can achieve, even        into a valid logical sequence. A single analytical
+when it fails on longer chains. This analysis serves     misstep at this stage immediately diverts the agent
+two purposes. First, it highlights the limitations       onto an erroneous reasoning trajectory. Once the
+of the current models in maintaining coherent, it-       agent enters such a misaligned path, its entire sub-
+erative reasoning: frequent failures on high-hop         sequent interactive process becomes fundamentally
+questions, despite solving the initial hops, indicate    unproductive; the agent effectively "loses its way,"
+weaknesses in multi-step integration. Second, it         pursuing a flawed objective where even success-
+validates our benchmark design: by quantifying           ful retrieval steps fail to contribute to the correct
+performance degradation across hop levels, Agenti-       answer. In this state of trajectory deviation, the
+          Question
+      Which broader trading area does the metropolitan area of the city        Error Trace
+      where the professional football team that faced the player who        1. Search RAG for “2009 UCLA Bruins 27-yard field goal early
+      kicked a 27-yard field goal early in the final period for the 2009
+                                                                            in the finalperiod sixth career game-winner” to identify the
+      UCLA Bruins football team in his sixth career game-winner is
+      based form the core of?                                               player and the specificgame.
+                                                                            2. Search RAG for “[Player Name] first NFL game opponent”
+       Golden Trace                                                         to determinewhich professional football team he first faced.
+                                                                            3. Search RAG for “[Opponent Team Name] home city” to find
+      1. Search for “Who kicked a 27-yard field goal early in the
+                                                                            the citywhere that professional team is based.
+      final period for the 2009 UCLA Bruins football team?”
+                                                                            4. Search RAG for “[City Name] metropolitan area” to get the
+      2. Search for “Against which team did [step1 player] achieve
+      his sixth career game-winner”                                         officialmetropolitan area designation.
+      3. Search for “What is the location of [step2 team]”                  5. Search RAG for “[Metropolitan Area Name] forms the core
+      4. Search for “Which broader trading area does [step3 area]           of” toidentify the broader trading area that metro area forms the
+      form the core of?”                                                    core of.
+
+
+
+Figure 4: Error case study. We present the key information in the figure; additional details can be found in
+Appendix D.
+
+
+model’s efforts—such as issuing redundant queries                          tive course correction and informed termination.
+or misinterpreting retrieved context—are merely                            Our benchmark serves as a crucial diagnostic tool
+inevitable byproducts of its commitment to a faulty                        in this regard, proving that the bottleneck in multi-
+plan. Ultimately, these observations underscore                            hop reasoning is not merely the lack of information,
+that the reliability of Agentic RAG is primarily                           but the inability to strategically and autonomously
+governed by the robustness of its high-level logi-                         manage the reasoning process itself.
+cal planning, where the initial hop determines the
+viability of the entire reasoning chain.                                   5    Conclusion
+                                                                           In this paper, we introduce AgenticRAGTracer, the
+4.5     Discussion
+                                                                           first hop-aware benchmark for evaluating Agentic
+The empirical findings from AgenticRAGTracer                               RAG systems, together with an automated pipeline
+reveal a fundamental gap between "following a                              for constructing high-quality multi-hop questions.
+planning prompt" and "possessing true reasoning                            By iteratively synthesizing atomic facts into com-
+agency." Although our evaluation pipeline man-                             plex Inference and Comparison topologies, our
+dates an initial planning stage, the high failure rates                    pipeline ensures that each question possesses a
+on complex tasks—coupled with the cascading er-                            clear, traceable reasoning structure backed by rig-
+rors illustrated in Figure 3—highlight a pervasive                         orous logical verification. Extensive experiments
+rigidity in plan execution. Most models treat their                        reveal that model failures are predominantly char-
+initial decomposition not as a flexible working hy-                        acterized by distorted reasoning chains, either col-
+pothesis, but as an immutable script. When a model                         lapsing prematurely or drifting into over-extension,
+encounters a dead end or retrieves information that                        reflecting an inability to allocate reasoning steps
+contradicts its initial assumptions, it lacks the au-                      in alignment with the logical structure of the task.
+tonomous meta-cognition to pause and re-evaluate                           AgenticRAGTracer contributes a novel diagnostic
+its trajectory. This reasoning inertia is quantita-                        perspective by shifting the focus toward step-level
+tively evidenced in Table 2, where the reasoning                           transparency. A core strength of our work lies in the
+steps for failed tasks (Steps-I) significantly exceed                      high logical fidelity of our benchmark; by combin-
+those for successful ones (Steps-C). This "flailing"                       ing a controlled automated pipeline with rigorous
+behavior—characterized by redundant queries and                            human verification, we ensure a reliable and trace-
+over-extension—suggests that current agents can-                           able dataset that goes beyond simple end-to-end
+not autonomously distinguish between a path that                           metrics. We hope this resource provides a useful
+requires more evidence and one that has entered a                          foundation for the community to identify subtle
+logical abyss. True autonomous agency in RAG                               failure modes and encourages the development of
+requires more than just better planning; it demands                        more resilient, self-correcting Agentic RAG sys-
+a dynamic self-audit mechanism capable of proac-                           tems.
+References                                                   Xuecheng Su, Xuheng Lin, X. Q. Li, Xiangyue Jin,
+                                                             Xiaojin Shen, Xiaosha Chen, Xiaowen Sun, Xiaoxi-
+Ruichuan An, Sihan Yang, Ming Lu, Renrui Zhang,              ang Wang, Xinnan Song, Xinyi Zhou, Xianzu Wang,
+  Kai Zeng, Yulin Luo, Jiajun Cao, Hao Liang, Ying           Xinxia Shan, Y. K. Li, Y. Q. Wang, Y. X. Wei, Yang
+  Chen, Qi She, et al. 2024. Mc-llava: Multi-concept         Zhang, Yanhong Xu, Yao Li, Yao Zhao, Yaofeng
+  personalized vision-language model. arXiv preprint         Sun, Yaohui Wang, Yi Yu, Yichao Zhang, Yifan Shi,
+  arXiv:2411.11706.                                          Yiliang Xiong, Ying He, Yishi Piao, Yisong Wang,
+                                                             Yixuan Tan, Yiyang Ma, Yiyuan Liu, Yongqiang Guo,
+Ruichuan An, Sihan Yang, Renrui Zhang, Zijun
+                                                             Yuan Ou, Yuduan Wang, Yue Gong, Yuheng Zou, Yu-
+  Shen, Ming Lu, Gaole Dai, Hao Liang, Ziyu Guo,
+                                                             jia He, Yunfan Xiong, Yuxiang Luo, Yuxiang You,
+  Shilin Yan, Yulin Luo, et al. 2025. Unictokens:
+                                                             Yuxuan Liu, Yuyang Zhou, Y. X. Zhu, Yanhong Xu,
+  Boosting personalized understanding and genera-
+                                                             Yanping Huang, Yaohui Li, Yi Zheng, Yuchen Zhu,
+  tion via unified concept tokens. arXiv preprint
+                                                             Yunxian Ma, Ying Tang, Yukun Zha, Yuting Yan,
+  arXiv:2505.14671.
+                                                             Z. Z. Ren, Zehui Ren, Zhangli Sha, Zhe Fu, Zhean
+Tianyi Bai, Hao Liang, Binwang Wan, Yanran Xu, Xi Li,        Xu, Zhenda Xie, Zhengyan Zhang, Zhewen Hao,
+   Shiyu Li, Ling Yang, Bozhou Li, Yifan Wang, Bin           Zhicheng Ma, Zhigang Yan, Zhiyu Wu, Zihui Gu, Zi-
+   Cui, et al. 2024. A survey of multimodal large lan-       jia Zhu, Zijun Liu, Zilin Li, Ziwei Xie, Ziyang Song,
+   guage model from a data-centric perspective. arXiv        Zizheng Pan, Zhen Huang, Zhipeng Xu, Zhongyu
+   preprint arXiv:2405.16640.                                Zhang, and Zhen Zhang. 2025a. Deepseek-r1: In-
+                                                             centivizing reasoning capability in llms via reinforce-
+Qifeng Cai, Hao Liang, Chang Xu, Tao Xie, Wentao             ment learning. Preprint, arXiv:2501.12948.
+  Zhang, and Bin Cui. 2025. Text2sql-flow: A robust
+  sql-aware data augmentation framework for text-to-       DeepSeek-AI, Aixin Liu, Bei Feng, Bing Xue, Bingx-
+  sql. arXiv preprint arXiv:2511.10192.                      uan Wang, Bochao Wu, Chengda Lu, Chenggang
+                                                             Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan,
+Mingyang Chen, Linzhuang Sun, Tianpeng Li, Haoze             Damai Dai, Daya Guo, Dejian Yang, Deli Chen,
+  Sun, Yijie Zhou, Chenzheng Zhu, Haofen Wang,               Dongjie Ji, Erhang Li, Fangyun Lin, Fucong Dai,
+  Jeff Z. Pan, Wen Zhang, Huajun Chen, Fan Yang,             Fuli Luo, Guangbo Hao, Guanting Chen, Guowei
+  Zenan Zhou, and Weipeng Chen. 2025. Research:              Li, H. Zhang, Han Bao, Hanwei Xu, Haocheng
+  Learning to reason with search for llms via reinforce-     Wang, Haowei Zhang, Honghui Ding, Huajian Xin,
+  ment learning. Preprint, arXiv:2503.19470.                 Huazuo Gao, Hui Li, Hui Qu, J. L. Cai, Jian Liang,
+                                                             Jianzhong Guo, Jiaqi Ni, Jiashi Li, Jiawei Wang,
+DeepSeek-AI, Daya Guo, Dejian Yang, Haowei Zhang,            Jin Chen, Jingchang Chen, Jingyang Yuan, Junjie
+  Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu,           Qiu, Junlong Li, Junxiao Song, Kai Dong, Kai Hu,
+  Shirong Ma, Peiyi Wang, Xiao Bi, Xiaokang Zhang,           Kaige Gao, Kang Guan, Kexin Huang, Kuai Yu, Lean
+  Xingkai Yu, Yu Wu, Z. F. Wu, Zhibin Gou, Zhihong           Wang, Lecong Zhang, Lei Xu, Leyi Xia, Liang Zhao,
+  Shao, Zhuoshu Li, Ziyi Gao, Aixin Liu, Bing Xue,           Litong Wang, Liyue Zhang, Meng Li, Miaojun Wang,
+  Bingxuan Wang, Bochao Wu, Bei Feng, Chengda Lu,            Mingchuan Zhang, Minghua Zhang, Minghui Tang,
+  Chenggang Zhao, Chengqi Deng, Chenyu Zhang,                Mingming Li, Ning Tian, Panpan Huang, Peiyi Wang,
+  Chong Ruan, Damai Dai, Deli Chen, Dongjie Ji,              Peng Zhang, Qiancheng Wang, Qihao Zhu, Qinyu
+  Erhang Li, Fangyun Lin, Fucong Dai, Fuli Luo,              Chen, Qiushi Du, R. J. Chen, R. L. Jin, Ruiqi Ge,
+  Guangbo Hao, Guanting Chen, Guowei Li, H. Zhang,           Ruisong Zhang, Ruizhe Pan, Runji Wang, Runxin
+  Han Bao, Hanwei Xu, Haocheng Wang, Honghui                 Xu, Ruoyu Zhang, Ruyi Chen, S. S. Li, Shanghao
+  Ding, Huajian Xin, Huazuo Gao, Hui Qu, Hui Li,             Lu, Shangyan Zhou, Shanhuang Chen, Shaoqing Wu,
+  Jianzhong Guo, Jiashi Li, Jiawei Wang, Jingchang           Shengfeng Ye, Shengfeng Ye, Shirong Ma, Shiyu
+  Chen, Jingyang Yuan, Junjie Qiu, Junlong Li, J. L.         Wang, Shuang Zhou, Shuiping Yu, Shunfeng Zhou,
+  Cai, Jiaqi Ni, Jian Liang, Jin Chen, Kai Dong, Kai         Shuting Pan, T. Wang, Tao Yun, Tian Pei, Tianyu
+  Hu, Kaige Gao, Kang Guan, Kexin Huang, Kuai                Sun, W. L. Xiao, Wangding Zeng, Wanjia Zhao, Wei
+  Yu, Lean Wang, Lecong Zhang, Liang Zhao, Litong            An, Wen Liu, Wenfeng Liang, Wenjun Gao, Wenqin
+  Wang, Liyue Zhang, Lei Xu, Leyi Xia, Mingchuan             Yu, Wentao Zhang, X. Q. Li, Xiangyue Jin, Xianzu
+  Zhang, Minghua Zhang, Minghui Tang, Meng Li,               Wang, Xiao Bi, Xiaodong Liu, Xiaohan Wang, Xi-
+  Miaojun Wang, Mingming Li, Ning Tian, Panpan               aojin Shen, Xiaokang Chen, Xiaokang Zhang, Xi-
+  Huang, Peng Zhang, Qiancheng Wang, Qinyu Chen,             aosha Chen, Xiaotao Nie, Xiaowen Sun, Xiaoxiang
+  Qiushi Du, Ruiqi Ge, Ruisong Zhang, Ruizhe Pan,            Wang, Xin Cheng, Xin Liu, Xin Xie, Xingchao Liu,
+  Runji Wang, R. J. Chen, R. L. Jin, Ruyi Chen,              Xingkai Yu, Xinnan Song, Xinxia Shan, Xinyi Zhou,
+  Shanghao Lu, Shangyan Zhou, Shanhuang Chen,                Xinyu Yang, Xinyuan Li, Xuecheng Su, Xuheng Lin,
+  Shengfeng Ye, Shiyu Wang, Shuiping Yu, Shunfeng            Y. K. Li, Y. Q. Wang, Y. X. Wei, Y. X. Zhu, Yang
+  Zhou, Shuting Pan, S. S. Li, Shuang Zhou, Shaoqing         Zhang, Yanhong Xu, Yanhong Xu, Yanping Huang,
+  Wu, Shengfeng Ye, Tao Yun, Tian Pei, Tianyu Sun,           Yao Li, Yao Zhao, Yaofeng Sun, Yaohui Li, Yao-
+  T. Wang, Wangding Zeng, Wanjia Zhao, Wen Liu,              hui Wang, Yi Yu, Yi Zheng, Yichao Zhang, Yifan
+  Wenfeng Liang, Wenjun Gao, Wenqin Yu, Wentao               Shi, Yiliang Xiong, Ying He, Ying Tang, Yishi Piao,
+  Zhang, W. L. Xiao, Wei An, Xiaodong Liu, Xiaohan           Yisong Wang, Yixuan Tan, Yiyang Ma, Yiyuan Liu,
+  Wang, Xiaokang Chen, Xiaotao Nie, Xin Cheng, Xin           Yongqiang Guo, Yu Wu, Yuan Ou, Yuchen Zhu, Yud-
+  Liu, Xin Xie, Xingchao Liu, Xinyu Yang, Xinyuan Li,        uan Wang, Yue Gong, Yuheng Zou, Yujia He, Yukun
+  Zha, Yunfan Xiong, Yunxian Ma, Yuting Yan, Yux-            Kelcey, Ming-Wei Chang, Andrew M. Dai, Jakob
+  iang Luo, Yuxiang You, Yuxuan Liu, Yuyang Zhou,            Uszkoreit, Quoc Le, and Slav Petrov. 2019. Natu-
+  Z. F. Wu, Z. Z. Ren, Zehui Ren, Zhangli Sha, Zhe           ral questions: A benchmark for question answering
+  Fu, Zhean Xu, Zhen Huang, Zhen Zhang, Zhenda               research. Transactions of the Association for Compu-
+  Xie, Zhengyan Zhang, Zhewen Hao, Zhibin Gou,               tational Linguistics, 7:452–466.
+  Zhicheng Ma, Zhigang Yan, Zhihong Shao, Zhipeng
+  Xu, Zhiyu Wu, Zhongyu Zhang, Zhuoshu Li, Zihui           Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+  Gu, Zijia Zhu, Zijun Liu, Zilin Li, Ziwei Xie, Ziyang      Petroni, Vladimir Karpukhin, Naman Goyal, Hein-
+  Song, Ziyi Gao, and Zizheng Pan. 2025b. Deepseek-          rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-
+  v3 technical report. Preprint, arXiv:2412.19437.           täschel, Sebastian Riedel, and Douwe Kiela. 2020.
+                                                             Retrieval-augmented generation for knowledge-
+Jingwen Deng, Jihao Huang, Zhen Hao Wong, Hao                intensive nlp tasks. In Advances in Neural Infor-
+   Liang, Quanqing Xu, Bin Cui, and Wentao Zhang.            mation Processing Systems, volume 33, pages 9459–
+   2025. Data-centric perspectives on agentic retrieval-     9474. Curran Associates, Inc.
+   augmented generation: A survey.           Authorea
+   Preprints.                                              Hao Liang, Xiaochen Ma, Zhou Liu, Zhen Hao
+                                                             Wong, Zhengyang Zhao, Zimo Meng, Runming
+Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jin-        He, Chengyu Shen, Qifeng Cai, Zhaoyang Han,
+  liu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, Meng Wang, and       et al. 2025a. Dataflow: An llm-driven framework
+  Haofen Wang. 2024a. Retrieval-augmented genera-            for unified data preparation and workflow automa-
+  tion for large language models: A survey. Preprint,        tion in the era of data-centric ai. arXiv preprint
+  arXiv:2312.10997.                                          arXiv:2512.16676.
+Yunfan Gao, Yun Xiong, Meng Wang, and Haofen               Hao Liang, Linzhuang Sun, Jingxuan Wei, Xijie Huang,
+  Wang. 2024b. Modular rag: Transforming rag                 Linkun Sun, Bihui Yu, Conghui He, and Wen-
+  systems into lego-like reconfigurable frameworks.          tao Zhang. 2024. Synth-empathy: Towards high-
+  Preprint, arXiv:2407.21059.                                quality synthetic empathy data. arXiv preprint
+Ziyu Guo, Xinyan Chen, Renrui Zhang, Ruichuan An,            arXiv:2407.21669.
+  Yu Qi, Dongzhi Jiang, Xiangtai Li, Manyuan Zhang,        Hao Liang, Zhen Hao Wong, Ruitong Liu, Yuhan Wang,
+  Hongsheng Li, and Pheng-Ann Heng. 2025. Are                Meiyi Qiang, Zhengyang Zhao, Chengyu Shen, Con-
+  video models ready as zero-shot reasoners? an em-          ghui He, Wentao Zhang, and Bin Cui. 2026. Data
+  pirical study with the mme-cof benchmark. arXiv            preparation for large language models. Journal of
+  preprint arXiv:2510.26802.                                 Computer Science and Technology.
+Jie He, Nan Hu, Wanqiu Long, Jiaoyan Chen, and Jeff Z.
+   Pan. 2025. Mintqa: A multi-hop question answer-         Jintao Liang, Gang Su, Huifeng Lin, You Wu, Rui
+   ing benchmark for evaluating llms on new and tail          Zhao, and Ziyue Li. 2025b. Reasoning rag via sys-
+   knowledge. Preprint, arXiv:2412.17032.                     tem 1 or system 2: A survey on reasoning agen-
+                                                              tic retrieval-augmented generation for industry chal-
+Xanh Ho, Anh-Khoa Duong Nguyen, Saku Sugawara,                lenges. Preprint, arXiv:2506.10408.
+  and Akiko Aizawa. 2020. Constructing a multi-
+  hop QA dataset for comprehensive evaluation of           Weifeng Lin, Xinyu Wei, Ruichuan An, Tianhe Ren,
+  reasoning steps. In Proceedings of the 28th Inter-        Tingwei Chen, Renrui Zhang, Ziyu Guo, Wentao
+  national Conference on Computational Linguistics,         Zhang, Lei Zhang, and Hongsheng Li. 2025. Per-
+  pages 6609–6625, Barcelona, Spain (Online). Inter-        ceive anything: Recognize, explain, caption, and
+  national Committee on Computational Linguistics.          segment anything in images and videos. Preprint,
+                                                            arXiv:2506.05302.
+Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Ser-
+  can O Arik, Dong Wang, Hamed Zamani, and Jiawei          Zheng Liu, Hao Liang, Xijie Huang, Wentao Xiong,
+  Han. 2025. Search-r1: Training LLMs to reason and          Qinhan Yu, Linzhuang Sun, Chong Chen, Con-
+  leverage search engines with reinforcement learning.       ghui He, Bin Cui, and Wentao Zhang. 2024. Syn-
+  In Second Conference on Language Modeling.                 thvlm: High-efficiency and high-quality synthetic
+                                                             data for vision language models. arXiv preprint
+Mandar Joshi, Eunsol Choi, Daniel Weld, and Luke             arXiv:2407.20756.
+ Zettlemoyer. 2017. TriviaQA: A large scale distantly
+ supervised challenge dataset for reading comprehen-       Yulin Luo, Ruichuan An, Bocheng Zou, Yiming Tang,
+ sion. In Proceedings of the 55th Annual Meeting of          Jiaming Liu, and Shanghang Zhang. 2024. Llm as
+ the Association for Computational Linguistics (Vol-         dataset analyst: Subpopulation structure discovery
+ ume 1: Long Papers), pages 1601–1611, Vancouver,            with large language model. In European Conference
+ Canada. Association for Computational Linguistics.          on Computer Vision, pages 235–252. Springer.
+
+Tom Kwiatkowski, Jennimaria Palomaki, Olivia Red-          Boci Peng, Yun Zhu, Yongchao Liu, Xiaohe Bo,
+  field, Michael Collins, Ankur Parikh, Chris Alberti,       Haizhou Shi, Chuntao Hong, Yan Zhang, and Siliang
+  Danielle Epstein, Illia Polosukhin, Jacob Devlin, Ken-     Tang. 2024. Graph retrieval-augmented generation:
+  ton Lee, Kristina Toutanova, Llion Jones, Matthew          A survey. Preprint, arXiv:2408.08921.
+Qwen, :, An Yang, Baosong Yang, Beichen Zhang,           Miao Zheng, Hao Liang, Fan Yang, Haoze Sun, Tian-
+ Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li,            peng Li, Lingchu Xiong, Yan Zhang, Youzhen Wu,
+ Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin,            Kun Li, Yanjun Shen, et al. 2024. Pas: Data-efficient
+ Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang,      plug-and-play prompt augmentation system. arXiv
+ Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai Dang,          preprint arXiv:2407.06027.
+ Keming Lu, Keqin Bao, Kexin Yang, Le Yu, Mei Li,
+ Mingfeng Xue, Pei Zhang, Qin Zhu, Rui Men, Runji
+ Lin, Tianhao Li, Tianyi Tang, Tingyu Xia, Xingzhang
+ Ren, Xuancheng Ren, Yang Fan, Yang Su, Yichang
+ Zhang, Yu Wan, Yuqiong Liu, Zeyu Cui, Zhenru
+ Zhang, and Zihan Qiu. 2025. Qwen2.5 technical
+ report. Preprint, arXiv:2412.15115.
+
+Julian Schnitzler, Xanh Ho, Jiahao Huang, Flo-
+   rian Boudin, Saku Sugawara, and Akiko Aizawa.
+   2024. Morehopqa: More than multi-hop reasoning.
+   Preprint, arXiv:2406.13397.
+
+Chengyu Shen, Zhen Hao Wong, Runming He, Hao
+  Liang, Meiyi Qiang, Zimo Meng, Zhengyang Zhao,
+  Bohan Zeng, Zhengzhou Zhu, Bin Cui, et al. 2025.
+  Let’s verify math questions step by step. arXiv
+  preprint arXiv:2505.13903.
+
+Aditi Singh, Abul Ehtesham, Saket Kumar, and Tala Ta-
+  laei Khoei. 2025. Agentic retrieval-augmented
+  generation: A survey on agentic rag. Preprint,
+  arXiv:2501.09136.
+
+Linzhuang Sun, Hao Liang, Jingxuan Wei, Bihui Yu,
+  Tianpeng Li, Fan Yang, Zenan Zhou, and Wentao
+  Zhang. 2025. Mm-verify: Enhancing multimodal
+  reasoning with chain-of-thought verification. arXiv
+  preprint arXiv:2502.13383.
+
+Yixuan Tang and Yi Yang. 2024. Multihop-rag: Bench-
+  marking retrieval-augmented generation for multi-
+  hop queries. Preprint, arXiv:2401.15391.
+
+Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot,
+  and Ashish Sabharwal. 2022. MuSiQue: Multi-
+  hop questions via single-hop question composition.
+  Transactions of the Association for Computational
+  Linguistics, 10:539–554.
+
+Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio,
+  William Cohen, Ruslan Salakhutdinov, and Christo-
+  pher D. Manning. 2018. HotpotQA: A dataset for
+  diverse, explainable multi-hop question answering.
+  In Proceedings of the 2018 Conference on Empiri-
+  cal Methods in Natural Language Processing, pages
+  2369–2380, Brussels, Belgium. Association for Com-
+  putational Linguistics.
+
+Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak
+  Shafran, Karthik Narasimhan, and Yuan Cao. 2023.
+  React: Synergizing reasoning and acting in language
+  models. In International Conference on Learning
+  Representations (ICLR).
+
+Qingfei Zhao, Ruobing Wang, Dingling Xu, Daren Zha,
+  and Limin Liu. 2025. R-search: Empowering llm
+  reasoning with search via multi-reward reinforcement
+  learning. Preprint, arXiv:2506.04185.
+A     Data Example
+
+Table 3: Data Example. To make it look clearer, We only present the key information from the supporting documents
+that is directly used in question generation.
+    Inference    2-hop   1-hop Question: What type of church was established in Amherst, Victoria by the year 1857?
+                         1-hop Answer: Wesleyan (Methodist) church
+                         1-hop Doc: Amherst, Victoria ... By 1857, there was also a Wesleyan (Methodist) church ...
+                         New Atomic Question: With which theological perspective is the Wesleyan (Methodist) church
+                         closely associated?
+                         New Atomic Answer: Arminianism
+                         New Doc: Wesleyanism ... the Wesleyan tradition has been associated with Arminianism ...
+                         2-hop Question: With which theological perspective is the type of church established in Amherst,
+                         Victoria by the year 1857 associated?
+                         2-hop Answer: Arminianism
+                 3-hop   New Atomic Question: Who is the Dutch Reformed theologian associated with the concept of
+                         Arminianism?
+                         New Atomic Answer: Jacobus Arminius
+                         New Doc: Arminianism ... is based on theological ideas of the Dutch Reformed theologian
+                         Jacobus Arminius ...
+                         3-hop Question: Who is the Dutch Reformed theologian associated with the theological perspec-
+                         tive of the church established in Amherst, Victoria by the year 1857?
+                         3-hop Answer: Jacobus Arminius
+                 4-hop   New Atomic Question: Where did Jacobus Arminius teach his sermons on the Epistle of the
+                         Romans?
+                         New Atomic Answer: Amsterdam
+                         New Doc: Jacobus Arminius ... At Amsterdam, Arminius taught through "a number of sermons
+                         on the Epistle of the Romans." ...
+                         4-hop Question: Where did the Dutch Reformed theologian associated with the theological
+                         perspective of the church established in Amherst, Victoria by the year 1857 teach his sermons on
+                         the Epistle of the Romans?
+                         4-hop Answer: Amsterdam
+    Comparison   2-hop   1-hop Question: What is the effective temperature of Omega Persei?
+                         1-hop Answer: 4,586 K
+                         1-hop Doc: Omega Persei ... at an effective temperature of 4,586 K ...
+                         New Atomic Question: What is the effective temperature of the stellar atmosphere of HD
+                         195564?
+                         New Atomic Answer: 5,421 K
+                         New Doc: HD 195564 ... The effective temperature of the stellar atmosphere is 5,421 K ...
+                         2-hop Question: Which star has a higher effective temperature, Omega Persei or HD 195564?
+                         2-hop Answer: HD 195564
+                 3-hop   New Atomic Question: What spacecraft provided parallax measurements for HD 195564?
+                         New Atomic Answer: Hipparcos
+                         New Doc: HD 195564 ... Parallax measurements from the Hipparcos spacecraft give us an
+                         estimate of its distance ...
+                         3-hop Question: What spacecraft provided parallax measurements for the star that has a higher
+                         effective temperature, Omega Persei or HD 195564?
+                         3-hop Answer: Hipparcos
+                 4-hop   New Atomic Question: How many entries does the Hipparcos Catalogue contain?
+                         New Atomic Answer: 118,218 entries
+                         New Doc: Hipparcos ... contains 118,218 entries (stars or multiple stars) ...
+                         4-hop Question: How many entries does the catalogue produced by the spacecraft that provided
+                         parallax measurements for the star with a higher effective temperature between Omega Persei
+                         and HD 195564 contain?
+                         4-hop Answer: 118,218 entries
+B     Case Studies of Limitations in Prior                     Cheif of Staff, born in 1950, who assumed the role
+      Work                                                     at the same time as Elaine Duke became Secretary
+                                                               of Homeland Security?
+The following examples illustrate the issues dis- Answer: John Francis Kelly
+cussed above regarding prior work.                             Supporting_Facts:
+Multi-hop Questions with Incorrect Step                        title: Elaine Duke
+Counts:                                                        Elaine Costanzo Duke (born 1958) is an American
+                                                               civil servant who is the current Acting United
+                                                               States Secretary of Homeland Security.
+ User:
+                                                               On January 30, 2017, she was nominated by
+ You are a world expert at making efficient plans to solve any
+ task using an RAG Search tool. ...                            President Donald Trump to become the United
+ Here is your task: What is the name of this White House       States Deputy Secretary of Homeland Security
+ Cheif of Staff, born in 1950, who assumed the role at the     under John F. Kelly.
+ same time as Elaine Duke became Secretary of Homeland
+ Security?                                                     She became acting Secretary of Homeland Security
+                                                               on July 31, 2017, when John F. Kelly assumed the
+ Assistant:
+ 1. Search “Elaine Duke Secretary of Homeland Security start office of White House Chief of Staff.
+ date
+ 2. Search “White House Chief of Staff assumed office on        Unretrievable Questions for RAG:
+ [date from step 1]
+ 3. Search “[Name of Chief of Staff from step 2] born 1950      Question: Who is the spouse of the Green
+                                                                performer?
+ User:
+ Based on the plan and the search results before (if there is),
+                                                                Answer: Miquette Giraudy
+ first analyse what information you have gained and what        supporting_facts:
+ other information you still need, then EXECUTE ONLY            Question: Green » performer
+ ONE MORE step using the RAG search tool. ...
+                                                                Answer: Steve Hillage
+ Assistant:                                                     Doc: Green is the fourth studio album by British
+ "function_call": {"name": "RAG_search",
+ "arguments": "{query: Elaine Duke Secretary of                 progressive rock musician Steve Hillage. Written
+ Homeland Security start date, topk: 3}"}                       in spring 1977 at the same time as his previous
+ [RAGTool Results]                                              album, the funk-inflected "Motivation Radio"
+ Query: "Elaine Duke Secretary of Homeland Security start       (1977), "Green" was originally going to be released
+ date"                                                          as "The Green Album" as a companion to "The
+ Topk = 3
+                                                                Red Album" (the originally intended name for
+ Document:
+ "Elaine Duke" Elaine Duke Elaine Costanzo Duke (born June "Motivation Radio"). However, this plan was
+ 26, 1958) is an American civil servant and former United       dropped and after a US tour in late 1977, "Green"
+ States Deputy Secretary of Homeland Security, serving from was recorded alone, primarily in Dorking, Surrey,
+ April 10, 2017 until April 15, 2018. She became acting
+ Secretary of Homeland Security on July 31, 2017, when John and in London.
+ F. Kelly assumed the office of White House Chief of Staff.     Question: #1 » spouse
+ She left the acting position on December 6, 2017, upon the
+ confirmation of Kirstjen Nielsen. The daughter of Francesco
+                                                                Answer:   Miquette Giraudy
+ (Frank) Costanzo Duke and Concetta Scherma, Duke is a          Doc:   Miquette  Giraudy (born 9 February 1953,
+ native of Ohio. Her maternal grandparents (Scherma)            Nice, France) is a keyboard player and vocalist,
+ emigrated from Aidone, Sicily and her Costanzo family roots
+                                                                best known for her work in Gong and with her
+ User:                                                          partner Steve Hillage. She and Hillage currently
+ Based on the plan and the search results before (if there is),
+ first analyse what information you have gained and what
+                                                                form the core of the ambient band System 7. In
+ other information you still need, then EXECUTE ONLY            addition to her performances in music, she has also
+ ONE MORE step using the RAG search tool. ...                   worked as an actress, film editor and writer. In
+ Assistant:                                                     each role, she has used different stage names.
+ Final_Answer: John F. Kelly
+                                                             In the above (from prior work Musique), it can be
+    Table 4: Authenticity Of multi-hop reasoning case
+                                                             observed that the document does not contain any
+                                                             information about Miquette Giraudy spouse Green
+The following presents the QA content from prior             (Steve Hillage album), but only provides a brief
+work (Hotpotqa):                                             description of Miquette Giraudy’s biography. As
+Question: What is the name of this White House               a result, the RAG tool fails to retrieve this infor-
+mation and consequently cannot obtain the correct
+answer.
+
+C   Prompt Used
+Prompts Used in Data Construction Pipeline 5–
+23:
+Prompts Used in Evaluate 24 and 25:
+You are an information extraction and question generation system.
+# Task:
+Given a document, extract a set of **atomic, verifiable facts** and convert each into a **QA pair**, where:
+- The **question** focuses ona     specific, retrievable detail from the document.
+- The **answer** is concise, factual, and directly grounded in the document.
+- For each document, generate **at most {gen_qa_num} QA pairs**. Prioritize the most concrete, unique, and
+verifiable facts.
+- Only generate questions that require consulting the document to answer — avoid trivial facts or common-sense
+knowledge.
+# Rules for QA Generation
+1. Atomicity
+- Each QA must be based ona single indivisible fact (no conjunctions).
+% "A increased and B decreased" ~ must split into two questions.
+2. Verifiability
+- The answer must include at least one of:
+- ¥v Numeric value (e.g., 59.0%)
+- v Time or date (e.g., 2025/04/28)
+- v Unique name/entity (e.g., Humpback65B)
+- % Reject vague expressions: "Performance has improved"
+3. Time specificity
+- Explicitly mark time ranges when containing time-sensitive information
+- Examples:
+¥ "Global GDP grew by 3.0% in 2023"
+% "Recent GDP growth of 3.0%"
+4. Relevance and Precision
+- Avoid abstract questions. Focus on measurable and database-friendly details.
+5. Answer Uniqueness
+- The question must be **specific enough** to yield a **unique answer** from the document.
+- % Avoid under-specified questions that allow **multiple correct answers**.
+- % "What awards did Author X receive?" (if multiple awards are listed in the document)
+- v "What award did Author X receive in 2022?" (if only one is given for that year)
+- % Avoid vague superlatives like "notable," "important," "significant" without clear criteria.
+# Output Format:
+AJSON array of QA pairs. Each item contains:
+- ‘question’: A specific, answerable question.
+- ‘answer’: The factual value from the document.
+# Examples
+***json
+[
+
+"question": "What is the number 1 sport in the usa?",
+"answer": "American football"
+
+
+{{
+"question": "Where did the Ottoman slave trade flourish?",
+"answer": "In the Balkans"
+
+
+{{
+"question": "Who was president when the white house was built?",
+"answer": "John Adams"
+}}
+]
+
+The document content to be processed is as follows:
+{input_doc}
+
+
+
+
+                                           Figure 5: Gen atomic qa prompt
+You are an expert in constructing multi-hop questions grounded in document-based facts.
+## Task
+You are given multiple question-answer-document triples to generate **0 to {max_num}** multi-hop questions that
+require reasoning over the **latest previous hop** (i.e., the final element in Previous_Hops) together with New_pair.
+Use Previous_Hops strictly as supporting context: they may be consulted to verify entities/constraints and must be
+preserved (not removed, weakened, or contradicted) by the final question.
+Only produce a multi-hop question if it is logically valid, unambiguous, and well-supported by both documents. If
+there is any uncertainty or weak connection, return empty JSON list instead of forcing a question.
+## Input Schema
+Previous_Hops:
+type: "list of objects (ordered oldest > latest)"
+each_item:
+- Hop_number
+- Question: string
+- Answer: string
+- Doc: string
+New_pair:
+type: object (This is the candidate QA+Doc to attach to the chain.)
+fields:
+- Question: string
+- Answer: string
+- Doc: string
+## Output Format
+Return a JSON list of up to {max_num} objects. Each object must be in one of the following formats:
+Valid multi-hop case:
+{f{
+"type": "inference’     "comparison",
+"final_question"
+"final_answer":
+}t
+If no high quality multi-hop question can be created:
+Return an empty JSON list []
+## Types
+- inference:
+The final question chains information so that answering it requires (1) the last previous hop's facts and (2) the
+New_pair's facts. For inference cases, final_answer MUST equal New_pair Answer.
+- comparison:
+The final question compares a shared measurable dimension (e.g., date, numeric quantity, size). Both compared
+values must be supported explicitly in the documents. The answer should be one of the compared entities.
+## Rules
+- 1. Use Previous_Hops as supporting context. Do NOT remove, weaken, or contradict any fact, constraint, or entity
+presented in any Previous_Hops's Question/Answer/Doc.
+- 2. The final question MUST be generated from (latest Previous Hop) + (New_pair). DO NOT remove or weaken any
+Previous_Hops's Question important information in final_question
+- 3. DO NOT leak intermediate answers (no explicit exposure of any Previous_Hop answer in the final_question).
+- 4. Do not simply restate the New_pair question, and do not return an unexpanded Hop question that is missing or
+only partially uses the information from the Previous Hop. The final question MUST depend on all QA-doc pairs to be
+answerable.
+- 5. Ensure that there is **sufficient and accurate** evidence to get the answer.
+- 6. When linking entities across docs, explicitly verify from the document contents (not just question text) that they
+refer to the exactly same real-world entity or fact
+- 7. For comparison, only compare facts on the same axis (e.g., date vs date, size vs size), not unrelated attributes.
+- 8. Do not create final questions that just state multiple facts independently, without a reasoning link between them.
+- 9. Favor precision and factual grounding over producing more questions. If the logical connection is weak,
+ambiguous, or speculative, reject (return []).
+- 10. Output only the final JSON list. Do NOT include chain-of-thought, explanations, or any extra text.
+## Examples
+### final_question is inference
+Case 1 (Extend 1-hop question to 2-hop):
+Input:
+Hop_1:
+Question: What is the name of the performer of "Qui de nous deux"?
+Answer: Matthieu Chedid
+Doc: "Qui de nous deux" is performed by Matthieu Chedid.
+
+
+
+                                         Figure 6: Merge qa prompt(part1)
+New_pair:
+Question: Who is the father of Matthieu Chedid?
+Answer: Louis Chedid
+Doc: Matthieu Chedid is the son of Louis Chedid.
+Good Output:
+{f{
+"type": "inference",
+"final_question":   "Who is the father of the performer of 'Qui de nous deux'?",
+"final_answer": "Louis Chedid"
+}t
+% Error Case (leaks intermediate answer):
+-"final_question": "Who is the father of Matthieu Chedid?"
+
+Case 2 (Extend 2-hop inference question to 3-hop):
+Input:
+Hop_1:
+Question: Who is the composer of "Al gran sole carico d'amore"?
+Answer: Luigi Nono
+Doc: "Al gran sole carico d'amore" is an opera with music by Luigi Nono.
+Hop_2:
+Question: Where did the composer of "Al gran sole carico d'amore" work?
+Answer: Venice
+Doc: Luigi Nono was active as a painter in Venice.
+type: inference
+New_pair:
+Question: What is the name of the oldest bridge in Venice?
+Answer: Rialto Bridge
+Doc: The Rialto Bridge is the oldest bridge spanning the Grand Canal in Venice.
+Good Output:
+{f{
+"type": "inference",
+"final_question": "What is the name of the oldest bridge in the city where the composer of 'Al gran sole carico
+d'amore' worked?",
+"final_answer": "Rialto Bridge"
+}t
+% Error Case (leaks intermediate answer):
+-"final_question": "What is the name of the oldest bridge in Luigi Nono worked?"
+Case 3 (Extend 3-hop inference question to 4-hop):
+Input:
+Hop_1:
+Question: Where was Francisco Vazquez born?
+Answer: Guadalajara
+Doc: Francisco H. Vazquez (born June 11, 1949 in Guadalajara, Jalisco, Mexico)
+Hop_2:
+Question: On which continent is Guadalajara located?
+Answer: North America
+Doc: Guadalajara is located in North America.
+type: inference
+Hop_3:
+Question: Who was the Italian navigator who sailed for England and explored the east coast of the continent where
+Francisco Vazquez was born?
+Answer: John Cabot
+Doc: John Cabot (Italian: Giovanni Caboto; c. 1450 -- c. 1500) was a Venetian navigator and explorer whose 1497
+discovery of the coast of North America under the commission of Henry VII of England
+type: inference
+New_pair:
+Question: What is the name of the child of John Cabot?
+Answer: Sebastian Cabot
+Doc: Sebastian Cabot was the son of Italian explorer John Cabot (Giovanni Caboto)
+
+
+
+
+                                         Figure 7: Merge qa prompt(part2)
+Good Output:
+{f{
+"type": "inference",
+"final_question": "What is the name of the child of the Italian navigator who sailed for England and explored the east
+coast of the continent where Francisco Vazquez was born?",
+"final_answer": "Sebastian Cabot"
+}t
+% Error Case (leaks intermediate answer):
+-"final_question": "What is the name of the child of the Italian navigator who sailed for England and explored the east
+coast of North America?"
+% Error Case (remove or weaken important information in Previous_Hops):
+-"final_question": "What is the name of the child of the navigator who explored the east coast of Francisco Vazquez
+was born?"
+### final_question is comparison
+Input:
+Question: When was John Beach born?
+Answer: January 1, 1812
+Doc: Major John Beach( January 1, 1812 - August 31, 1874) was a United States Army officer during the Black Hawk
+and American Civil War.
+New_pair:
+Question: When was Seth Gordon Persons born?
+Answer: February 5, 1902
+Doc: Seth Gordon Persons( February 5, 1902 - May 29, 1965) was an American Democratic politician who was the
+43rd Governor of Alabama from 1951 to 1955.
+Good Output:
+{f{
+"type": "comparison",
+"final_question": "Who was born first, John Beach or Seth Gordon Persons?",
+"final_answer": "John Beach"
+}t
+Another Good Output:
+{f{
+"type": "comparison",
+"final_question": "Was John Beach born before Seth Gordon Persons?",
+"final_answer": "Yes"
+}t
+% Error Case (leaks intermediate answer):
+-"final_question": "Who was born first, John Beach (January 1, 1812 - August 31, 1874) or Seth Gordon Persons?"
+### % Invalid (spurious linkage: the QA-doc pairs contain unrelated facts that are superficially similar but logically
+disconnected.)
+Input:
+Hop_1:
+Question: How many cardinals entered the papal conclave on March 31?
+Answer: 27
+Doc: Only twenty-seven cardinals entered the conclave on March 31, 1721.
+New_pair:
+Question: Which band did 27 open for in the Czech Republic?
+Answer: Robert Plant
+Doc: 27 is a rock band that opened for Robert Plant in Prague.
+Correct Output:
+
+
+% Error Output (In Example: Cardinals and the rock band '27' are unrelated entities):
+final_question: Which band did the cardinals who entered the papal conclave on March 31 open for in the Czech
+Republic?
+final_answer: Robert Plant
+### % Invalid (spurious linkage: there is no necessary logical connection between them.)
+Input:
+Hop_1:
+Question: What was the deployment order date for the 16th Army to the Ukraine?
+Answer: 25 May 1941
+Doc: The 16th Army was ordered to deploy to Ukraine on 25 May 1941.
+
+
+
+
+                                       Figure 8: Merge qa prompt(part3)
+New_pair:
+Question: Which two spheres of influence were involved in the division of Europe in the 1940s?
+Answer: The Western world and the Soviet Union
+Doc: Postwar Europe was divided into the Western and Soviet spheres of influence.
+Correct Output:
+
+
+% Error Output (In Example: No causal or thematic link between army deployment date and geopolitical division):
+final_question: What were the two major spheres of influence following the deployment of the 16th Army to the
+Ukraine in 1941?
+final_answer: The Western world and the Soviet Union
+### % Invalid: (entity-based false link: a false connection between facts or documents that arises solely because
+different entities share identical or highly similar names, without any actual semantic or factual relationship.)
+Input:
+Hop_1:
+Question: Who presents the Statewide Drive program at 107.9 ABC Ballarat?
+Answer: Nicole Chvastek
+Doc: "107.9 ABC Ballarat" has a total of 16 full time employees. A breakfast program is presented by Steve Martin
+from 6.15 am to 10.00 am weekdays. A mornings program is presented by Gavin McGrath from 10.00 am to 11.00 am
+weekdays. The regional "Statewide Drive" program (3.00 pm to 6.00 pm weekdays) is also broadcast from the Ballarat
+studios. It is presented by Nicole Chvastek and covers Victoria, southern New South Wales and a small part of eastern
+South Australia. It does not broadcast into the Melbourne metro area. 107.9 ABC Ballarat, callsign 3CRR, is an ABC
+Local Radio station.
+New_pair:
+Question: What toolkit has Nicole Joseph designed for breast care?
+Answer: Breast-CareSolutions toolkit
+Doc: Nicole Joseph introduced the global and multi-lingual breast care awareness campaign "The Gesture That Saves"
+in San Francisco in 2016 to 100 global peers from 40 countries during the VV100 retreat. She has designed a
+comprehensive Breast-CareSolutions toolkit and is currently designing a reproductive-health advocacy program. Nicole
+Joseph-Chin is the Chief Innovator, Founder and CEO of Ms. Brafit Limited.
+Correct Output:
+[]
+% Error Output (In Example: Nicole Chvastek and Nicole Joseph are different individuals):
+final_question: What toolkit has the presenter of the Statewide Drive program at 107.9 ABC Ballarat designed for
+breast care?
+final_answer: Breast-CareSolutions toolkit
+
+### % Invalid: (trivial concatenation: the final question simply combines facts without needing reasoning or
+integration.)
+Input:
+Hop_1:
+Question: Where was the State Normal School at Cheney located by the end of the term's first week?
+Answer: Pomeroy building
+Doc: By the end of the term's first week, the State Normal School at Cheney was located in the Pomeroy building.
+New_pair:
+Question: Who designed the Cheney Building?
+Answer: H. H. Richardson
+Doc: The Cheney Building was designed by H. H. Richardson.
+Correct Output:
+
+
+% Error Output (In Example: Final_question simply concatenates the two questions together using ‘and’ without
+needing reasoning.):
+final_question: Which building was used for the State Normal School at Cheney by the end of the term's first week,
+and who designed the Cheney Building?
+final_answer: Pomeroy building, H. H. Richardson
+
+### Invalid (lacking_evidence: one or both compared values are not explicitly supported in the provided documents
+with sufficient precision to support the asserted comparison.)
+Hop_1:
+Question: What year was the Cambridge Battery completed for the 100-ton gun?
+Answer: 1886
+Doc: Cambridge Battery was ready in 1886.
+
+
+
+
+                                        Figure 9: Merge qa prompt(part4)
+New_pair:
+Question: When did the 1886 United Kingdom general election take place?
+Answer: July 1-27, 1886
+Doc: The 1886 United Kingdom general election took place from1 July to 27 July 1886.
+Correct Output:
+[]
+% Error Output (In Example: The Cambridge Battery is only dated to the year (1886), while the election records
+include exact dates in July. This lack of precise dating in the document makes it impossible to determine which event
+occurred first.):
+final_question: Which event occurred first, the completion of the Cambridge Battery in 1886 or the United Kingdom
+general election led by Charles Stewart Parnell in 1886?
+final_answer: The completion of the Cambridge Battery in 1886.
+## Checklist
+-[ ] Do all docs describe logically connectable facts?
+-[ ] For comparison: are both facts from the same measurable dimension?
+-[ ] For inference: does the reasoning chain correctly lead to New_pair Answer?
+-[ ] Is the final question truly unanswerable without all QA-doc pairs?
+-[ ] Are all intermediate answers hidden?
+-[ ] Are the linked entities explicitly confirmed as the same in both documents?
+-[] Is there sufficient and accurate evidence to get the answer?
+The data need to be processed is as follows:
+{Data}
+New_pair:
+Question: {New_question}
+Answer: {New_answer}
+Doc: {New_document}
+Only output the final JSON object. Do not explain your reasoning.
+
+
+
+
+                                       Figure 10: Merge qa prompt(part5)
+You are a multi-hop QA verification system.
+## Task
+You are given a multi-hop QA construction based on two question-answer-document triples:
+(Question1, Answer1, Doc1) and (Question2, Answer2, Doc2), and a final multi-hop QA:
+- Final_question
+- Final_answer
+- type: "inference"
+Your job is to **verify whether the final QA is logically valid** according to the reasoning paths and documents.
+## Input Fields
+- Question1, Answerl1, Docl
+- Question2, Answer2, Doc2
+- Final_question, Final_answer
+- type: "inference"
+## Output Format
+Return a JSON object:
+ {
+"valid": "true" | "false",
+"error_type": "bad_linkage" | "entity_false_link" | "trivial_concatenation" | "other",
+"justification": "Short explanation of the issue"
+t}
+## Definitions & Rules
+- "inference": Final question requires combining QA1 and QA2 in a reasoning chain. The final_answer must exactly
+match Answer2. No intermediate answers should appear in final_question.
+
+- "bad_linkage": If the two QA-doc pairs contain unrelated facts that are superficially similar but logically
+disconnected.
+- "entity_false_link": a false connection between two facts or documents that arises solely because different entities
+share identical or highly similar names, without any actual semantic or factual relationship.
+- "trivial_concatenation": If the final question is formed by simply joining two or more independent facts from the
+given QA-document pairs into a single sentence (often using "and" or similar conjunctions), without any logical
+reasoning beyond listing the facts.
+- "other": Other errors that you think are not included above.
+## Examples
+### V Valid
+Input:
+Question1: What is the name of the performer of 'Qui de nous deux'?
+Answer1: Matthieu Chedid
+Docl: "Qui de nous deux" is performed by Matthieu Chedid.
+Question2: Who is the father of Matthieu Chedid?
+Answer2: Louis Chedid
+Doc2: Matthieu Chedid is the son of Louis Chedid.
+Final_question: Who is the father of the performer of 'Qui de nous deux'?
+Final_answer: Louis Chedid
+type: "inference"
+Expected Output:
+{{
+"valid": "true",
+“error_typ     "No Error",
+"justification": "Reasoning chain is valid."
+}t
+### % Invalid (bad linkage)
+Input:
+Question1: How many cardinals entered the papal conclave on March 31?
+Answerl1: 27
+Docl: 27 cardinals entered the 1721 Papal Conclave.
+Question2: Which band did 27 open for in the Czech Republic?
+Answer2: Robert Plant
+Doc2: 27 is a rock band that opened for Robert Plant.
+Final_question: Which band did the cardinals who entered the papal conclave on March 31 open for in the Czech
+Republic?
+Final_answer: Robert Plant
+type: "inference"
+
+
+
+
+                                    Figure 11: Inference check prompt(part1)
+Expected Output:
+
+
+
+                   'bad_linkage",
+"justification": "Cardinals and the rock band '27' are unrelated entities"
+}t
+### % Invalid (bad linkage)
+Input:
+Question1: What was the deployment order date for the 16th Army to the Ukraine?
+Answerl: 25 May 1941
+Docl: The 16th Army was ordered to deploy to Ukraine on 25 May 1941.
+Question2: Which two spheres of influence were involved in the division of Europe in the 1940s?
+Answer2: The Western world and the Soviet Union
+Doc2: Postwar Europe was divided into the Western and Soviet spheres of influence.
+Final_question: What were the two major spheres of influence following the deployment of the 16th Army to the
+Ukraine in 1941?
+Final_answer: The Western world and the Soviet Union
+type: "inference"
+Expected Output:
+
+
+"valid": "false",
+              ':   "bad_linkage",
+"justification": "No causal or thematic link between army deployment date and geopolitical division"
+}t
+### % Invalid (entity_false_link)
+Input:
+Question1: Who presents the Statewide Drive program at 107.9 ABC Ballarat?
+Answer1: Nicole Chvastek
+Doc1: "107.9 ABC Ballarat" has a total of 16 full time employees. A breakfast program is presented by Steve Martin
+from 6.15 am to 10.00 am weekdays. A mornings program is presented by Gavin McGrath from 10.00 am to 11.00 am
+weekdays. The regional "Statewide Drive" program (3.00 pm to 6.00 pm weekdays) is also broadcast from the Ballarat
+studios. It is presented by Nicole Chvastek and covers Victoria, southern New South Wales and a small part of eastern
+South Australia. It does not broadcast into the Melbourne metro area. 107.9 ABC Ballarat, callsign 3CRR, is an ABC
+Local Radio station.
+Question2: What toolkit has Nicole Joseph designed for breast care?
+Answer2: Breast-CareSolutions toolkit
+Doc2: Nicole Joseph introduced the global and multi-lingual breast care awareness campaign "The Gesture That
+Saves" in San Francisco in 2016 to 100 global peers from 40 countries during the VV100 retreat. She has designed a
+comprehensive Breast-CareSolutions toolkit and is currently designing a reproductive-health advocacy program. Nicole
+Joseph-Chin is the Chief Innovator, Founder and CEO of Ms. Brafit Limited.
+Final_question: What toolkit has the presenter of the Statewide Drive program at 107.9 ABC Ballarat designed for
+breast care?
+Final_answer: Breast-CareSolutions toolkit
+type: "inference"
+Expected Output:
+
+
+"valid": "false",
+              ':   "entity_false_link",
+"justification": "Nicole Chvastek and Nicole Joseph are different individuals"
+}t
+### % Invalid: (trivial_concatenation)
+Input:
+Question1: Where was the State Normal School at Cheney located by the end of the term's first week?
+Answerl1: Pomeroy building
+Doc1: By the end of the term's first week, the State Normal School at Cheney was located in the Pomeroy building.
+Question2: Who designed the Cheney Building?
+Answer2: H. H. Richardson
+Doc2: The Cheney Building was designed by H. H. Richardson.
+Final_question: Which building was used for the State Normal School at Cheney by the end of the term's first week,
+and who designed the Cheney Building?
+Final_answer: Pomeroy building, H. H. Richardson
+type: "inference"
+Expected Output:
+
+
+"valid": "false",
+"error_type":     "trivial_concatenation",
+"justification": "Final_question simply concatenates the two questions together using 'and' without needing
+reasoning."
+}t
+The data need to be processed is as follows:
+Question1: {Question1}
+Answer1: {Answer1}
+Doc1:{Document1}
+Question2: {Question2}
+Answer2: {Answer2}
+Doc2:{Document2}
+Final_question: {Final_question}
+Final_answer: {Final_answer}
+type: {qa_type}
+Only return the JSON object as described. Do not include explanations unless requested.
+
+
+
+
+                                          Figure 12: Inference check prompt(part2)
+Figure 13: Inference check prompt(part3)
+You are a multi-hop QA verification system.
+## Task
+You are given two question-answer-document triples:
+(Question1, Answer1, Doc1) and (Question2, Answer2, Doc2), plus a final multi-hop QA:
+- Final_question
+- Final_answer
+- type: "comparison"
+Your job is to **verify whether the final QA is logically valid** according to the reasoning paths and documents.
+## Input Fields
+- Question1, Answerl1, Docl
+- Question2, Answer2, Doc2
+- Final_question, Final_answer
+- type: "inference"
+## Output Format
+Return a JSON object:
+ {
+"valid": "true" | "false",
+"error_type": "forced_pairing" | "lacking_evidence" | "trivial_concatenation" | "other",
+"justification": "Short explanation of the issue"
+t}
+## Definitions & Rules
+- "comparison": Final question compares a **shared attribute/dimension** (e.g., date, numeric quantity, size)
+between two entities derived from QA1 and QA2.
+- "forced_pairing": The two QA-doc pairs do not share a meaningful, comparable dimension — the comparison is
+forced or domain-incoherent.
+- "lacking_evidence": One or both compared values are not explicitly supported in the provided documents with
+sufficient precision to support the asserted comparison.
+- "trivial_concatenation": If the final question is formed by simply joining two or more independent facts from the
+given QA-document pairs into a single sentence (often using "and" or similar conjunctions), without any logical
+comparing beyond listing the facts.
+- "other": Other errors that you think are not included above.
+## Examples
+### V Valid
+Input:
+Question1: When was John Beach born?
+Answerl: January 1, 1812
+Docl: Major John Beach (January 1, 1812 - August 31, 1874) was a United States Army officer during the Black Hawk
+and American Civil War.
+Question2: When was Seth Gordon Persons born?
+Answer2: February 5, 1902
+Doc2: Seth Gordon Persons (February 5, 1902 - May 29, 1965) was an American Democratic politician and the 43rd
+Governor of Alabama.
+Final_question: Who was born first, John Beach or Seth Gordon Persons?
+Final_answer: John Beach
+type: "comparison"
+Expected Output:
+
+
+"valid": "true",
+"error_type": "No Error",
+"justification": "Both docs provide explicit birth dates (1812 vs 1902) and John Beach is earlier."
+}t
+### % Invalid (forced_pairing)
+Input:
+Question1: What was the renumbering date of the 17th Lancers?
+Answerl: April 1763
+Docl: The regiment was renumbered the 17th Regiment of (Light) Dragoons in April 1763.
+Question2: What year was the 67th English cricket season?
+Answer2: 1763
+Doc2: The 1763 English cricket season was the 67th English cricket season.
+Final_question: Was the renumbering of the 17th Lancers in April 1763 before or during the 67th English cricket
+season?
+Final_answer: During
+type: "comparison"
+
+
+
+
+                                  Figure 14: Comparison check prompt(part1)
+Expected Output:
+
+
+"valid": "false",
+"error_type": "forced_pairing",
+"justification": "This forces a link between a military renumbering (point event) and a sports season (period) without
+a meaningful shared comparison dimension."
+}t
+### % Invalid (lacking_evidence)
+Input:
+Question1: What year was the Cambridge Battery completed for the 100-ton gun?
+Answerl1: 1886
+Docl: Cambridge Battery was ready in 1886.
+Question2: When did the 1886 United Kingdom general election take place?
+Answer2: July 1-27, 1886
+Doc2: The 1886 United Kingdom general election took place from 1 July to 27 July 1886.
+Final_question: Which event occurred first, the completion of the Cambridge Battery in 1886 or the United Kingdom
+general election led by Charles Stewart Parnell in 1886?
+Final_answer: The completion of the Cambridge Battery in 1886
+type: "comparison"
+Expected Output:
+
+
+"valid": "false",
+"error_type": "lacking_evidence",
+"justification": "The Cambridge Battery is only dated to the year (1886), while the election records include exact
+dates in July. This lack of precise dating in the document makes it impossible to determine which event occurred first."
+}t
+### % Invalid: (trivial_concatenation)
+Input:
+Question1: Where was the State Normal School at Cheney located by the end of the term's first week?
+Answerl1: Pomeroy building
+Docl: By the end of the term's first week, the State Normal School at Cheney was located in the Pomeroy building.
+Question2: Who designed the Cheney Building?
+Answer2: H. H. Richardson
+Doc2: The Cheney Building was designed by H. H. Richardson.
+Final_question: Which building was used for the State Normal School at Cheney by the end of the term's first week,
+and who designed the Cheney Building?
+Final_answer: Pomeroy building, H. H. Richardson
+type: "comparison"
+Expected Output:
+
+
+"valid": "false",
+"error_type": "trivial_concatenation",
+"justification": "Final_question simply concatenates the two questions together using 'and' without needing
+reasoning."
+}t
+The data need to be processed is as follows:
+Question1: {Question1}
+Answer1: {Answer1}
+Docl: {Document1}
+Question2: {Question2}
+Answer2: {Answer2}
+Doc2: {Document2}
+Final_question: {Final_question}
+Final_answer: {Final_answer}
+type: {qa_type}
+Only return the JSON object as described. Do not include explanations unless requested.
+
+
+
+
+                                   Figure 15: Comparison check prompt(part2)
+You are an Al agent tasked with cleaning and extracting concise answers from original QA pairs.
+## Input:
+You are given a **question** and its corresponding **original answer**. Your task is to extract the most precise and
+concise information that directly answers the question.
+## Processing Rules:
+
+
+
+
+mwN
+ . Extract **only** the exact information requested in the question.
+ . Keep the original index numbering or order if present.
+   **Do not** omit essential information.
+ . **Never add or infer** information not explicitly stated in the original answer.
+ . Follow strict formatting conventions:
+- Percentages: use format like “8% (not "eight percent" or "8 percent")
+- Currency: use °$1,000° format
+- Dates: use -YYYY-MM-DD*
+- Units: include units (e.g., ‘5kg*, ~10cm*)
+6. For answers that consist of multiple parts or are comparative in nature, multiple core components and comparative
+statements should be included.
+## Output Format (JSON):
+For each input QA pair, output the following JSON object:
+{{
+"question": "<original question>",
+“original_answer": "<original answer>",
+"refined_answer": "<clean, concise, and direct answer>"
+}t
+## Example:
+Input:
+question: What edition of the Wightman Cup was held in 1931?
+original_answer: The 1931 Wightman Cup was its 9th edition.
+
+Output:
+{{
+"question": "What edition of the Wightman Cup was held in 1931?",
+"original_answer":   "The 1931 Wightman Cup was its 9th edition.",
+"refined_answer": "The 9th edition."
+}t
+Input:
+question: How does the percentage of individuals under age 18 living below the poverty line in Farina, Illinois
+compare to the statewide percentage in Illinois?
+original_answer: In Farina, Illinois, 10.7% of individuals under age 18 were living below the poverty line, which is
+lower than the statewide percentage in Illinois of 16.1%.
+Output:
+{{
+"question": "How does the percentage of individuals under age 18 living below the poverty line in Farina, Illinois
+compare to the statewide percentage in Illinois?",
+“original_answer": "In Farina, Illinois, 10.7% of individuals under age 18 were living below the poverty line, which is
+lower than the statewide percentage in Illinois of 16.1%.",
+"refined_answer": "10.7%, lower than the statewide percentage in Illinois of 16.1%."
+}t
+The data need to be processed is as follows:
+question: {question}
+original_answer: {original_answer}
+
+
+
+
+                                               Figure 16: Refine prompt
+You are an expert in **linguistic variation** and **data augmentation**. Your task is to generate a comprehensive
+list of all plausible and commonly recognized alternative expressions, formats, and aliases for a given input entity or
+piece of information. The goal is to create high-quality training data that captures diverse ways of referring to the
+same concept.
+
+**Key Guidelines:**
+1.   **Equivalence:** Each alternative expression must refer to *exactly the same entity or information* as the original
+input. Do not include broader categories, narrower sub-types, or related but distinct concepts.
+2.   **Scope of Variation:** Focus on:
+* Different **formatting conventions** (e.g., dates, numbers, units).
+* Common **abbreviations, acronyms, or initialisms**.
+* Well-known **aliases, nicknames, or shorter forms** in common usage.
+* Synonyms or rephrasing should *only* be included if they are direct, commonly accepted equivalents.
+3.   **Context-Agnosticism:** Unless the input itself implies a specific context, generate general-purpose variations.
+Avoid creating variations that are only valid in very niche or obscure contexts.
+4.   **Inclusion of Original:** Always include the original input as the first item in the generated list.
+5.   **Format:** Output the variations as a JSON list of strings.
+**Examples:**
+Input: 1977-01-26
+Output: ["1977-01-26", "1977 01 26", "1977.01.26", "January 26, 1977", "26 Jan 1977", "Jan 26, 1977"]
+Input: United Nations
+Output: ["United Nations", "U.N.", "UN"]
+Input: 3.14159
+Output: ["3.14159", "mn", "pi", "PI"]
+Input: Doctor of Philosophy
+Output: ["Doctor of Philosophy", "Ph.D.", "PhD", "Doctorate"]
+Input: New York City
+Output: ["New York City", "NYC", "The Big Apple"]
+Input: kilogram
+Output: ["kilogram", "kg", "kilograms"]
+Input: {refined_answer}
+Please list all possible textual expressions that have the same meaning or refer to the same entity, especially in
+different formats (e.g., dates, names, abbreviations).
+Respond with a JSON list of strings. Do not explain.
+
+
+
+
+                                        Figure 17: More optional answer prompt
+
+
+
+
+Please solve the following problem and return result. Ensure responses are as concise as possible, focusing only on
+key information while omitting redundant details.
+The problem is:
+{problem}
+
+
+
+
+                                             Figure 18: Reasoning prompt
+
+
+
+
+                                        Figure 19: Reasoning prompt comparison
+You are given the following document that contains relevant information to help answer a question.
+Document:
+{Document}
+Question:
+{Question}
+Please answer the question using the information in the provided document. Ensure responses are as concise as
+possible, focusing only on key information while omitting redundant details.
+If you cannot answer the question, return "I cannot answer this question. <the reason why cannot answer this
+question>".
+## For Example:
+### v Can answer:
+Document:
+"Olive Winchester"
+1851 in Corinna, Maine; died October 2, 1892 in Yankton, South Dakota), and Sarah A. ""Sadie"" Blackstone Winchester
+(born May 1, 1853 in Pownal, Maine; died February 6, 1949 in Los Angeles, California). Winchester's parents were
+married in Portland, Maine on February 22, 1879 in the Methodist Episcopal Church. Winchester wasa         relative of Oliver
+Fisher Winchester (born November 30, 1810 in Brookline, Massachusetts; died December 11, 1880 in New Haven,
+Connecticut), the manufacturer and marketer of the Winchester repeating rifle. After June 25, 1880, the Winchester
+family left Monson, Maine and by 1881 had relocated to Forestburg, in Sanborn
+Question:
+When was the first woman to graduate with a Bachelor of Divinity degree from Glasgow, Olive Winchester, born?
+Answer:
+1851
+Document:
+"1996 North Indian Ocean cyclone season"
+due to flash flooding. Elsewhere in India, the storm killed 111 people, including 44 in Tamil Nadu where 18 boats were
+damaged or missing. In some areas, the rains helped end a drought. After the storm passed, the Andhra Pradesh
+government provided each family RS$1,000 (US$30) if their house was destroyed, and RS$100,000 (US$3,000) if they
+lost a family member. While the previous storm was paralleling the east Indian coastline, another disturbance formed
+off the west coast on June 15, also associated with the monsoon. The new area of convection persisted, developing a
+distinct circulation by the next day.
+Question:
+What is the prime factorization of the number of people killed by the storm in India during the 1996 North Indian
+Ocean cyclone season?
+Answer:
+3x 37
+Document:
+Seth Gordon Persons (February 5, 1902 - May 29, 1965) was an American Democratic politician who was the 43rd
+Governor of Alabama from 1951 to 1955.
+Question:
+Who was born first, John Beach (January 1, 1812 - August 31, 1874) or Seth Gordon Persons?
+Answer:
+John Beach
+### *% Cannot answer:
+Document:
+The Rialto Bridge (Italian: Ponte di Rialto; Venetian: Ponte de Rialto) is the oldest of the four bridges spanning the
+Grand Canal in Venice, Italy. Connecting the sestieri (districts) of San Marco and San Polo, it has been rebuilt several
+times since its first construction as a pontoon bridge in the 12th century, and is nowa   significant tourist attractiojn the
+city.
+Question:
+What is the name of the famous bridge in the place where Al gran sole carico d'amore's composer worked?
+Answer:
+| cannot answer this question. | don’t know where the composer of Al gran sole carico d’amore has worked.
+Document:
+Worst (manga) Worst is a Japanese delinquent manga series written and illustrated by Hiroshi Takahashi. It has the
+same setting as Takahashi's previous manga ""Crows"" and ""QP"" and revolves around a group of teenage boys who
+fight their way through the notorious high school, ""Suzuran"". The manga was first published by Shonen Champion in
+2002. The series is currently being serialized in Japan and has been collected into twenty-five tankobon volumes. In
+North America, Digital Manga Publishing has released only three volumes, with the last graphic novel released in
+November 2004. The series is currently on hiatus but Digital Manga
+Question:
+Which of the following was critiqued as one of the worst manga, .hack//Legend of the Twilight or the manga Worst,
+published in 2002?
+Answer:
+| cannot answer this question. | don't have sufficient information about "hack/Legend of the Twilight".
+
+
+
+
+                                           Figure 20: Singlehop prompt
+You are an expert at solving problems. Now you need to solve a multi-hop inference problem.
+Multi-hop inference promblem: a question that requires combining information from multiple sources in a logical
+chain to reach an answer.
+## For Example:
+Input:
+Question1: "What is the name of the performer of Qui de nous deux?"
+Answerl: "Matthieu Chedid"
+Supporting Document1: "'Qui de nous deux' is performed by Matthieu Chedid."
+Question2: "Who is the father of Matthieu Chedid?"
+Supporting Documentz2: "Matthieu Chedid is the son of Louis Chedid."
+FinalQuestion: "Who is the father of the performer of Qui de nous deux?"
+Output:
+"Louis Chedid"
+## The Example's Logic Chain (Just to help you better understand the multihop problem. Don't output something like
+this):
+FinalQuestion:"Who is the father of the performer of Qui de nous deux?" -> Q:"What is the name of the performer of
+Qui de nous deux?" A:"Matthieu Chedid" -> Q:"Who is the father of Matthieu Chedid?" A:"Louis Chedid" -> FinalAnswer:
+"Louis Chedid"
+## Now you are given some supporting fact to help answer a question.
+{Data}
+FinalQuestion: {FinalQuestion}
+Now you need sole the promblem and return result. Ensure responses are as concise as possible, focusing only on
+key information while omitting redundant details.
+
+
+
+
+                                   Figure 21: Multi-hop inference prompt
+
+
+
+
+You are an expert at solving problems. Now you need to solve a multi-hop comparison problem.
+Multi-hop comparison promblem: a question that requires retrieving and comparing information from multiple sources
+to determinea    relative fact.
+## For Example:
+Input:
+Question1: "When was John Beach born?"
+Answerl: "January 1, 1812"
+Supporting Document1: "Major John Beach( January 1, 1812 - August 31, 1874) was a United States Army officer
+during the Black Hawk and American Civil War."
+Question2: "When was Seth Gordon Persons born?"
+Answer2: "February 5, 1902"
+Supporting Documentz2: "Seth Gordon Persons( February 5, 1902 - May 29, 1965) was an American Democratic
+politician who was the 43rd Governor of Alabama from 1951 to 1955."
+FinalQuestion: "Who was born first, John Beach or Seth Gordon Persons?"
+Output:
+"John Beach"
+## The Example's Logic Chain (Just to help you better understand the multihop problem. Don't output something like
+this):
+FinalQuestion: "Who was born first, John Beach or Seth Gordon Persons?" -> Q:"When was John Beach born?"
+A:"January 1, 1812" + Q:"When was Seth Gordon Persons born?" A:"February 5, 1902" -> FinalAnswer: "John Beach"
+## Now you are given some supporting fact to help answer a question.
+{Data}
+FinalQuestion: {FinalQuestion}
+Now you need sole the promblem and return result. Ensure responses are as concise as possible, focusing only on
+key information while omitting redundant details.
+
+
+
+
+                                  Figure 22: Multi-hop comparison prompt
+You are an expert evaluator. Evaluate whether the OTHER ANSWER preserves **all essential information** in the
+GOLDEN ANSWER, **with respect to the QUESTION**.
+# Scoring Criteria
+- **2 points** > OTHER ANSWER is fully equivalent to the GOLDEN ANSWER. Same meaning, even if reworded or
+paraphrased. No missing or incorrect information.
+- **] point** > OTHER ANSWER includes ALL key information from the GOLDEN ANSWER but adds **extra
+non-contradictory information** that may not be strictly necessary but is still valid in context.
+- **0 points** > OTHER ANSWER is **missing** critical information from the GOLDEN ANSWER or introduces
+**incorrect/contradictory** information, based on the QUESTION.
+Always consider what the QUESTION is asking when judging whether information is essential.
+# v Positive Examples
+## v 2 points
+- Question: What year did the war end?
+Golden: 1848
+Other: The year was 1848.
+- Question: Who became the first African American U.S. president?
+Golden: Barack Obama
+Other: Obama
+- Question: When did the battle begin?
+Golden: The battle began in 1775.
+Other: The conflict started in the year 1775.
+- Question: Which field of Nobel Prize did Marie Curie receive?
+Golden: the Nobel Prize in Physics.
+Other: Physics.
+## v 1 point
+- Question: What is the cause of death of Mercedesz Henger's father?
+Golden: diabetes mellitus.
+Other: Diabetes mellitus type 2.
+- Question: When did the war end?
+Golden: 1848
+Other: The war ended in 1848.
+- Question: Who became the first African American U.S. president?
+Golden: Barack Obama
+Other: Barack Obama, the 44th president of the United States.
+- Question: Where is the Eiffel Tower located?
+Golden: The Eiffel Tower is in Paris.
+Other: The Eiffel Tower is in Paris, the capital of France.
+## * Negative Examples (0 points)
+- Question: How much is the price?
+Golden: 50
+Other: 25 dollars
+- Question: When did the war end?
+Golden: 1848
+Other: In 1846
+- Question: Where is the Eiffel Tower located?
+Golden: The Eiffel Tower is in Paris.
+Other: The Eiffel Tower is in Berlin.
+- Question: Who became the first African American U.S. president?
+Golden: Barack Obama
+Other: Barack Obama and Abraham Lincoln were presidents during the same era.
+# Output Format:
+Return ONLY JSON, no extra text.
+”json
+{
+“answer_reason": "reason for the score",
+"answer_score": 0/1/2
+
+i
+
+
+
+
+                                           Figure 23: LLM judge prompt
+You are a world expert at making efficient plans to solve any task using an RAG Search tool.
+Now for the given task, develop a step-by-step high-level plan.
+Each step should be a concise action that uses the RAG search tool, specifying the keyword you want to search for.
+Do not skip steps, do not add any superfluous steps. Only write the high-level plan, DO NOT Execute TOOL CALLS in
+this planning step.
+Each step should be clearly numbered.
+Here is your task:
+{task['final_question']}
+Now begin! Write your plan below.
+
+
+
+
+                                            Figure 24: Thinking prompt
+
+
+
+
+Based on the plan and the search results before (if there is), first analyse what information you have gained and
+what other information you still need, then Execute ONLY ONE MORE step using the RAG search tool.
+You should never assume or invent any search results that are not explicitly provided in the context.
+If there is no search results before, just write 'Currently, no results are available.' directly instead of guessing and
+directly Execute the first step in your plan using the RAG search tool.
+If you find there is nothing more to search, do not search for the same or similar thing you have searched again.
+Instead, directly provide the final concise answer to the original question using the Final_Answer tool.
+When providing the final answer, DO NOT include any other content such as search results or any thoughts, just the
+concise final answer itself.
+
+
+
+
+                                             Figure 25: Action prompt
+  The LLM judge prompt is the same as the             User:
+prompt used in the data construction process.         You are a world expert at making efficient plans to solve any
+                                                      task using an RAG Search tool. ...
+                                                      Here is your task: Which broader trading area does the
+D   Error Case Analysis                               metropolitan area of the city where the professional football
+                                                      team that faced the player who kicked a 27-yard field goal
+To ensure conciseness and highlight the key points,   early in the final period for the 2009 UCLA Bruins football
+we present below specific model output examples       team in his sixth career game-winner is based form the core
+for the Error Case Study, with some non-essential     of?
+parts omitted.                                        Assistant:
+   For Table 5 6, it can be observed that the         1. Search RAG for “2009 UCLA Bruins 27-yard field goal
+                                                      early in the final period sixth career game-winner” to identify
+model incorrectly transformed “sixth career game-     the player and the specific game.
+winner" in the second step into “the professional     2. Search RAG for “[Player Name] first NFL game opponent”
+football team he first faced", thereby causing the    to determine which professional football team he first faced.
+                                                      3. Search RAG for “[Opponent Team Name] home city” to
+entire reasoning trajectory to deviate.               find the city where that professional team is based.
+                                                      4. Search RAG for “[City Name] metropolitan area” to get
+                                                      the official metropolitan area designation.
+                                                      5. Search RAG for “[Metropolitan Area Name] forms the
+                                                      core of” to identify the broader trading area that metro area
+                                                      forms the core of.
+                                                      User:
+                                                      Based on the plan and the search results before (if there is),
+                                                      first analyse what information you have gained and what
+                                                      other information you still need, then EXECUTE ONLY
+                                                      ONE MORE step using the RAG search tool. ...
+                                                      Assistant:
+                                                      "function_call": {"name": "RAG_search",
+                                                      "arguments": "{query: 2009 UCLA Bruins 27-yard
+                                                      field goal early in the final period sixth career
+                                                      game-winner, topk: 5}"}
+                                                      [RAGTool Results]
+                                                      Query: "2009 UCLA Bruins 27-yard field goal early in the
+                                                      final period sixth career game-winner"
+                                                      Topk = 5
+                                                      Document:
+                                                      "2009 UCLA Bruins football team" ... Kai Forbath kicked a
+                                                      27-yard field goal early in the final period
+                                                      User:
+                                                      Based on the plan and the search results before (if there is),
+                                                      first analyse what information you have gained and what
+                                                      other information you still need, then EXECUTE ONLY
+                                                      ONE MORE step using the RAG search tool. ...
+                                                      Assistant:
+                                                      "function_call": {"name": "RAG_search",
+                                                      "arguments": "{query: Kai Forbath first NFL game
+                                                      opponent, topk: 5}"}
+                                                      [RAGTool Results]
+                                                      Query: "Kai Forbath first NFL game opponent"
+                                                      Topk = 5
+                                                      Document:
+                                                      Kai Forbath" ... Forbath made his NFL and Redskins debut
+                                                      knocking through a 50-yard attempt as his first career NFL
+                                                      field goal in the home game against the Minnesota Vikings in
+                                                      Week 6 on October 14, 2012.
+                                                       ... As a consequence, the entire subsequent reasoning
+                                                      trajectory deviates accordingly.
+                                                      Assistant:
+                                                      Final_Answer: Minneapolis–St. Paul MN–WI Combined
+                                                      Statistical Area
+
+                                                                        Table 5: Error Case
+                                                                 E   Human Evaluation Details and Ethical
+                                                                     Considerations
+                                                                 Annotator Recruitment. Human evaluators were
+                                                                 recruited from adult participants fluent in English.
+                                                                 All annotators were informed of the study’s pur-
+                                                                 pose and participated voluntarily. To ensure the re-
+Hop1:
+Atomic Question: Who kicked a 27-yard field goal early in        liability of judgments and high-quality annotations,
+the final period for the 2009 UCLA Bruins football team?         we conducted a comprehensive training session for
+Atomic Answer: Kai Forbath                                       all participants to ensure they fully understood the
+Doc: "2009 UCLA Bruins football team" ... Kai Forbath
+kicked a 27-yard field goal early in the final period
+                                                                 guidelines and could correctly perform the evalua-
+                                                                 tion tasks.
+Hop2:
+Atomic Question: Against which team did Kai Forbath                 Annotation Procedure and Criteria. Annota-
+achieve his sixth career game-winner?                            tors were presented with data samples requiring
+Atomic Answer: Atlanta Falcons                                   human verification. The task was designed as a bi-
+Doc: "Kai Forbath" ... season finale in Week 17 against the      nary classification problem: annotators were asked
+Atlanta Falcons as time expired, his sixth career game-winner.
+Final Question: Against which team did the player who            to either “Retain” or “Discard” the sample based
+kicked a 27-yard field goal early in the final period for the    on strict quality standards. The evaluation criteria
+2009 UCLA Bruins football team achieve his sixth career          consisted of two main categories: General Quality
+game-winner?
+Final Answer: Atlanta Falcons                                    Checks: Annotators verified Factuality & Faithful-
+                                                                 ness by ensuring the answer was strictly grounded
+Hop3:
+Atomic Question: What is the location of the Atlanta             in the source text and free from any information fab-
+Falcons’ professional football team?                             rication or hallucination. They also checked Logic
+Atomic Answer: Atlanta, Georgia                                  & Fluency to ensure questions were grammatically
+Doc: "Atlanta Falcons" ... Atlanta Falcons The Atlanta
+Falcons are a professional American football team based in
+                                                                 natural and logically sound. Type-Specific Checks:
+Atlanta, Georgia.                                                For Reasoning Questions, annotators reviewed the
+Final Question: What is the location of the professional         reasoning chain layer by layer to ensure that every
+football team that faced the player who kicked a 27-yard field
+goal early in the final period for the 2009 UCLA Bruins
+                                                                 intermediate step constituted a valid deduction. For
+football team in his sixth career game-winner?                   Comparison Questions, they verified the consis-
+Final Answer: Atlanta, Georgia                                   tency of the comparison dimensions and the factual
+Hop4:                                                            accuracy of the final conclusion.
+Atomic Question: Which broader trading area does the                Inter-Annotator Agreement and Adjudica-
+Atlanta, Georgia metropolitan area form the core of?
+Atomic Answer: Atlanta–Athens-Clarke–Sandy Springs
+                                                                 tion. All data samples requiring human verifica-
+Combined Statistical Area                                        tion were independently evaluated by three anno-
+Doc: "Atlanta metropolitan area" ... The metro area forms the    tators. To assess the reliability of the annotation
+core of a broader trading area, the                              process, we calculated the Inter-Annotator Agree-
+Atlanta–Athens-Clarke–Sandy Springs Combined Statistical
+Area. The Combined Statistical Area spans up to 39 counties      ment (IAA) using Fleiss’ Kappa (κ). The resulting
+in north Georgia and has an                                      κ score was 0.65, indicating substantial agreement
+Final Question: Which broader trading area does the              among annotators. For cases where annotators dis-
+metropolitan area of the city where the professional football
+team that faced the player who kicked a 27-yard field goal       agreed (i.e., non-unanimous decisions), the final
+early in the final period for the 2009 UCLA Bruins football      labels were determined through a consensus discus-
+team in his sixth career game-winner is based form the core
+of?
+                                                                 sion involving both the annotators and the authors
+Final Answer: Atlanta–Athens-Clarke–Sandy Springs                to ensure the highest data quality.
+Combined Statistical Area                                           Compensation. Annotators were compensated
+                                                                 at a fixed rate of $15 per hour, which is consistent
+                Table 6: Golden Trace                            with or above standard minimum wage guidelines.
+                                                                 The compensation was independent of the label
+                                                                 distribution to avoid incentive bias.
+                                                                    Ethical Considerations. The annotation pro-
+                                                                 cess did not involve the collection of any person-
+                                                                 ally identifiable information (PII). All content was
+                                                                 anonymized. Given the non-invasive nature of the
+task, this study aligns with standard ethical guide-
+lines for NLP data annotation.
+

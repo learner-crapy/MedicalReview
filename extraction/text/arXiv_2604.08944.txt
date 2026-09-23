@@ -1,0 +1,1986 @@
+                                                    Multi-Agent Decision-Focused Learning via
+                                                     Value-Aware Sequential Communication
+
+
+                                                                Benjamin Amoh Geoffrey Parker Wesley Marrero
+                                                                   Thayer School of Engineering, Dartmouth College
+                                                                      benjamin.k.amoh.th@dartmouth.edu
+
+
+
+
+arXiv:2604.08944v2 [cs.LG] 12 May 2026
+                                                                                            Abstract
+
+                                                   Multi-agent coordination under partial observability requires sharing complemen-
+                                                   tary private information. Existing methods optimize communication proxies (e.g.,
+                                                   mutual information) rather than task performance. We introduce SeqComm-DFL,
+                                                   which unifies sequential communication with decision-focused learning to directly
+                                                   optimize coordination. Our approach features value-aware message generation with
+                                                   sequential Stackelberg conditioning, where messages maximize receiver decision
+                                                   quality and are generated in priority order. The guidance potential is determined
+                                                   by prosocial agent ordering. We extend Optimal Model Design to communication-
+                                                   augmented world models with QMIX factorization for end-to-end training via
+                                                   implicit differentiation. We
+                                                                              √ prove information-theoretic bounds on communication
+                                                   value and establish O(1/ T ) convergence for the bilevel optimization. On health-
+                                                   care and SMAC benchmarks, SeqComm-DFL achieves 4–6× higher rewards and
+                                                   13% win rate improvements, enabling coordination strategies inaccessible under
+                                                   information asymmetry.
+
+
+                                         1    Introduction
+                                         Many real-world decision-making problems involve multiple agents operating under partial observ-
+                                         ability, where each agent observes only a portion of an environment yet must coordinate with others
+                                         to achieve shared objectives. This setting arises naturally in healthcare resource allocation [35],
+                                         autonomous multi-robot coordination [3], and traffic control systems [4]. The fundamental challenge
+                                         is that optimal decisions require information distributed across agents, yet communication bandwidth
+                                         and latency constraints often preclude sharing all observations directly.
+                                         Consider intensive care unit management, where specialists (e.g., cardiologists, pulmonologists,
+                                         neurologists) observe patient data relevant to their expertise but must coordinate treatment decisions
+                                         that account for drug interactions and multi-system organ involvement [45]. No single specialist
+                                         possesses complete information, yet decisions have cascading effects across specialties.
+                                         The dominant paradigm for cooperative Multi-Agent Reinforcement Learning (MARL) is centralized
+                                         training with decentralized execution [31, 24], where agents access global information during training
+                                         but execute using only local observations. While methods like QMIX [36], MAPPO [50], and
+                                         MADDPG [28] have achieved strong performance, they face fundamental challenges including
+                                         environment shifts (i.e., each agent’s environment changes as others learn) and credit assignment (i.e.,
+                                         determining individual contributions to team rewards). Learned communication offers a promising
+                                         solution [13, 40] to environment shifts, but existing protocols typically optimize surrogate objectives
+                                         such as message quality or mutual information [48], rather than decision quality.
+                                         A parallel challenge arises from the objective mismatch problem in model-based reinforcement
+                                         learning [27]: world models trained to maximize predictive accuracy may not support optimal policy
+                                         learning because prediction errors in value-irrelevant dimensions contribute to training loss but not
+
+                                         40th Conference on Neural Information Processing Systems (NeurIPS 2026).
+to policy quality. This mismatch extends to learned communication: standard protocols, like the
+Maximum Likelihood Estimation (MLE), optimize for reconstruction accuracy rather than decision
+quality, wasting bandwidth on information that does not improve coordination. Decision-Focused
+Learning (DFL), also known as predict-and-optimize [11, 43], addresses this mismatch by training a
+predictor end-to-end with a downstream optimizer, backpropagating through the optimization layer
+to prioritize decision quality over prediction accuracy. However, existing DFL methods primarily
+focus on single-agent settings with exogenous uncertainty, where predictions do not affect outcomes.
+We propose Sequential Communication for Decision-Focused Learning (SeqComm-DFL), uni-
+fying multi-agent communication learning, model-based reinforcement learning, and DFL. Viewed
+through the predict-and-optimize lens, SeqComm-DFL casts a communication module ϕθ with pa-
+rameter θ as the “predictor” and MARL policy selection as the “optimization task.” Crucially, our
+setting involves endogenous uncertainty [43]: messages are not passive forecasts but active signals
+that change how other agents act, creating feedback loops absent in standard DFL. To our knowledge,
+SeqComm-DFL is the first framework to extend DFL to multi-agent systems with endogenous,
+communication-induced uncertainty.
+Our key innovation is value-aware message generation with sequential Stackelberg conditioning [52]:
+messages are optimized to maximize receiver decision quality and generated sequentially in priority
+order, creating a leader-follower structure. Building on prior work in sequential communication [8],
+we introduce guidance potential for prosocial priority ordering and extend Optimal Model Design
+(OMD) [29] to communication-augmented world models with QMIX factorization [36]. We provide
+information-theoretic bounds on communication value (Theorem 5.1) and convergence guarantees
+(Theorem 5.3). Experiments on healthcare coordination and original SMAC benchmarks demonstrate
+rewards 4–6 times higher and win rate gains of over 13%.
+
+2   Related Work
+Cooperative MARL under the centralized training with decentralized execution paradigm [31, 24] has
+seen rapid progress. Value decomposition methods, including VDN [41], QMIX [36], QTRAN [39],
+and QPLEX [47] factor joint action-values to enable scalable learning, while policy gradient ap-
+proaches like MAPPO [50] and MADDPG [28] extend actor-critic methods to multi-agent settings.
+Two fundamental challenges persist: non-stationarity [20, 33] and credit assignment [14, 53]. Oppo-
+nent modeling [19] and hysteretic Q-learning [32] aim to mitigate non-stationarity, while COMA [14]
+addresses credit assignment via counterfactual baselines. While these methods avoid explicit commu-
+nication, our work unifies multi-agent coordination and decision-focused communication.
+Early works like CommNet [40] and DIAL [13] pioneered end-to-end communication, later enhanced
+by attention mechanisms [6, 30]. To improve efficiency, NDQ [48] and I2C [7] use information-
+theoretic objectives to minimize overhead. More recently, SeqComm [8] introduced sequential
+message priority, and MAIC [51] used messages as incentives for value modulation. However,
+these methods typically optimize for intermediate surrogates rather than final decision quality. Our
+work extends SeqComm with value-aware message optimization and integrates communication into
+decision-focused world model learning.
+Model-based reinforcement learning methods like World Models [17] and Dreamer [18] learn
+dynamics for imagination. To solve the objective mismatch problem [27], value-aware learning
+[12] and OMD [29] utilize bilevel optimization. Similarly, DFL [9, 11], or predict-and-optimize
+[43], trains models end-to-end for downstream performance. While recent DFL research handles
+endogenous uncertainty, it remains focused on single-agent settings. SeqComm-DFL is the first to
+extend DFL principles to multi-agent communication with endogenous feedback. See Table 2 in
+Appendix A for a summary of the positioning of our work.
+
+3   Problem Setting
+We consider a cooperative, Decentralized Partially-Observable Markov Decision Process (Dec-
+POMDP) (N , S, {Ai }N              N
+                        i=1 , {Oi }i=1 , P, R, γ) [1], where N = {1, . . . , N } is the set of agents, S is
+the global state space, Ai is the action space for agent i ∈ N , Oi is the local observation space for
+agent i, P : S × A × S → [0, 1] is the transition function, R : S × A 7→ R is the shared reward
+function, and γ ∈ [0, 1] is the discount factor. The set A = A1 × . . . × AN denotes the joint action
+
+
+                                                    2
+space, and a joint action is denoted a = (a1 , . . . , aN ) ∈ A, where ai ∈ Ai is the action chosen
+by agent i. A communication module function ϕθ : O 7→ M with parameter θ ∈ Rdθ generates
+messages mi ∈ M for each agent i, where M ⊆ Rdm is the message space and dm is the message
+dimension. We learn a communication-augmented world model fθ : S × A × MN → R × S for
+predicting rewards and next states conditioned on state, joint actions, and messages. See Appendix B
+for a summary of our notation.
+
+
+4     SeqComm-DFL Framework
+
+Our framework addresses three interconnected challenges in multi-agent coordination under partial
+observability: (1) what to communicate: generating messages that improve teammates’ decisions
+rather than merely encoding observations; (2) how to coordinate: establishing a principled ordering
+for sequential action selection; and (3) how to learn: training world models that optimize for decision
+quality rather than prediction accuracy. We address these through value-aware message generation,
+Stackelberg sequential conditioning [52], and decision-focused bilevel optimization [29], unified
+through QMIX-style [36] value decomposition for scalability.
+
+4.1     Communication Architecture with Value-Aware Messaging
+
+Each agent i ∈ N first encodes its local observation oi ∈ Oi through a shared message encoder ϕθ to
+produce a base message: mbase
+                           i   = ϕθ (oi ), where ϕθ is a multi-layer perceptron that maps observations
+to the message space M. Unlike standard approaches that optimize messages for surrogate objectives
+(e.g., reconstruction accuracy), we train the communication module end-to-end with downstream
+decision quality (a key innovation that directly connects communication to the DFL objective).
+
+4.1.1    The Value-Aware Communication Principle
+
+Standard communication methods encode observations oi into messages mi without considering
+downstream decision impact. This encoding creates a misalignment: the communication mod-
+ule optimizes for information content (e.g., mutual information I(mi ; oi ) or reconstruction er-
+ror ∥oi − ôi ∥2 ), while the downstream task requires decision-relevant information. We address
+this misalignment by optimizing messages for receiver decision quality: Define ∆Qj (mi ) =
+maxa∈Aj Qj (oj , mi , a) − maxa∈Aj Qj (oj , ∅, a) , where ∅ denotes the null (zero-vector) message
+baseline. We use Qj (oj , mi , a) = E[R(oj , mi , a) + γ maxa′ ∈Aj Qj (o′ , m′ , a′ )|oj , mi , a] to quan-
+tify the value for agent j associated with observation oj , message mi from agent i, discount factor
+γ, and a transition to observation o′ with message m′ after taking action a. The receiver decision
+quality quantity ∆Qj (mi ) measures how much agent j’s best achievable Q-value improves when
+receiving message mi from agent i. The key insight is that ∆Qj (mi ) directly quantifies the decision
+value of communication: information that doesn’t improve decisions has ∆Qj = 0 regardless of its
+information-theoretic content.
+
+4.1.2    Value-Aware Training Loss
+
+We define an auxiliary loss that maximizes the total decision quality improvements across receivers:
+
+                                                        B     N
+                                             1      XXX        (b)
+                        LVA (θ) = −                      ∆Qj (mi ).                                    (1)
+                                      B · N (N − 1)  i=1b=1       j̸=i
+
+                                                                            (b)
+where b ∈ {1, . . . , B} indexes samples in a mini-batch of size B, and mi is the message generated
+by agent i for the b-th sample. This value-aware loss is relevant because it addresses the core objective
+mismatch: standard communication training minimizes reconstruction error, but what matters for
+coordination is whether messages improve teammates’ decisions. By directly optimizing ∆Q, we
+ensure messages encode coordination-critical information rather than observational details. This loss
+is incorporated into our decision-focused world learning (Subsection 4.3), ensuring communication
+optimization is coupled with world model training.
+
+
+                                                    3
+4.1.3    Theoretical Connection to Decision-Focused Learning
+Similar to previous DFL work [29], we consider a true environment loss Ltrue (w; θ) that evaluates how
+well a critic Qw with parameter w ∈ R|w| trained on model predictions performs on real environment
+                                                                         (w∗ ;θ)
+data. By the Envelope Theorem [2], for an optimal critic w∗ : ∂Ltrue∂m     i
+                                                                                 = ∂L          ∂Qw
+                                                                                      ∂Qw × ∂mi ∝
+                                                                                        true
+
+                           ∗
+  P
+− j̸=i ∇mi Qj (oj , mi , aj ). The gradient of the true loss with respect to messages points toward
+increasing receiver Q-values, precisely what ∆Qj measures. This observation suggests value-aware
+communication emerges from the decision-focused objective. The value-aware objective aligns
+communication learning with minimizing true environmental error in DFL. Crucially, since ∆Qj
+depends on the critic Qw , which in turn depends on the world model fθ , this interaction creates an
+end-to-end pathway from communication to downstream performance.
+
+4.1.4    Message Refinement Architecture
+We implement value-aware communication through a refinement module Refineθ : M×R → M that
+adjusts base messages based on estimated decision impact: mi = mbase  i    + α · Refineθ (mbase
+                                                                                           i , ∆Q̂i ),
+                  1                  base
+                     P
+where ∆Q̂i = N −1 j̸=i ∆Q̂j (mi ) is the average estimated decision quality improvement across
+all receivers, computed via a lightweight prediction head trained alongside the critic. To stabilize
+early training before the critic converges, we use Monte Carlo rollouts to ground ∆Q̂ during warmup
+and anneal (see Appendix C for details).
+
+4.2     Sequential Action Selection with Stackelberg Conditioning
+
+To resolve relative overgeneralization [49], where partial observability causes agents to perform
+sub-optimally due to an inability to anticipate teammates, we adopt a sequential Stackelberg [46]
+framework. Coordination proceeds in three phases: (1) negotiation, computing prosocial guidance
+potential for priority ordering; (2) launching, utilizing sequential conditioning on leaders’ committed
+actions and messages; and (3) regularization, using counterfactual influence to ensure causal message
+impact. Breaking the symmetry of simultaneous selection allows followers to condition on the
+leader’s intentions to reach Pareto-superior equilibria inaccessible under information asymmetry.
+
+4.2.1    Negotiation Phase: Guidance Potential
+We first determine the priority ordering. Rather than using intention values [8], we employ guidance
+potential which measures each agent’s capacity to improve team outcomes by leading:
+                       GPi (s) = Ea∗ ∼π∗ Q1:N (s, a∗ |i+ ) − Q1:N (s, a∗ |i− ) ,
+                                                                             
+                                                                                                  (2)
+where Q1:N denotes the total joint value across agents 1 to N , i+ indicates that agent i acts as
+leader (early in sequence), and i− indicates that agent i acts as follower (later in the sequence). This
+prosocial criterion allows us to prioritize agents who can most help the team, not those with the
+strongest individual preferences.
+Connection to Coordination Information Gap. The guidance potential is theoretically grounded
+in the coordination information gap Ii (DefinitionP E.1 in Appendix E), which
+                                                                            P measures private
+information about team-optimal actions [1]: GPi ∝ j̸=i I(Mi ; a∗j | oj ) ≈ j̸=i min(Ij , H(Mi )),
+where H(Mi ) is the message entropy. Agents with high Ii (private information critical for teammates)
+benefit most from leading—their “strong decisions” condition the search space for followers. We
+assign action priorities via Gumbel-softmax ζ = argsort(−GP) for differentiable exploration.
+
+4.2.2    Launching Phase: Sequential Conditioning
+Agents select actions sequentially according to priority ordering ζ = (ζ1 , . . . , ζN ), where ζk is the
+index of the k-th agent to act. Agent ζk conditions on predecessor messages from higher-priority
+agents: aζk = arg maxa∈Aζk Qζk (oζk , M1:ζk −1 , a), where M1:ζk −1 = {mζj : j < k} denotes the
+set of messages from all agents with higher priority than ζk . This conditioning creates an explicit
+leader-follower structure: the first agent (the leader) commits to an action based solely on local
+information; subsequent agents (followers) observe the leader’s messages and adapt accordingly. The
+Stackelberg structure breaks symmetry and resolves coordination ambiguity that plagues parallel
+action selection. Algorithm 1 summarizes the action selection procedure.
+
+
+                                                   4
+4.2.3    Regularization Phase: Counterfactual Influence
+To ensure messages have a causal effect on decisions rather than merely correlating with them, we
+add a counterfactual influence loss [22]:
+                                                N X
+                                         1     X
+                      Linf (θ) = −                  DKL [πj (·|mi ) ∥ πj (·|∅)] .                   (3)
+                                     N (N − 1) i=1
+                                                          j̸=i
+
+This loss encourages messages that change the receiver’s behavior, as measured by the Kull-
+back–Leibler (KL) divergence [26] between policies with/out communication. Combined with
+value-aware training, this loss ensures messages are both influential and beneficial.
+
+4.3     Decision-Focused World Model Learning
+
+To resolve objective mismatch [27] we extend OMD [29] to multi-agent settings. A bilevel framework
+optimizes a world model fθ for downstream policy regret rather than prediction loss via: (1) an
+inner loop training a critic on model predictions while evaluating on real data in an outer loop; (2) a
+coordination-aware objective that prevents message apathy by incentivizing the critic to distinguish
+informative signals; and (3) hypergradient computation utilizing the Implicit Function Theorem
+(IFT) [25] and an efficient Conjugate Gradient (CG) solver [21].
+
+4.3.1    Bilevel Optimization Formulation
+The core insight of our bilevel optimization is to merge world model accuracy and decision quality
+into a single objective: rather than training the model to predict well (inner loop), we train the model
+parameters to directly optimize performance when the resulting critic is evaluated on environment
+data (outer loop). The outer problem optimizes model parameters θ for true environment performance,
+while the inner problem trains the critic Qw using model predictions:
+                               Outer:        min Ltrue (w∗ (θ); θ)                                 (4a)
+                                               θ
+                                Inner:    s.t.     w∗ (θ) = arg min Lmodel (w; θ)                  (4b)
+                                                                 w
+
+This formulation captures that the optimal critic w∗ depends on the world model θ, so updating θ
+affects the world model predictions and the critic that evaluates them.
+
+4.3.2    Inner Loop: Model-Based Critic Training
+The inner problem trains the critic Qw to satisfy the Bellman equation under the learned world model
+dynamics, running Kinner gradient descent steps to approximately solve the inner optimization. Given
+a dataset D = {(s(b) , a(b) )}B
+                              b=1 of B batches of state-action pairs, the model loss is:
+                                         B                              2
+                                 1 X                              (b)
+                 Lmodel (w; θ) =      Qw (s(b) , a(b) , M (b) ) − ymodel + λreg ∥w∥22               (5)
+                                 B
+                                         b=1
+
+where the target incorporates world model predictions: ymodel = r̂ + γVw̄ (ŝ′ , M ′ ), (r̂, ŝ′ ) =
+fθ (s, a, M ), M ′ = ϕθ (ŝ′ ). Here, w̄ denotes target network parameters updated via exponential
+moving average [34], M ′ is the message tensor re-computed for the predicted next state, and Vw̄ is
+the soft value function computed by  enumerating joint actions before QMIX factorization is learned:
+Vw̄ (s, M ) = τ · log a∈AN exp Qw̄ (s,a,M      )
+                      P
+                                           τ      , where τ ∈ R>0 is a temperature parameter. The
+inner loop runs Kinner > 0 gradient steps to approximately solve (4b), yielding w(Kinner ) ≈ w∗ (θ).
+
+Coordination-Aware Inner Loop: Preventing Message Apathy. In bilevel communication, a
+failure mode termed inner-loop apathy occurs when the critic Qw ignores messages and blocks the
+optimization and updates of communication parameters. To ensure meaningful optimization updates,
+we augment the inner-loop with a message-awareness term [51]:
+
+                           B
+                       1 X                                                                 
+          Laware (w) =     max 0, ϵmargin − Qw (s(b) , a(b) , M (b) ) − Qw (s(b) , a(b) , ∅) ,      (6)
+                       B
+                          b=1
+
+
+                                                          5
+where ∅ denotes the null messages (consistent with Section 4.1) and ϵmargin > 0 is a margin hy-
+perparameter. This hinge loss penalizes the critic whenever it assigns nearly equal Q-values to
+an observed message M (b) and the null message ∅, i.e, when Q(s, a, M (b) ) ≈ Q(s, a, ∅), treating
+messages as “incentives” that modulate the Q-values. The complete inner-loop objective becomes:
+Linner (w; θ) = Lmodel (w; θ) + λaware Laware (w).
+
+4.3.3    Outer Loop: Decision-Focused World Model Update
+
+The outer problem evaluates the critic on true environment data to assess its generalization. Given an
+environment dataset Denv = {(s(b) , a(b) , r(b) , s′(b) )}B
+                                                          b=1 , we define the environment true loss as:
+
+                                             B                                 2
+                                         1 X                              (b)
+                        Ltrue (w; θ) =        Qw (s(b) , a(b) , M (b) ) − ytrue ,
+                                         B
+                                           b=1
+
+where ytrue = r + γVw̄ (s′ , Mtrue
+                                 ′
+                                    ) uses observed rewards and next states. While Lmodel in the inner
+loop uses (r̂, ŝ′ ) from the world model, Ltrue uses (r, s′ ) from the environment.
+
+Hypergradient Computation via Implicit Differentiation. Since w∗ depends on θ, the outer
+objective’s total derivative requires differentiating through the inner optimization. By the chain rule:
+                                                                  ⊤
+                                                            dw∗
+                                                        
+                        dLtrue
+                               = ∇θ Ltrue (w∗ , θ) +                   ∇w Ltrue (w∗ , θ) .           (7)
+                         dθ      |     {z        }           dθ
+                                     direct effect      |               {z             }
+                                                                  indirect effect
+
+                 ∗
+                        |w|×|θ|
+The Jacobian dw dθ ∈ R          is intractable to compute directly. We apply the IFT [25] to the Bellman
+residual’s first-order optimality condition. At the inner-loop fixed point, ∇w Lmodel (w∗ ; θ) = 0. The
+IFT enables us to differentiate this optimality condition with respect to θ, implicitly characterizing
+                                                                                                     ∗
+how w∗ changes as θ varies without explicitly solving for w∗ (θ). Differentiating implicitly: dw   dθ  =
+    2              ∗
+                        −1 2                ∗
+− ∇ww Lmodel (w , θ)        ∇θw Lmodel (w , θ). This IFT application is the key insight from OMD [29]:
+rather than backpropagating through Kinner gradient steps, we treat the converged inner loop as an
+implicit function and differentiate at equilibrium, decoupling the forward solve from the backward
+                                            ∗
+pass (see Appendix D). Substituting dw    dθ into (7) yields the hypergradient:
+
+                     dLtrue
+                            = ∇θ Ltrue − (∇2θw Lmodel )⊤ (∇2ww Lmodel )−1 ∇w Ltrue .                 (8)
+                      dθ                 |     {z      }|      {z       } | {z }
+                                              mixed Hessian   inverse Hessian H −1     b
+
+
+This hypergradient updates θ to minimize true environment loss while accounting for how the
+critic parameters w∗ implicitly depend on θ. However, computing H −1 b directly is intractable for
+high-dimensional w, requiring efficient approximation.
+
+Efficient Computation via Conjugate Gradient. The product H −1 b in (8) is computed without
+forming the full Hessian. We solve the linear system (H + λI)v ∗ = b using CG [21, 38], where
+H = ∇2ww Lmodel is the Hessian of the model loss with respect to the critic parameters, I is the identity
+matrix, b = ∇w Ltrue is the gradient of the true loss with respect to the critic parameters, and λ > 0 is
+a damping coefficient for numerical stability. Each CG iteration requires one Hessian-vector product,
+computed efficiently via two autodiff passes: Hv = ∇w (∇w L⊤           model v). The final hypergradient
+∇θ Ltrue − ∇θ (∇w L⊤model v ∗
+                              ) is then computed via a single backward   pass through the mixed Hessian
+term.
+
+4.4     Training Procedure
+
+Algorithms 1 and 2 present the action selection and training procedures, respectively. We employ
+a warmup schedule that gradually increases the SeqComm-guided exploration, allowing the world
+model to stabilize before agents rely on learned communication.
+
+
+                                                       6
+Algorithm 1 Value-Aware Action Selection                  Algorithm 2 SeqComm-DFL Training
+Require: State s, comm. module ϕθ , critic Qw ,           Require: Environment E, iterations T , warmup
+    refinement net Refineθ                                    Tw , weights λVA , λinf , λaware
+ 1: Negotiation Phase: Compute GPi for all                 1: Init world model fθ , comm. module ϕθ ,
+    agents i using Eq. 2                                      critic Qw , target Qw̄
+ 2: Determine priority ordering:             ζ  ←          2: Set annealing schedule: βt ← min(t/Tw , 1)
+    argsort(−GP) via Gumbel-softmax
+ 3: Message Generation Phase:                              3: for t = 1 to T do
+ 4: for each agent i ∈ {1, . . . , N } do                  4:   Collect experience D, Denv from environ-
+ 5:    Encode observation: mbase i   ← ϕθ (oi )                 ment E
+ 6:    Estimate decision impact (Eq. 4.1.1):               5:   Compute hybrid ∆Q: ∆Q̂ ← (1 −
+       ∆Q̂i ← N 1−1 j̸=i ∆Qj (mbase                             βt )∆QMC + βt ∆Qcritic
+                     P
+                                       i )
+ 7:    Refine message: mi ← mbase              +α ·        6:   Inner Loop (Eq. 5, 6): For Kinner steps,
+                                         i
+                                                                w        ←      arg minw Lmodel (w; θ) +
+       Refineθ (mbase
+                  i   , ∆Q̂i )                                  λaware Laware (w)
+ 8: end for
+                                                           7:   Outer Loop (Eq. 1, 3, 8):
+ 9: Launching Phase (Stackelberg):
+                                                                θ                ←               θ    −
+10: for k = 1 to N do
+                                                                η dLdθtrue + λVA ∇LVA + λinf ∇Linf
+11:    Agent ζk selects:                a ζk    ←
+       arg maxa Qζk (oζk , M1:k−1 , a)                     8:   Update target network: w̄ ← τ w̄ + (1 −
+12: end for
+                                                                τ )w
+13: Return Joint action a = (a1 , . . . , aN )
+                                                           9: end for
+                                                          10: Return fθ , Qw
+
+
+
+5   Theoretical Analysis
+
+We analyze SeqComm-DFL in the Dec-POMDP setting {N , S, {Ai }, {Oi }, P, R, γ} where agents
+receive local observations but share a common reward. We establish formal foundations for SeqComm-
+DFL by quantifying the necessity of communication, the advantage of decision-focused world models,
+and bilevel stability. Full proofs and regularity conditions are provided in Appendices D and E.
+
+Information-Theoretic Necessity. Partial observability creates a coordination information gap Ii =
+I(s; a∗i |oi ), representing the optimal action information contained in the state s that is inaccessible
+from local observation oi . We present a bound on this gap in the following theorem:
+Theorem 5.1 (Communication Lower Bound). Let π comm be a joint policy utilizing SeqComm
+messages, and π no-comm be a policy restricted to local observations. For a Dec-POMDP with
+per-action reward gap ∆min [2] and discount factor γ, the expected performance gain from commu-
+                            comm        no-comm           PN (Ii −log 2)+
+nication satisfies: E[V π ] − E[V π             ] ≥ ∆1−γ
+                                                      min
+                                                           i=1 log |Ai | , where (x)+ = max(x, 0) and
+Ii = I(s; a∗i | oi ) is the coordination information gap.
+
+This bound proves that communication is necessary when the Fano term is positive. The lower bound
+grows with hidden optimal-action information: when local observations omit decision-critical state,
+communication provides greater benefit. SeqComm’s sequential launch phase reduces this gap toward
+zero by sharing actual actions, enabling followers to reach a Pareto-superior Stackelberg equilibrium.
+
+Decision-Focused Advantage. Let P̂ and R̂ be the learned transition and reward models using MLE,
+with errors ϵP = sups,a ∥P (·|s, a) − P̂ (·|s, a)∥1 and ϵR = sups,a |R(s, a) − R̂(s, a)|. Moreover,
+let ϵ = sups,a |(BQ)(s, a) − Q(s, a)| denote the Bellman error [42], where (BQ)(s, a) = E[r +
+γ maxa′ Q(s′ , a′ )]. By minimizing the Bellman error via IFT, SeqComm-DFL’s bilevel formulation
+yields a tighter Q∗ approximation than MLE, as shown in the following proposition:
+Proposition 5.2 (Q∗ Approximation Error). Let Q̂MLE and Q̂DFL be fixed points of Bellman operators
+induced by MLE and SeqComm-DFL. With dynamics error ϵP , reward error ϵR , and Bellman error ϵ,
+                                            ϵR
+the DFL error is tighter: ∥Q∗ − Q̂MLE ∥∞ ≤ 1−γ  + γϵ P rmax         ∗
+                                                   (1−γ)2 and ∥Q − Q̂DFL ∥∞ ≤ 1−γ .
+                                                                                      ϵ
+
+
+
+                                                      7
+By directly optimizing the Bellman error, SeqComm-DFL’s world model ignores value-irrelevant
+prediction errors that would otherwise degrade performance in decoupled learning.
+
+Bilevel Convergence. Despite the complexity of differentiating through the inner-loop critic (ϵinner
+approximation
+        √     error) and CG solver (ϵCG linearization error), the total bias ϵbias = ϵinner + ϵCG decays
+at O(1/ T ) [16], yielding a standard first-order convergence:
+Theorem 5.3 (Convergence to Stationary
+                                    √       Points). Under the regularity conditions in Appendix    √ E,
+an outer learning rate ηθ = O(1/ T ), and maintaining hypergradient bias ϵbias = O(1/ T )
+by setting Kinner , KCG = O(log   T ),the average squared gradient of the true loss satisfies:
+   PT
+1                     (t) 2        √1
+T    t=1 E∥∇θ Ltrue (θ )∥ ≤ O        T
+                                        .
+
+This theorem shows
+              √ SeqComm-DFL converges to a stationary point of the true environment loss at the
+standard O(1/ T ) rate despite the bilevel structure and the endogenous uncertainty introduced by
+communication. In practice this means that running T outer iterations with logarithmically growing
+inner and CG budgets is sufficient to drive the gradient of the decision-focused objective to zero.
+
+6     Experiments
+We evaluate SeqComm-DFL on: (1) a hospital environment with information asymmetry, and (2)
+Multi-Agent Particle Environment (MPE) and (3) the StarCraft Multi-Agent Challenge (SMAC).
+All main experiments use 10 random seeds. Appendices F, G, and I include our hyperparameters,
+environment details, and ablation studies, respectively.
+
+6.1     Hospital Environment: A Dec-POMDP with Structured Information Asymmetry
+
+We design a collaborative hospital environment that instantiates a Dec-POMDP with genuine partial
+observability, where communication provides measurable value.
+
+6.1.1    Structured Partial Observability
+The environment has N = 3 specialist physician agents (e.g., cardiology, pulmonology, neurology)
+managing P = 100 patients. Each physician i observes only specialty-gated risk factors for patient
+j: oi = hj,σi if specialty σi matches the patient condition, else oi = 0. These observations create
+fundamental information asymmetry—a cardiologist sees cardiac risk hj,1 but not neurological risk
+hj,3 , making multi-condition treatment decisions impossible without inter-specialist communication.
+Each physician selects treatment intensity ai ∈ {0, 1, 2}(low, medium, high). The reward incentivizes
+effective treatment (vitals improvement) while penalizing misdiagnosis, adverse drug interactions,
+and excess resource use. Severity is the ℓ1 deviation from healthy baseline; improvement is the
+per-timestep reduction averaged across patients. Full environment details are in Appendix G.
+
+6.1.2    Coordination-Dependent Dynamics
+The specialty-gating and drug interaction dynamics place this environment in the class of transition-
+coupled Dec-POMDPs, where communication is required to resolve NEXP-complete dependencies
+to achieve optimal coordination [15]. We illustrate the performance gap between optimal policies
+with and without communication in the following proposition, proved in Appendix G:
+Proposition 6.1 (Communication Necessity). Let π ∗ be the optimal joint policy for the Dec-POMDP
+                                                                     π∗      π no-comm
+                                                                                          PC
+and π no-comm
+             the optimal policy without communication. Then, V − V                    =Ω    c=1 E[hc ]
+· P (ξ ̸= σ) , where ξ is the patient’s condition type and σ is the treating agent’s specialty.
+
+The bound in this proposition follows from the “blind” treatment risk penalty: without communication,
+agents treating mismatched patients (σi ̸= ξj ) cannot learn the hidden risks hj,ξj , incurring penalties
+that are linear in risk magnitude. This proof establishes that the performance gap is inherent
+to the information structure, not an artifact of learning algorithms. More broadly, the hospital
+environment exhibits partially ordered dependencies [15]: agent i’s optimal action depends on the
+private information of agent i′ when their patients share drug interactions, creating a transition-coupled
+Dec-POMDP (NEXP-complete [1]) where independent learning cannot resolve the dependencies.
+
+
+                                                    8
+                   (a) Episode reward                               (b) Severity improvement
+Figure 1: Hospital performance: SeqComm-DFL (blue) vs. OMD (orange). Side-by-side: (a) episode
+reward (4–6× improvement) and (b) severity improvement (0.2 vs. 0.05).
+
+
+6.1.3    Results
+Figure 1(a) shows SeqComm-DFL achieves episode rewards of −70 to −30 versus OMD’s −200
+plateau (4–6× improvement). Figure 1(b) shows severity improvement at 0.2 vs. 0.05, confirming
+agents avoid blind treatment penalties through value-aware communication. Ablations (Appendix I)
+show removing LVA reduces performance by 12%, Stackelberg conditioning by 9.1%, guidance
+potential by 5.4%.
+
+6.2     SMAC Benchmark
+
+We evaluate our SeqComm-DFL on the original SMAC benchmark maps over a limited number of
+training iterations.
+
+6.2.1    Results
+Table 1 shows that SeqComm-DFL achieves 13 to 15 percentage point improvements over SeqComm
+and larger gaps over OMD. Ablations on 3s_vs_5z (Appendix I) show removing LVA reduces win
+rate by 12.0%, sequential conditioning by 9.1%, guidance potential by 5.4%.
+
+                               Table 1: Original SMAC benchmark results.
+                         Map          SeqComm-DFL SeqComm            OMD
+                         2s_vs_1sc      0.78 ± 0.04       0.65 ± 0.06 0.52 ± 0.08
+                         3s_vs_5z       0.71 ± 0.05       0.58 ± 0.07 0.41 ± 0.09
+                         2s3z           0.64 ± 0.06       0.49 ± 0.08 0.35 ± 0.10
+                         8m             0.59 ± 0.07       0.45 ± 0.09 0.31 ± 0.11
+
+
+
+7     Conclusion
+We introduced SeqComm-DFL, integrating sequential communication with DFL for multi-agent
+coordination under partial observability. Our key contributions (value-aware message generation,
+Stackelberg sequential conditioning, and guidance potential) enable agents to learn communication
+protocols that directly improve downstream decision quality. Through our theoretical analysis, we
+provided information-theoretic bounds on communication value and convergence guarantees. Further,
+our experiments demonstrate substantial improvements over baselines.
+Broader Impact and Future Work: SeqComm-DFL offers a theoretically-grounded framework
+for strategic information sharing in bandwidth-constrained, safety-critical multi-agent systems. The
+value-aware paradigm shifts communication design from information maximization to decision
+optimization, enabling deployable systems under real-world information asymmetry. Potential
+extensions include continuous action spaces, dynamic communication topology, and real-world
+deployment in healthcare coordination systems.
+
+
+                                                      9
+References
+ [1] Daniel S. Bernstein, Robert Givan, Neil Immerman, and Shlomo Zilberstein. The complexity of
+     decentralized control of Markov decision processes. Mathematics of Operations Research, 27
+     (4):819–840, 2002. doi: 10.1287/moor.27.4.819.297. URL https://doi.org.
+ [2] Dimitri P. Bertsekas. Dynamic Programming and Optimal Control, volume 1. Athena Scientific,
+     Belmont, MA, 4th edition, 2012. ISBN 978-1886529434.
+ [3] Lucian Busoniu, Robert Babuska, and Bart De Schutter. A comprehensive survey of multia-
+     gent reinforcement learning. IEEE Transactions on Systems, Man, and Cybernetics, Part C
+     (Applications and Reviews), 38(2):156–172, 2008. doi: 10.1109/TSMCC.2007.913919.
+ [4] Tianshu Chu, Jie Wang, Lara Codecà, and Zhaojian Li. Multi-agent deep reinforcement learning
+     for large-scale traffic signal control. IEEE Transactions on Intelligent Transportation Systems,
+     21(3):1086–1095, 2020. doi: 10.1109/TITS.2019.2901791.
+ [5] Imre Csiszár and János Körner. Information Theory: Coding Theorems for Discrete Mem-
+     oryless Systems. Cambridge University Press, Cambridge, UK, 2nd edition, 2011. ISBN
+     978-0521196819. doi: 10.1017/CBO9780511921315.
+ [6] Abhishek Das, Théophile Gervet, Joshua Romoff, Dhruv Batra, Devi Parikh, Michael Rabbat,
+     and Joelle Pineau. TarMAC: Targeted multi-agent communication. In Proceedings of the 36th
+     International Conference on Machine Learning, volume 97 of Proceedings of Machine Learning
+     Research, pages 1538–1546. PMLR, 2019. URL https://proceedings.mlr.press.
+ [7] Ziluo Ding, Tiejun Huang, and Zongqing Lu. Learning individually inferred communication for
+     multi-agent cooperation. In Advances in Neural Information Processing Systems, volume 33,
+     pages 22069–22079. Curran Associates, Inc., 2020. URL https://neurips.cc.
+ [8] Ziluo Ding, Zeyuan Liu, Zhirui Fang, Kefan Su, Liwen Zhu, and Zongqing Lu. Multi-agent
+     coordination via multi-level communication. In Advances in Neural Information Processing
+     Systems, volume 37. Curran Associates, Inc., 2024. URL https://neurips.cc.
+ [9] Priya L. Donti, Brandon Amos, and J. Zico Kolter. Task-based end-to-end model learning in
+     stochastic optimization. In Advances in Neural Information Processing Systems, volume 30,
+     pages 5484–5494. Curran Associates, Inc., 2017. URL https://neurips.cc.
+[10] Benjamin Ellis, Jonathan Cook, Skander Moalla, Mikayel Samvelyan, Mingfei Sun, Anuj
+     Mahajan, Jakob N. Foerster, and Shimon Whiteson. SMACv2: An improved benchmark for
+     cooperative multi-agent reinforcement learning. arXiv preprint arXiv:2212.07489, 2023.
+[11] Adam N. Elmachtoub and Paul Grigas. Smart “Predict, then Optimize”. Management Science,
+     68(1):9–26, 2022. doi: 10.1287/mnsc.2020.3922.
+[12] Amir-massoud Farahmand, Andre Barreto, and Daniel Nikovski. Value-aware loss function for
+     model-based reinforcement learning. In Proceedings of the 20th International Conference on
+     Artificial Intelligence and Statistics, volume 54 of Proceedings of Machine Learning Research,
+     pages 1486–1494. PMLR, 2017. URL https://proceedings.mlr.press.
+[13] Jakob Foerster, Yannis M. Assael, Nando de Freitas, and Shimon Whiteson. Learning to
+     communicate with deep multi-agent reinforcement learning. In Advances in Neural Information
+     Processing Systems, volume 29, pages 2137–2145. Curran Associates, Inc., 2016. URL https:
+     //neurips.cc.
+[14] Jakob Foerster, Gregory Farquhar, Triantafyllos Afouras, Nantas Nardelli, and Shimon Whiteson.
+     Counterfactual multi-agent policy gradients. In Proceedings of the AAAI Conference on Artificial
+     Intelligence, volume 32 (01), pages 2974–2982, 2018. doi: 10.1609/aaai.v32i1.11794. URL
+     https://aaai.org.
+[15] Thomas Gabel and Martin Riedmiller. Adaptive multi-agent reinforcement learning for dynamic
+     coordination problems. In Proceedings of the 7th International Joint Conference on Autonomous
+     Agents and Multiagent Systems, pages 1383–1386. International Foundation for Autonomous
+     Agents and Multiagent Systems, 2008. URL https://acm.org.
+
+
+                                                 10
+[16] Saeed Ghadimi and Mengdi Wang. Approximation methods for bilevel programming. arXiv
+     preprint arXiv:1802.02246, 2018.
+[17] David Ha and Jürgen Schmidhuber. World models. In Advances in Neural Information
+     Processing Systems, volume 31, pages 3078–3087. Curran Associates, Inc., 2018. doi: 10.
+     48550/arXiv.1803.10122. URL https://neurips.cc.
+[18] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control:
+     Learning behaviors by latent imagination. In International Conference on Learning Representa-
+     tions, 2020. URL https://openreview.net/forum?id=S1lOTC4tDS.
+[19] He He, Jordan Boyd-Graber, Kevin Kwok, and Hal Daumé, III. Opponent modeling in deep
+     reinforcement learning. In Proceedings of the 33rd International Conference on Machine
+     Learning, volume 48 of Proceedings of Machine Learning Research, pages 1804–1813. PMLR,
+     2016. URL https://mlr.press.
+[20] Pablo Hernandez-Leal, Michael Kaisers, Tim Baarslag, and Enrique Munoz de Cote. A
+     survey of learning in multiagent environments: Dealing with non-stationarity. arXiv preprint
+     arXiv:1707.09183, 2017. doi: 10.48550/arXiv.1707.09183. URL https://arxiv.org/abs/
+     1707.09183.
+[21] Magnus R. Hestenes and Eduard Stiefel. Methods of conjugate gradients for solving linear
+     systems. Journal of Research of the National Bureau of Standards, 49(6):409–436, 1952. doi:
+     10.6028/jres.049.044. URL https://nist.gov.
+[22] Natasha Jaques, Angeliki Lazaridou, Edward Hughes, Caglar Gulcehre, Pedro A. Ortega, D. J.
+     Strouse, Joel Z. Leibo, and Nando de Freitas. Social influence as intrinsic motivation for multi-
+     agent deep reinforcement learning. In Proceedings of the 36th International Conference on
+     Machine Learning, volume 97 of Proceedings of Machine Learning Research, pages 3040–3049.
+     PMLR, 2019. URL https://proceedings.mlr.press.
+[23] Sham Kakade and John Langford. Approximately optimal approximate reinforcement learning.
+     In Proceedings of the 19th International Conference on Machine Learning (ICML), pages
+     267–274, 2002.
+[24] Landon Kraemer and Bikramjit Banerjee. Multi-agent reinforcement learning as a rehearsal for
+     decentralized planning. Neurocomputing, 190:82–94, 2016. doi: 10.1016/j.neucom.2016.01.
+     031.
+[25] Steven G. Krantz and Harold R. Parks. The Implicit Function Theorem: History, Theory,
+     and Applications. Modern Birkhäuser Classics. Birkhäuser, Boston, MA, 2002. ISBN 978-
+     0817642853. doi: 10.1007/978-1-4612-0059-8.
+[26] Solomon Kullback and Richard A. Leibler. On information and sufficiency. The Annals of
+     Mathematical Statistics, 22(1):79–86, 1951. doi: 10.1214/aoms/1177729694. URL https:
+     //projecteuclid.org.
+[27] Nathan Lambert, Brandon Amos, Omry Yadan, and Roberto Calandra. Objective mismatch
+     in model-based reinforcement learning. In Proceedings of the 2nd Conference on Learning
+     for Dynamics and Control, volume 120 of Proceedings of Machine Learning Research, pages
+     761–770. PMLR, 2020. URL https://proceedings.mlr.press.
+[28] Ryan Lowe, Yi Wu, Aviv Tamar, Jean Harb, Pieter Abbeel, and Igor Mordatch. Multi-agent
+     actor-critic for mixed cooperative-competitive environments. In Advances in Neural Information
+     Processing Systems, volume 30, pages 6379–6390. Curran Associates, Inc., 2017. URL https:
+     //neurips.cc.
+[29] Evgenii Nikishin, Romina Abachi, Rishabh Agarwal, and Pierre-Luc Bacon. Control-oriented
+     model-based reinforcement learning with implicit differentiation. In Proceedings of the AAAI
+     Conference on Artificial Intelligence, volume 36 (7), pages 7886–7894, 2022. doi: 10.1609/
+     aaai.v36i7.20758. URL https://github.com/evgenii-nikishin/omd. Code: https:
+     //github.com/evgenii-nikishin/omd.
+
+
+                                                 11
+[30] Yaru Niu, Rohan Paleja, and Matthew C. Gombolay. Multi-agent graph-attention communication
+     and teaming. In Proceedings of the 20th International Conference on Autonomous Agents and
+     Multiagent Systems, pages 964–973. International Foundation for Autonomous Agents and
+     Multiagent Systems, 2021. URL https://www.ifaamas.org/Proceedings/aamas2021/
+     pdfs/p964.pdf.
+
+[31] Frans A. Oliehoek, Matthijs T. J. Spaan, and Nikos Vlassis. Optimal and approximate Q-value
+     functions for decentralized POMDPs. Journal of Artificial Intelligence Research, 32:289–353,
+     2008. doi: 10.1613/jair.2447. URL https://jair.org.
+
+[32] Shayegan Omidshafiei, Jason Pazis, Christopher Amato, Jonathan P. How, and John Vian.
+     Deep decentralized multi-task multi-agent reinforcement learning under partial observability.
+     In Proceedings of the 34th International Conference on Machine Learning, volume 70 of
+     Proceedings of Machine Learning Research, pages 2681–2690. PMLR, 2017. doi: 10.1109/icra.
+     2017.7989106. URL https://proceedings.mlr.press.
+
+[33] Georgios Papoudakis, Filippos Christianos, Arrasy Rahman, and Stefano V. Albrecht.
+     Dealing with non-stationarity in multi-agent deep reinforcement learning. arXiv preprint
+     arXiv:1906.04737, 2019. doi: 10.48550/arXiv.1906.04737. URL https://arxiv.org.
+
+[34] Boris T. Polyak and Anatoli B. Juditsky. Acceleration of stochastic approximation by averaging.
+     SIAM Journal on Control and Optimization, 30(4):838–855, 1992. doi: 10.1137/0330046. URL
+     https://siam.org.
+
+[35] Peter J. Pronovost, Derek C. Angus, Todd Dorman, Karen A. Robinson, Tony T. Dremsizov,
+     and Tammy L. Young. Physician staffing patterns and clinical outcomes in critically ill patients:
+     A systematic review. JAMA, 288(17):2151–2162, 2002. doi: 10.1001/jama.288.17.2151.
+
+[36] Tabish Rashid, Mikayel Samvelyan, Christian Schroeder de Witt, Gregory Farquhar, Jakob
+     Foerster, and Shimon Whiteson. QMIX: Monotonic value function factorisation for deep
+     multi-agent reinforcement learning. In Proceedings of the 35th International Conference on
+     Machine Learning, volume 80 of Proceedings of Machine Learning Research, pages 4295–4304.
+     PMLR, 2018. URL https://proceedings.mlr.press.
+
+[37] Mikayel Samvelyan, Tabish Rashid, Christian Schroeder de Witt, Gregory Farquhar, Nantas
+     Nardelli, Tim G. J. Rudner, Chia-Man Hung, Philip H. S. Torr, Jakob Foerster, and Shimon
+     Whiteson. The StarCraft multi-agent challenge. arXiv preprint arXiv:1902.04043, 2019. doi:
+     10.48550/arXiv.1902.04043. URL https://arxiv.org.
+
+[38] Jonathan Richard Shewchuk. An introduction to the conjugate gradient method without the
+     agonizing pain. Technical report, Carnegie Mellon University, Pittsburgh, PA, USA, 1994. URL
+     https://cmu.edu.
+
+[39] Kyunghwan Son, Daewoo Kim, Wan Ju Kang, David Earl Hostallero, and Yung Yi. QTRAN:
+     Learning to factorize with transformation for cooperative multi-agent reinforcement learning.
+     In Proceedings of the 36th International Conference on Machine Learning, volume 97 of
+     Proceedings of Machine Learning Research, pages 5887–5896. PMLR, 2019. URL https:
+     //proceedings.mlr.press.
+
+[40] Sainbayar Sukhbaatar, Arthur Szlam, and Rob Fergus. Learning multiagent communication
+     with backpropagation. In Advances in Neural Information Processing Systems, volume 29,
+     pages 2244–2252. Curran Associates, Inc., 2016. URL https://neurips.cc.
+
+[41] Peter Sunehag, Guy Lever, Audrunas Gruslys, Wojciech Marian Czarnecki, Vinicius Zambaldi,
+     Max Jaderberg, Marc Lanctot, Nicolas Sonnerat, Joel Z. Leibo, Karl Tuyls, and Thore Graepel.
+     Value-decomposition networks for cooperative multi-agent learning. In Proceedings of the 17th
+     International Conference on Autonomous Agents and Multi-Agent Systems (AAMAS), pages
+     2085–2087, 2018.
+
+[42] Richard S. Sutton and Andrew G. Barto. Reinforcement Learning: An Introduction. MIT Press,
+     Cambridge, MA, 2nd edition, 2018. ISBN 978-0262039246.
+
+
+                                                 12
+[43] Bo Tang and Elias B. Khalil. PyEPO: A PyTorch-based end-to-end predict-then-optimize
+     library for linear and integer programming. Mathematical Programming Computation, 16(3):
+     297–335, 2025. doi: 10.1007/s12532-024-00255-x.
+[44] Alexandre B. Tsybakov. Introduction to Nonparametric Estimation. Springer Series in Statistics.
+     Springer, New York, NY, 2009. ISBN 978-0387790510. doi: 10.1007/b13794.
+[45] Jean-Louis Vincent, Jordi Rello, John Marshall, Eliezer Silva, Antonio Anzueto, Claude D.
+     Martin, Rui Moreno, Jeffrey Lipman, Charles Gomersall, Yasser Sakr, and Konrad Reinhart.
+     International study of the prevalence and outcomes of infection in intensive care units. JAMA,
+     302(21):2323–2329, 2009. doi: 10.1001/jama.2009.1754.
+[46] Heinrich von Stackelberg. The Theory of the Market Economy. Oxford University Press, Oxford,
+     UK, 1952. English translation by A. T. Peacock of the original German work Marktform und
+     Gleichgewicht (1934).
+[47] Jianhao Wang, Zhizhou Ren, Terry Liu, Yang Yu, and Chongjie Zhang. QPLEX: Duplex dueling
+     multi-agent Q-learning. In International Conference on Learning Representations, 2021. URL
+     https://openreview.net.
+[48] Tonghan Wang, Jianhao Wang, Chongyi Zheng, and Chongjie Zhang. Learning nearly de-
+     composable value functions via communication minimization. In International Conference on
+     Learning Representations, 2020. URL https://openreview.net.
+[49] Ermo Wei, Drew Wicke, David Freelan, and Sean Luke. Multiagent soft Q-learning. In
+     AAAI Spring Symposium on Distributed Autonomous Robotic Systems, 2018. URL https:
+     //aaai.org.
+[50] Chao Yu, Akash Velu, Eugene Vinitsky, Jiaxuan Gao, Yu Wang, Alexandre Bayen, and Yi Wu.
+     The surprising effectiveness of PPO in cooperative multi-agent games. In Advances in Neural
+     Information Processing Systems, volume 35, pages 24611–24624. Curran Associates, Inc., 2022.
+     URL https://neurips.cc.
+[51] Lei Yuan, Jianhao Wang, Fuxiang Zhang, Chenghe Wang, Zongzhang Zhang, Yang Yu, and
+     Chongjie Zhang. Multi-agent incentive communication via decentralized teammate modeling.
+     In Proceedings of the AAAI Conference on Artificial Intelligence, volume 36 (09), pages
+     9466–9474, 2022. doi: 10.1609/aaai.v36i9.21179. URL https://aaai.org.
+[52] L. Zheng, T. Fiez, Z. Alumbaugh, B. J. Chasnov, and L. J. Ratliff. Stackelberg actor-critic:
+     Game-theoretic reinforcement learning algorithms. In Proceedings of the AAAI Conference on
+     Artificial Intelligence, volume 36(8), pages 9217–9224, 2022. doi: 10.1609/aaai.v36i8.20908.
+     URL https://arxiv.org/abs/2109.12286.
+[53] Meng Zhou, Ziyu Liu, Pengwei Sui, Yixuan Li, and Yuk Ying Chung. Learning implicit
+     credit assignment for cooperative multi-agent reinforcement learning. In Advances in Neural
+     Information Processing Systems, volume 33, pages 11853–11864. Curran Associates, Inc., 2020.
+     URL https://neurips.cc.
+
+
+
+
+                                                13
+A     Method Positioning
+
+                  Table 2: Positioning of our work: A comparison of previous methods.
+       Method             Multi-Agent      Communication         Model-Based    Decision-Focused.
+       QMIX [36]               ✓
+       CommNet [40]            ✓                   ✓
+       TarMAC [6]              ✓                   ✓
+       SeqComm [8]             ✓                   ✓
+       Dreamer [18]                                                    ✓
+       OMD [29]                                                        ✓                  ✓
+       DFL [11]                                                                           ✓
+       Ours                    ✓                   ✓                   ✓                  ✓
+
+
+
+B     Notation
+     Table 3: Notation summary. Sets are denoted by calligraphic upper-case letters; functions and
+     matrices by upper-case Latin or Greek; scalar variables by lower-case Latin or Greek. Subscript i
+     indexes agents; j indexes patients or receiver agents depending on context.
+
+Symbol                     Description
+
+Dec-POMDP Environment
+N = {1, . . . , N }        Set of agents
+N                          Number of agents
+S                          Global state space
+s∈S                        Global state
+Ai Q                       Action space for agent i
+A = i Ai                   Joint action space
+ai ∈ Ai                    Action chosen by agent i
+a = (a1 , . . . , aN )     Joint action
+Oi                         Local observation space for agent i
+oi ∈ O i                   Local observation for agent i
+P : S × A × S → [0, 1]     Transition function
+R:S ×A→R                   Shared reward function
+r∈R                        Scalar reward sample from environment
+rmax                       Maximum absolute reward
+γ ∈ [0, 1)                 Discount factor
+T                          Number of training iterations (or episode horizon)
+Tw                         Warmup period for SeqComm annealing
+Communication
+M = Rdm                  Message space
+dm                       Message dimension (embedding size)
+M ∈ RN ×dm               Message tensor (all agents’ messages)
+mi ∈ M                   Message from agent i
+mbase
+  i                      Base message from encoder (before refinement)
+M1:i−1                   Predecessor messages from higher-priority agents
+ϕθ                       Communication module (shared message encoder)
+Refineθ                  Message refinement network
+α                        Refinement scaling coefficient
+GPi (s)                  Guidance potential for agent i (team improvement from leading)
+ζ = (ζ1 , . . . , ζN )   Priority ordering; ζk is the index of the k-th agent to act
+Policies & Value Functions
+πi (· | oi , M )           Policy of agent i
+π = (π1 , . . . , πN )     Joint policy
+V π (s)                    Value function under joint policy π
+Qw (s, a, M )              Critic (Q-function) parametrised by w
+Vw (s, M )                 Soft value function (log-sum-exp over actions)
+∆Qj (mi )                  Decision quality improvement for receiver j from message mi
+∆QMC                       Monte Carlo estimate of ∆Q
+∆Qcritic                   Critic-based estimate of ∆Q
+                                                                                              Continued on next page
+
+
+
+                                                     14
+ Table 3 continued.
+Symbol                    Description
+ (k)
+Gj                      k-th Monte Carlo return for agent j
+K                       Number of MC rollout samples
+World Model & Parameters
+fθ                      Communication-augmented world model
+θ ∈ Rdθ                 World model and communication module parameters
+dθ                      Dimension of parameter vector θ
+w                       Critic parameters
+   ∗
+w (θ)                   Optimal critic parameters for given θ (inner-loop solution)
+w̄                      Target critic parameters (exponential moving average)
+(r̂, ŝ′ )              Predicted reward and next state from world model
+P̂ , R̂                 Learned transition and reward models (MLE baseline)
+Q̂MLE , Q̂DFL           Q-function fixed points under MLE and DFL world models
+τ                       Temperature for soft value function and Gumbel-softmax
+τema                    EMA coefficient for target network update
+Loss Functions & Weights
+Lmodel (w; θ)             Model-based TD loss (inner loop)
+Ltrue (w; θ)              True environment TD loss (outer loop)
+LVA (θ)                   Value-aware communication loss
+Linf (θ)                  Counterfactual influence loss
+Laware (w)                Message-awareness hinge loss (prevents inner-loop apathy)
+Linner (w; θ)             Complete inner-loop objective (Lmodel + λaware Laware )
+λVA                       Weight for value-aware loss
+λinf                      Weight for counterfactual influence loss
+λaware                    Weight for message-awareness loss
+λreg                      ℓ2 regularisation weight on critic parameters
+ϵmargin                   Margin for message-awareness hinge loss
+Bilevel Optimisation
+ηθ                     Learning rate for world model parameters θ
+ηw                     Learning rate for critic parameters w
+βt                     MC-to-critic annealing coefficient at iteration t
+D                      Model training dataset
+Denv                   Environment (true-data) dataset
+E                      Environment
+B                      Mini-batch size
+b ∈ {1, . . . , B}     Mini-batch sample index
+H = ∇2ww Lmodel        Hessian of inner loss w.r.t. w
+bCG = ∇w Ltrue         Right-hand side vector for the CG linear system
+  ∗
+v                      Adjoint variable (CG solution to Hv ∗ = bCG )
+λ                      CG damping coefficient for numerical stability
+KCG                    Number of conjugate gradient iterations
+Kinner                 Number of inner-loop gradient steps
+B                      Bellman operator: (BQ)(s, a) = E[r + γ maxa′ Q(s′ , a′ )]
+Information Theory & Convergence
+Ii                     Coordination information gap for agent i
+I(·; ·)                Mutual information
+H(·)                   Shannon entropy
+DKL (·∥·)              Kullback–Leibler divergence
+∥ · ∥TV                Total variation distance
+LR                     Lipschitz constant of reward function
+µ                      Strong convexity parameter of Lmodel in w
+L                      Smoothness parameter
+ρ                      Lipschitz constant of Hessian ∇2ww Lmodel w.r.t. θ
+κ = L/µ                Condition number
+G                      Uniform gradient bound
+dπ                     State distribution under policy π
+ϵP , ϵ R               Sup-norm transition and reward model errors
+ϵ                      Bellman residual error
+ϵinner , ϵCG           Inner-loop and CG approximation errors
+ϵbias                  Total hypergradient estimation bias (ϵinner + ϵCG )
+Hospital Environment
+C                      Number of specialties (condition types)
+P                      Set of patients; |P| is the patient count
+ξj ∈ {1, . . . , C}    Patient j’s condition type
+σi ∈ {1, . . . , C}    Agent i’s specialty
+                                                                                      Continued on next page
+
+
+                                                   15
+ Table 3 continued.
+Symbol                Description
+hj,c ∈ [0, 1]         Hidden risk factor for patient j under condition c
+Dc,c′                 Drug interaction severity matrix
+ρblind,i              Blind treatment penalty for agent i
+ρdrug                 Drug interaction penalty
+ρresource             Resource constraint penalty
+Bres                  Resource budget (max simultaneous high-intensity treatments)
+∆vi                   Vitals improvement for patient treated by agent i
+∆ci                   Cost change for agent i’s treatment
+vi′                   Post-treatment patient vitals
+1[·]                  Indicator function
+
+
+
+
+                                               16
+C     Monte Carlo Grounding for ∆Q
+Early in training, the critic Qw is poorly calibrated, making ∆Qj estimates unreliable. To avoid the
+“biased critic” problem common in DFL methods, we ground ∆Q estimates using Monte Carlo (MC)
+rollouts during the warmup phase. For planning horizon T , we collect K trajectory samples and
+compute:
+                                                 K
+                                             1 X h (k)              (k)
+                                                                            i
+                              ∆QMC
+                                 j  (m i ) =         G j (m i ) − G j   (∅)
+                                             K
+                                                k=1
+         (k)     PT         (k)
+where Gj = t=0 γ t rj,t is the k-th MC return for agent j. This provides unbiased estimates
+that bootstrap the value-aware training signal before the critic converges. We anneal from MC to
+critic-based estimates as ∆Q̂ = (1 − βt )∆QMC + βt ∆Qw with βt → 1 as training progresses,
+ensuring stable early learning without sacrificing asymptotic efficiency.
+
+D     Optimal Model Design Details
+D.1   Implicit Function Theorem for Hypergradients
+
+The hypergradient computation in SeqComm-DFL follows the Implicit Function Theorem [25] (IFT)
+approach developed by Nikishin et al. [29] for bilevel optimization in reinforcement learning. At
+the inner-loop optimum w∗ (θ), the gradient vanishes: ∇w Lmodel (w∗ ; θ) = 0. Differentiating this
+optimality condition implicitly yields:
+                       dw∗                             −1 2
+                             = − ∇2ww Lmodel (w∗ , θ)      ∇θw Lmodel (w∗ , θ)
+                                   
+                                                                                                    (9)
+                         dθ
+This IFT-based hypergradient enables differentiating through the inner optimization without backprop-
+agating through gradient steps, avoiding vanishing/exploding gradients. The full derivation, regularity
+conditions (strong convexity, smoothness, Hessian invertibility), and Bellman-specific structure
+(I − γPθ⊤ D) are provided in Nikishin et al. [29]. Our contribution is extending this framework
+to multi-agent communication learning, where the world model must predict message-conditioned
+transitions.
+
+D.2   Q∗ Approximation Bounds
+
+The following bounds on Q∗ approximation error are adapted from Nikishin et al. [29]:
+
+Theorem D.1 (Q∗ Approximation Error). (i) MLE bound: With dynamics error ϵP and reward error
+ϵR :
+                                               ϵR    γϵP rmax
+                          ∥Q∗ − Q̂MLE ∥∞ ≤         +                                    (10)
+                                             1−γ      (1 − γ)2
+
+Proof. MLE Bound: Let P̂ and R̂ be the learned transition and reward models with errors ϵP =
+sups,a ∥P (·|s, a) − P̂ (·|s, a)∥1 and ϵR = sups,a |R(s, a) − R̂(s, a)|.
+The Bellman operator for the learned model is:
+                                                        X
+                     (BP̂ ,R̂ Q)(s, a) = R̂(s, a) + γ        P̂ (s′ |s, a) max
+                                                                            ′
+                                                                               Q(s′ , a′ )        (11)
+                                                                           a
+                                                        s′
+
+By the triangle inequality and Bellman operator contraction property [2]:
+                  ∥Q∗ − Q̂MLE ∥∞ ≤ ∥Q∗ − BP̂ ,R̂ Q∗ ∥∞ + ∥BP̂ ,R̂ Q∗ − Q̂MLE ∥∞                   (12)
+
+The second term contracts at rate γ, while the first term (model error) satisfies:
+                               ∥Q∗ − BP̂ ,R̂ Q∗ ∥∞ ≤ ϵR + γϵP ∥Q∗ ∥∞                              (13)
+                                                               rmax
+                                                   ≤ ϵR + γϵP                                     (14)
+                                                              1−γ
+
+
+                                                   17
+Solving the fixed-point inequality:
+                                                      ϵR   γϵP rmax
+                               ∥Q∗ − Q̂MLE ∥∞ ≤          +                                          (15)
+                                                     1−γ   (1 − γ)2
+
+(ii) OMD bound: With Bellman residual error ϵ:
+                                                             ϵ
+                                      ∥Q∗ − Q̂OMD ∥∞ ≤                                              (16)
+                                                            1−γ
+
+DFL Bound: SeqComm-DFL minimizes the Bellman residual ϵ = sups,a |(BQ)(s, a) − Q(s, a)|
+directly via the outer loop, where (BQ)(s, a) = E[r + γ maxa′ Q(s′ , a′ )] is the Bellman operator [42,
+2]. By the Bellman error propagation lemma:
+                                                          ϵ
+                                      ∥Q∗ − Q̂DFL ∥∞ ≤                                            (17)
+                                                         1−γ
+
+This avoids the (1 − γ)−2 factor because the world model is trained to minimize TD error on decision-
+relevant trajectories, not raw prediction error. The key difference: MLE has (1 − γ)−2 factor due to
+compounding transition errors, while DFL directly minimizes Bellman residual.
+
+E     Detailed Proofs
+E.1   Proof of Theorem 5.1 Necessity and Value of Communication under Partial
+      Observability
+
+We begin by defining the information-theoretic requirements for coordination. In a Dec-POMDP,
+an agent’s inability to see the global state s creates a discrepancy between its local policy and the
+team-optimal policy.
+Definition E.1 (Coordination Information Gap). The coordination information gap for agent i is
+defined as:
+                               Ii = I(s; a∗i |oi ) = H(a∗i |oi ) − H(a∗i |s)                     (18)
+where a∗i is the optimal action given full state access. Ii quantifies the information about optimal
+behavior contained in the global state s that is structurally inaccessible from local observation oi .
+
+We restate Theorem 5.1 for convenience.
+
+Proof of Theorem 5.1. The proof has three steps: (i) Fano lower bound on the per-agent action-error
+probability; (ii) per-step regret via the advantage gap; (iii) discounted aggregation via the simulation
+lemma.
+Step 1: Fano lower bound on Pe,i . Fix agent i and let âi denote the action it would take under
+π no-comm given observation oi , while a⋆i = a⋆i (s) is the team-optimal action. Both âi and a⋆i are
+                                                                                        nc
+random variables on the same probability space induced by the state distribution dπ . The standard
+form of Fano’s inequality [5, Thm. 2.10.1] states that for any estimator âi of a⋆i taking values in Ai ,
+                  hb (Pe,i ) + Pe,i log |Ai | − 1 ≥ H a⋆i âi ≥ H a⋆i | oi ,
+                                                                                 
+                                                                                                    (19)
+where hb (p) = −p log p − (1 − p) log(1 − p) ≤ log 2 is the binary entropy and the second inequality
+uses the data-processing inequality (since âi is a function of oi only). Under assumption (i) the
+optimal joint policy is deterministic in s, so H(a⋆i | s) = 0 and consequently
+                  H(a⋆i | oi ) = H(a⋆i | oi ) − H(a⋆i | s) = I(s; a⋆i | oi ) = Ii .
+Combining with hb (Pe,i ) ≤ log 2 and using log(|Ai | − 1) ≤ log |Ai |,
+                                                                   (Ii − log 2)+
+                      Pe,i log |Ai | ≥ Ii − log 2 =⇒ Pe,i ≥                      .                  (20)
+                                                                      log |Ai |
+This is the standard Fano bound; it is tight up to the additive log 2 slack, which is unimprovable in
+general (Tsybakov, Thm. 2.5; 44).
+
+
+                                                   18
+Step 2: Per-step regret via the advantage gap. By assumption (ii), for every state s and joint action
+a,
+                                                       N
+                                                          1[ai ̸= a∗i (s)].
+                                                      X
+                        r(s, a∗ (s)) − r(s, a) ≥ ∆min
+                                                                        i=1
+                                          nc
+Taking expectations under s ∼ dπ and a ∼ π nc (· | s) and applying linearity,
+                                                                  N
+                                                                  X
+                                  E r(s, a∗ ) − r(s, anc ) ≥ ∆min
+                                                         
+                                                                    Pe,i .                               (21)
+                                                                              i=1
+This is the only place assumption (ii) is used; it is satisfied in the Hospital environment because each
+blind treatment incurs an independent additive penalty (Appendix G), and approximately in SMAC
+because per-unit micro-management rewards decompose additively across agents.
+Step 3: Discounted aggregation via the simulation lemma. The performance-difference lemma of
+Kakade and Langford [23] (alternative statement: 2, Lem. 6.1) gives, for any two policies π ∗ and
+π nc ,
+               ∗           nc          1            ∗                  ∗
+            V π (s0 ) − V π (s0 ) =       Es∼dπs nc Aπ (s, π ∗ (s)) − Aπ (s, π nc (s)) ,
+                                                                                      
+                                      1−γ       0
+
+         π∗                        ∗
+where A is the advantage of π and the expectation is over the discounted occupancy of π nc .
+                                                                              ∗
+Lower-bounding the inner expectation by the per-step reward gap (since Aπ (s, a) ≤ r(s, a) +
+       ∗         ∗
+γV π (s′ ) − V π (s) telescopes; see Lemma E.2 below) and substituting (21) yields
+                                                                             N
+                                      ∗                   nc          ∆min X
+                                   V π (s0 ) − V π (s0 ) ≥                      Pe,i .
+                                                                      1 − γ i=1
+Finally, taking Es0 ∼ρ0 and noting that π comm can attain π ∗ when communication carries the missing
+information (Theorem 5.1 treats π comm as the upper benchmark π ∗ ; the inequality is preserved
+otherwise) gives the displayed bound. Substituting the Fano bound (20) for each Pe,i completes the
+proof.
+Lemma E.2 (Reward-gap form of simulation lemma). For any two policies π ∗ , π nc and discounted
+reward MDP with γ ∈ [0, 1),
+                    ∗           nc           1
+                 V π (s0 ) − V π (s0 ) ≥
+                                                                               
+                                                E πnc Eπ∗ [r | s] − Eπnc [r | s] ,
+                                           1 − γ s∼ds0
+provided π ∗ is the optimal policy of the same MDP (so that one-step deviations cannot improve
+   ∗
+V π ).
+                                                                                                     ∗
+Proof. Standard; follows from the performance-difference lemma [23] together with V π (s) ≥
+   nc
+V π (s) for the optimal policy. Full derivation in Kakade and Langford [23, §1.1].
+                          √
+Corollary E.3 (Sharper Var form, Bernoulli reduction). Suppose additionally that |Ai | = 2
+and the optimal action a⋆i ∈ {0, 1} has Bernoulli marginal with Var(a⋆i ) = pi (1 − pi ). Then for
+Ii ≤ log 2, Pinsker’s inequality [44] gives the alternative form
+                                                      q
+                                         Pe,i ≥ 12 − 12 Ii ,
+and the value gap satisfies
+                                                                      N q
+                           comm                no-comm         ∆min X
+                   E[V π          ] − E[V π              ] ≥              2 ln 2 · Ii · Var(a⋆i ),
+                                                               1 − γ i=1
+recovering the heuristic form quoted in earlier drafts of this work. For |Ai | > 2 or when the
+optimal-action marginal is non-Bernoulli the Fano form of Theorem 5.1 should be used instead.
+
+Proof. For binary actions Pe,i = Pr(âi ̸= a⋆i ) = ∥ Prâi |oi − Pra⋆i |s ∥TV marginalized over (s, oi ).
+                              p
+Pinsker gives ∥P − Q∥TV ≤ DKL (P ∥Q)/2; rearranging and using DKL (Pra⋆i |s ∥ Pra⋆i |oi ) = Ii
+(definition of mutual information) gives the Bernoulli error bound. Combining with (21) and Step 3
+of the main proof, and using Var(a⋆i ) = pi√(1 − pi ) as a normalization for the action gap, yields the
+displayed value-gap form after absorbing 2 ln 2.
+
+
+                                                               19
+Intuition for Readers: This bound proves that communication is not just "helpful" but mathemati-
+cally necessary when Ii > 0. In our Hospital benchmark, Ii is high because specific drug interaction
+risks are specialty-gated; the cardiologist literally cannot see the information required for the optimal
+team decision without the message from the neurologist.
+
+E.2   Convergence Sketch
+
+Assumption E.4 (Regularity Conditions). We assume the following properties for the model-based
+loss Lmodel (w; θ) and the true environment loss Ltrue (w; θ):
+
+      1. Strong Convexity: Lmodel (w; θ) is µ-strongly convex in w for a fixed θ.
+      2. Smoothness: Both Lmodel and Ltrue are L-smooth in w and θ.
+      3. Bounded Gradients: ∥∇θ Ltrue ∥ and ∥∇w Ltrue ∥ are bounded by G.
+      4. Lipschitz Hessian: The Hessian ∇2ww Lmodel is ρ-Lipschitz with respect to θ.
+
+Innovation: Unlike standard model-based reinforcement learning, SeqComm-DFL must account for
+the fact that we do not solve the inner loop (critic training) or the linear system (CG) perfectly. We
+decompose the hypergradient estimation error ϵ into two components: ϵinner and ϵCG .
+Proposition E.5 (Hypergradient Estimation Error Decomposition). With K inner iterations and KCG
+CG iterations:
+                                                                            KCG
+                                             ρG (K)           ∗        κ−1
+                    ∥∇θ Ltrue − ∇θ Ltrue ∥ ≤
+                      \                          ∥w       −w ∥+                    G               (22)
+                                              µ                        κ+1
+where κ = (L + λ)/(µ + λ) represents the damped Hessian condition number.
+
+Proof Sketch. Step 1: Descent Lemma. By L-smoothness of Ltrue (Assumption E.4), the standard
+descent lemma [2] gives:
+                                                                                               Lηθ2 (t) 2
+                 Ltrue (θ(t+1) ) ≤ Ltrue (θ(t) ) − ηθ ⟨∇θ Ltrue (θ(t) ), g (t) ⟩ +                 ∥g ∥     (23)
+                                                                                                2
+where θ(t+1) = θ(t) − ηθ g (t) is the parameter update. This inequality captures the one-step decrease
+in loss: the first term is the linear decrease from descending along g (t) , while the second term is the
+quadratic penalty from curvature. Our goal is to relate the inner product ⟨∇θ Ltrue , g (t) ⟩ to the squared
+gradient norm ∥∇θ Ltrue ∥2 to establish convergence.
+Step 2: Bias Decomposition. Let ϵ(t) = ∥g (t) − ḡ (t) ∥ be the hypergradient estimation error from
+Proposition E.5. By Cauchy-Schwarz:
+                        ⟨∇θ Ltrue (θ(t) ), g (t) ⟩ = ⟨ḡ (t) , ḡ (t) ⟩ + ⟨ḡ (t) , g (t) − ḡ (t) ⟩        (24)
+                                                             (t) 2         (t)         (t)
+                                                     ≥ ∥ḡ       ∥ − ∥ḡ         ∥·ϵ                        (25)
+                                                                        (t)      2           (t)
+                                                     ≥ ∥∇θ Ltrue (θ           )∥ − Gϵ                       (26)
+where G is the gradient bound from Assumption E.4.
+Step 3: Rearrange and Bound. Substituting into Step 1 and using the elementary inequality
+(G + ϵ(t) )2 ≤ 2G2 + 2(ϵ(t) )2 to avoid an inadvertent application of Jensen’s inequality in the wrong
+direction:
+                                    Ltrue (θ(t) ) − Ltrue (θ(t+1) )
+           ∥∇θ Ltrue (θ(t) )∥2 ≤                                    + Gϵ(t) + Lηθ G2 + (ϵ(t) )2 .
+                                                                                               
+                                                                                                            (27)
+                                                   ηθ
+
+Step 4: Telescope and Average. Summing over iterations t = 0, . . . , T − 1 and taking expectations
+E[·] over the randomness in gradient estimation and data sampling:
+         T −1
+      1 X                          E[Ltrue (θ(0) )] − E[Ltrue (θ(T ) )]
+            E∥∇θ Ltrue (θ(t) )∥2 ≤                                      + G ϵ̄ + Lηθ G2 + ϵ2
+                                                                                             
+                                                                                                            (28)
+      T t=0                                        T ηθ
+
+
+                                                            20
+where ϵ̄ = T1 t E[ϵ(t) ] and ϵ2 = T1 t E[(ϵ(t) )2 ]. Since Ltrue ≥ 0 and with learning rate ηθ =
+               P                      P
+      √                                      √                                          √
+O(1/ T ) and per-iteration error ϵ(t) = O(1/ T ) (from Proposition E.5), both ϵ̄ = O(1/ T ) and
+ϵ2 = O(1/T ), so:
+                                T −1
+                              1 X                                 √
+                                     E∥∇θ Ltrue (θ(t) )∥2 = O(1/ T )                         (29)
+                              T t=0
+                               √
+This establishes the usual O(1/ T ) stationary-point rate for the SeqComm-DFL under the assump-
+tions above.
+
+F     Hyperparameters
+
+
+                          Table 4: Hyperparameters for all experiments.
+                        Parameter            Notation          Value
+                        World model LR               ηθ          3 × 10−5
+                        Critic LR                    ηw          1 × 10−4
+                        CG damping                    λ             0.1
+                        Target EMA                  τema            0.99
+                        Discount                      γ              0.9
+                        Temperature                   τ             0.1
+                        Inner iterations           Kinner            15
+                        CG iterations               KCG              10
+                        Comm dimension              dm                8
+                        Value-aware weight          λVA              0.1
+                        Influence weight            λinf            0.01
+                        Awareness weight           λaware           0.05
+                        Awareness margin           ϵmargin           0.1
+                        MC anneal schedule           βt        min(t/Twarm , 1)
+
+
+G     Hospital Environment Details
+The transition dynamics and rewards explicitly depend on cross-agent information:
+Blind Treatment Risk: Treating a patient without knowledge of hidden risks incurs penalty:
+                             ρblind,i = 1.5 · (1 − 1[σi = ξj ]) · hj,ξj · ai                    (30)
+A non-matching specialist who treats aggressively (ai = 2) when the hidden risk hj,ξj is high incurs
+large penalties. Communication allows agents to warn teammates about high-risk patients.
+Drug Interaction Penalty. Simultaneous high-intensity treatments can cause adverse interactions:
+                                       1[ai = 2] · 1[aj = 2] · Dξi ,ξj
+                                     X
+                         ρdrug = 1.5                                                         (31)
+                                        i<j
+
+                     C×C
+where Dξi ,ξj ∈ [0, 1]   is a drug interaction matrix. This penalty requires agents to coordinate
+treatment intensities—impossible without communication about intended actions.
+Resource Budget. Limited high-intensity resources require prioritization, where Bres is the maximum
+number of simultaneous high-intensity treatments:
+                                                                        !
+                                                     1[ai = 2] − Bres
+                                                  X
+                        ρresource = 0.5 · max 0,                                                 (32)
+                                                        i
+
+
+G.1   Reward Structure
+
+               (∆vi + 0.4 · 1[σi = ξi ] − 0.6 · ∆ci − 3 · 1[vi′ > 0.85]) − ρdrug − ρresource
+           X
+       R=                                                                                       (33)
+               i
+
+
+                                                   21
+G.2   Penalty Terms
+
+Blind Treatment: ρblind,i = 1.5 · (1 − 1[σi = ξj ]) · hj,ξj · ai
+
+G.3   Proof of Proposition 6.1 (Communication Necessity)
+
+Proof. The hospital environment reward decomposes as:
+                     X                                                                    X
+              R=         Ribase − ρblind − ρdrug − ρresource ,                ρblind =          ρblind,i,j .   (34)
+                        i                                                                 i,j
+
+
+Consider the blind treatment penalty for one (agent, patient) pair:
+
+                               ρblind,i,j = 1.5 · (1 − 1[σi = ξj ]) · hj,ξj · ai,j .                           (35)
+
+Step 1: Expected Per-Step Penalty Without Communication. Without communication, agent i
+cannot observe hj,ξj when σi ̸= ξj . Under a non-communicating policy π no-comm , by linearity of
+expectation,
+                            no-comm
+                       Eπ             [ρblind,i,j ] = 1.5 · P (σi ̸= ξj ) · E[hj,ξj ] · E[ai,j ].              (36)
+
+Step 2: With Communication. With optimal communication π ∗ , agent i receives a message from
+the matching specialist that encodes hj,ξj , so it can avoid aggressive treatment when the hidden risk
+                    ∗
+is high, yielding Eπ [ρblind,i,j ] ≈ 0.
+Step 3: Per-Step Gap and Discounted Aggregation. Summing over all (i, j) pairs and condition
+types c ∈ {1, . . . , C} yields a per-step expected penalty gap of
+                                                  C
+                                                  X
+                                      ∆step ≥           1.5 · P (ξ ̸= σ) · E[hc ] · ā,                        (37)
+                                                  c=1
+
+with ā > 0 the average action intensity. The value-function gap is the discounted sum of per-step
+gaps over the infinite horizon, and therefore
+                                                           C
+                                                                                 !
+                   π∗      π no-comm   ∆step          1 X
+                 V −V                ≥        = Ω             E[hc ] · P (ξ ̸= σ) .           (38)
+                                       1−γ          1 − γ c=1
+
+This establishes the claimed lower bound; for fixed γ the 1/(1 − γ) factor is absorbed into the Ω(·)
+in the proposition statement.
+
+
+Architecture Matching.          Both methods use:
+
+       • Identical per-agent network architecture (2-layer MLP with hidden dimension dh = 128)
+       • Same output heads for local state and reward prediction
+       • Orthogonal weight initialization
+       • LeakyReLU activations (negative slope = 0.01)
+
+The only architectural difference is that SeqComm includes a communication module, that adds
+messages to each agent’s input. This ensures that any performance difference is attributable solely to
+the value of communication.
+
+Preventing Overfitting. To ensure fair comparison, we monitor validation metrics (true environ-
+ment TD loss) and report results at consistent training iterations. The matched learning rate (3×10−5 )
+and high CG damping (0.1) provide implicit regularization that prevents overfitting in both methods.
+
+
+                                                             22
+H              SMAC experiment details
+
+
+                                                                                       SeqComm-DFL                        SeqComm                         OMD
+                                       Hospital stress test                                                     MPE simple spread                                                      SMACv2 Protoss 5v5
+                                                                                                100                                                                           10
+                25
+                 0                                                                              110                                                                            8
+
+
+ eval return                                                                     eval return                                                                    eval return
+                25                                                                                                                                                             6
+                50                                                                              120
+                                                                                                                                                                               4
+                75                                                                              130
+               100                                                                                                                                                             2
+                                                                                                140
+               125                                                                                                                                                             0
+                                 200               400          600      800                                    500       1000          1500           2000                            1000 2000 3000 4000 5000
+                                                    episode                                                               episode                                                                episode
+
+Figure 2: Learning curves (seed means and shaded bands are standard errors over available matched
+seeds) over training. Hospital and MPE are completed 10-seed protocols; SMACv2 protoss_5_vs_5
+is the completed clean-harness short-budget status curve and should be read together with Figure 3.
+
+
+SMACv2 status
+
+The main learning-curve figure, Figure 2, includes a short-budget SMACv2 status curve for
+protoss_5_vs_5. The original SMAC table above reports the compact SMAC-v1 benchmark
+summary used in the main text; the additional table and figure below record the stricter SMACv2
+runs with the official procedural generator [10]. These rows should be read as a budget-aware status
+snapshot rather than as a final budget-matched ranking, because the clean-harness communication
+jobs completed far fewer environment steps than the EPyMARL QMIX/MAPPO snapshots.
+
+Why SMAC-v1 and SMACv2 separate. Original SMAC uses fixed hand-designed scenarios, so an
+OMD-style predict-and-optimize update can repeatedly see the same unit compositions, observation
+geometry, and downstream optimizer. In that regime, a communication-conditioned world model can
+learn decision-relevant corrections and the value-aware auxiliary can improve the fixed QMIX-style
+decision map. SMACv2 deliberately changes the problem: scenarios are procedurally generated,
+evaluation requires generalization to unseen settings, and the benchmark was introduced because
+SMAC-v1 can be partially solved by policies with weak closed-loop dependence [10]. This makes
+the downstream optimizer less fixed from the perspective of DFL: the model-target mixture and
+value-aware gradients are computed under a rapidly changing distribution of local views, action
+masks, unit matchups, and teammate behaviors. The short-budget SMACv2 rows therefore identify
+a limitation of the present OMD/DFL instantiation rather than contradicting the original SMAC-v1
+claim. They suggest that stronger procedural generalization will likely require adaptive model mixing,
+auxiliary gating based on model error or Q-spread, and longer matched budgets.
+
+                                                                      Protoss 5v5                                                                                  Terran 10v11
+                                                                                                2.90M
+                                          labels: env steps                                                                        labels: env steps
+                                0.30
+                                0.25                                                                         3.05M
+
+                                0.20
+                     win rate   0.15                                                                                                                                                     1.55M
+                                0.10
+                                               0.29M          0.29M      0.28M                                                          0.22M           0.21M                  0.22M                  2.32M
+                                0.05
+                                0.00
+                                                L                            D                   IX                                         L                                   D        IX
+                                             -DF          Com
+                                                              m
+                                                                        OM                     QM         PPO                         -DF          Com
+                                                                                                                                                        m
+                                                                                                                                                                              OM       QM          PPO
+                                        mm                                                              MA                      mm                                                               MA
+                                     Co                Seq                                                                    Co                Seq
+                                 Seq                                                                                      Seq
+
+Figure 3: SMACv2 deadline status by scenario. Bars report win-rate snapshots and vertical labels
+report completed or live environment-step budgets. The clean-harness communication rows completed
+far fewer steps than the EPyMARL QMIX/MAPPO snapshots, so this figure is a budget-aware status
+summary rather than a budget-matched ranking.
+
+
+                                                                                                                     23
+                                 Table 5: SMACv2 performance
+    Scenario             Variant           Seeds    Win rate                 Return        Env steps
+    protoss_5_vs_5       SeqComm-DFL           3        0.003 ± 0.006       7.20 ± 0.67     0.287M
+    protoss_5_vs_5       SeqComm               3        0.010 ± 0.010       8.42 ± 0.32     0.286M
+    protoss_5_vs_5       OMD                   3        0.013 ± 0.006       8.50 ± 0.74     0.285M
+    protoss_5_vs_5       QMIX                  3        0.260 ± 0.048      16.08 ± 0.32     2.902M
+    protoss_5_vs_5       MAPPO                 3        0.177 ± 0.048      14.02 ± 0.93     3.054M
+    terran_10_vs_11      SeqComm-DFL           3        0.000 ± 0.000      5.11 ± 0.59      0.216M
+    terran_10_vs_11      SeqComm               3        0.003 ± 0.006       5.18 ± 0.39     0.211M
+    terran_10_vs_11      OMD                   3        0.000 ± 0.000       5.76 ± 0.69     0.221M
+    terran_10_vs_11      QMIX                  3        0.052 ± 0.065      10.10 ± 1.89     1.551M
+    terran_10_vs_11      MAPPO                 3        0.010 ± 0.018       8.31 ± 1.17     2.319M
+
+
+
+
+Table 6: SMACv2 SeqComm-DFL component ablation on protoss_5_vs_5. These rows test the
+auxiliary pathways and are not part of the general baseline sweep.
+    Scenario            Variant              Seeds           Win rate        Return        Env steps
+    protoss_5_vs_5      SeqComm-DFL            3           0.003 ± 0.006   7.20 ± 0.67      0.287M
+    protoss_5_vs_5      no value-aware         3           0.003 ± 0.006   7.67 ± 0.10      0.304M
+    protoss_5_vs_5      no model mix           3           0.003 ± 0.006   7.77 ± 0.20      0.307M
+
+
+
+I     Ablation Study Details
+
+This appendix section supplies the detailed Hospital, MPE, and focused SMACv2 results that
+accompany the main experimental discussion in Section 6 and the combined learning curves in
+Figure 2. The tables below keep the completed clean-harness evidence separate from the compact
+main-text narrative.
+
+Result provenance. The Hospital figure in the main text comes from the original OMD-vs.-
+SeqComm-DFL study and does not include the SeqComm baseline. The clean appendix runs use the
+updated stress-test dataset and add SeqComm as a communication baseline; these numbers should
+therefore be read as a newer harness comparison, not as a replacement for the original two-method
+figure. The severity-improvement panel in the main text belongs to that original two-method run. The
+clean 800-episode appendix logs do not record severity improvement, so Table 7 reports evaluation
+return only.
+
+Clean Hospital stress-test results
+
+The Hospital learning-curve panel in Figure 2 is an evaluation-return curve over the clean 800-episode
+stress-test runs. The clean result summary is included here to connect that curve to the appendix
+without changing the main text.
+
+
+Table 7: Hospital environment results. Random policy yields approximately −96. The lowmix-late
+row is the selected GPU stability recipe.
+        Configuration                         Run Mean return          Std   Collapses
+         SeqComm-DFL (lowmix-late)                 GPU           29.3         4.1        0/10
+         SeqComm-DFL (stable hybrid)               local         25.5         7.5        0/10
+         SeqComm baseline (standard comm.)         local         21.0        10.3        0/10
+         OMD baseline (no comm.)                   local        −81.6       128.6        3/10
+
+
+                                                   24
+MPE learning-curve and scaling results
+
+The MPE panel in Figure 2 reports the completed 10-seed simple_spread protocol. We additionally
+include the scaling sweep for 5- and 8-agent simple_spread variants. Positive deltas in Table 9
+indicate settings where SeqComm-DFL improves over the strongest aggregate baseline for the same
+MPE configuration. The scaling result is conditional rather than universal: OMD is stronger in the
+5-agent settings, while SeqComm-DFL is strongest in both 8-agent settings. This pattern suggests that
+the decision-focused communication auxiliaries are most useful when coordination scale increases
+the value of predecessor messages, while simpler baselines may remain preferable in lower-agent
+regimes.
+
+
+Table 8: Cross-environment validation: MPE simple_spread, 10 seeds × 1500 episodes, GPU
+runs.
+              Configuration                        Mean ± std    Best seed
+                SeqComm-DFL (stable hybrid)                     −110.6 ± 22.4          −83.2
+                OMD baseline (no comm.)                         −114.2 ± 17.0          −91.0
+                SeqComm baseline (standard comm.)               −118.9 ± 26.2          −88.5
+
+
+
+
+                              MPE scaling: paired advantage over strongest aggregate baseline
+            Spread-8 global                                     6/10 seeds
+
+            Spread-5 global              4/10 seeds
+
+             Spread-8 local                                             7/10 seeds
+
+             Spread-5 local                   2/10 seeds
+
+                                 600    400    200     0       200      400    600      800    1000
+                                         SeqComm-DFL return minus best mean baseline
+
+Figure 4: MPE scaling paired deltas for the 5- and 8-agent sweep. Each bar is SeqComm-DFL final
+return minus the strongest aggregate baseline for the same setting, paired by seed; positive values
+favor SeqComm-DFL. The 8-agent rows favor SeqComm-DFL, while the 5-agent rows favor OMD,
+so the result supports a scale-dependent rather than universal MPE claim.
+
+
+
+
+Table 9: MPE simple_spread scaling sweep. Higher return is better. Delta is SeqComm-DFL
+minus the best aggregate baseline in the same setting.
+ Setting                                   SeqComm-DFL Best aggregate baseline    Delta
+ Spread-5 local (N = 5, local ratio 0.5)        −445.9 ± 96.7             OMD: −373.9 ± 74.4          −71.9
+ Spread-8 local (N = 8, local ratio 0.5)       −1044.5 ± 311.9           OMD: −1345.4 ± 657.0         +300.9
+ Spread-5 global (N = 5, local ratio 0)         −737.8 ± 267.6            OMD: −554.5 ± 147.8         −183.3
+ Spread-8 global (N = 8, local ratio 0)        −2735.7 ± 1887.5          OMD: −2867.9 ± 1838.3        +132.3
+
+
+
+Original component ablations
+
+The following component table is the original Hospital ablation suite used for the component names
+in the main text: value-aware loss, Stackelberg conditioning, guidance potential, and counterfactual
+influence. It should not be conflated with the focused SMACv2 no-value-aware/no-model-mix rows
+above, which answer a narrower large-scale stability question.
+
+
+                                                           25
+Table 10: Component ablation (Hospital environment, 3 agents, 10 seeds).
+    Configuration                    Episode Reward ∆ vs Full
+    Full SeqComm-DFL                    −48.3 ± 5.2           —
+    w/o Value-Aware (LVA )              −54.1 ± 6.1         −12.0%
+    w/o Stackelberg (parallel msgs)     −52.7 ± 5.8         −9.1%
+    w/o Guidance Potential              −50.9 ± 5.5         −5.4%
+    w/o Counterfactual Influence        −49.8 ± 5.4         −3.1%
+
+
+
+            Table 11: Communication dimension ablation.
+           dm          Hospital Reward SMAC Win Rate
+           4              −56.2 ± 6.3         0.69 ± 0.05
+           8 (default)    −48.3 ± 5.2         0.78 ± 0.04
+           16             −47.8 ± 5.4         0.77 ± 0.05
+           32             −49.1 ± 5.7         0.75 ± 0.05
+
+
+
+
+                                  26
+NeurIPS Paper Checklist
+    1. Claims
+      Question: Do the main claims made in the abstract and introduction accurately reflect the
+      paper’s contributions and scope?
+      Answer: [Yes]
+      Justification: The abstract and introduction claim (1) value-aware message generation with
+      sequential Stackelberg
+                       √       conditioning, (2) information-theoretic bounds on communication
+      value, (3) O(1/ T ) bilevel convergence, and (4) 4–6× reward improvements and 13–15 pp
+      win-rate gains on hospital and SMAC benchmarks. All four claims are substantiated: (1) is
+      formalized in §4.1–4.2 and Algorithms 1–2; (2) is proved in Theorem 5.1 and Appendix D;
+      (3) is proved in Theorem 5.2 and Appendix D; and (4) is reported in Tables 2–3 and Figure 1
+      with 10-seed error bars.
+      Guidelines:
+         • The answer [N/A] means that the abstract and introduction do not include the claims
+           made in the paper.
+         • The abstract and/or introduction should clearly state the claims made, including the
+           contributions made in the paper and important assumptions and limitations. A [No] or
+           [N/A] answer to this question will not be perceived well by the reviewers.
+         • The claims made should match theoretical and experimental results, and reflect how
+           much the results can be expected to generalize to other settings.
+         • It is fine to include aspirational goals as motivation as long as it is clear that these goals
+           are not attained by the paper.
+    2. Limitations
+      Question: Does the paper discuss the limitations of the work performed by the authors?
+      Answer: [Yes]
+      Justification: Limitations are addressed in two places. The Future Work paragraph of
+      §8 explicitly identifies scope boundaries: the current framework is restricted to discrete
+      action spaces, fixed communication topology, and synthetic benchmarks; extensions to
+      continuous actions, dynamic topology, and real clinical deployment are noted as open
+      problems. Theoretical limitations are also embedded in the assumptions of Theorems 5.1–
+      5.2 (Assumption 5.3 in Appendix D): the convergence guarantee requires L-smooth losses
+      and bounded gradients, and the Q∗ approximation bound in Proposition 5.1 applies to the
+      tabular/linear regime.
+      Guidelines:
+         • The answer [N/A] means that the paper has no limitation while the answer [No] means
+           that the paper has limitations, but those are not discussed in the paper.
+         • The authors are encouraged to create a separate “Limitations” section in their paper.
+         • The paper should point out any strong assumptions and how robust the results are to
+           violations of these assumptions (e.g., independence assumptions, noiseless settings,
+           model well-specification, asymptotic approximations only holding locally). The authors
+           should reflect on how these assumptions might be violated in practice and what the
+           implications would be.
+         • The authors should reflect on the scope of the claims made, e.g., if the approach was
+           only tested on a few datasets or with a few runs. In general, empirical results often
+           depend on implicit assumptions, which should be articulated.
+         • The authors should reflect on the factors that influence the performance of the approach.
+           For example, a facial recognition algorithm may perform poorly when image resolution
+           is low or images are taken in low lighting. Or a speech-to-text system might not be
+           used reliably to provide closed captions for online lectures because it fails to handle
+           technical jargon.
+         • The authors should discuss the computational efficiency of the proposed algorithms
+           and how they scale with dataset size.
+
+
+                                                 27
+     • If applicable, the authors should discuss possible limitations of their approach to
+       address problems of privacy and fairness.
+     • While the authors might fear that complete honesty about limitations might be used by
+       reviewers as grounds for rejection, a worse outcome might be that reviewers discover
+       limitations that aren’t acknowledged in the paper. The authors should use their best
+       judgment and recognize that individual actions in favor of transparency play an impor-
+       tant role in developing norms that preserve the integrity of the community. Reviewers
+       will be specifically instructed to not penalize honesty concerning limitations.
+3. Theory assumptions and proofs
+  Question: For each theoretical result, does the paper provide the full set of assumptions and
+  a complete (and correct) proof?
+  Answer: [Yes]
+  Justification: All four formal results have complete proofs in the appendix. Theorem 5.1
+  (Communication Lower Bound) is proved in Appendix D.1 using Pinsker’s inequality
+  and the definition of the coordination information gap (Definition D.1). Proposition 5.1
+  (Q∗ approximation) is proved in Appendix B.2 via the Bellman contraction argument.
+  Theorem 5.2 (Convergence to Stationary Points) is proved in Appendix D.3 via the descent
+  lemma, bias decomposition, and telescoping; regularity conditions (Lipschitz smoothness,
+  bounded gradients, Hessian invertibility) are collected in Assumption 5.3. Proposition 5.2
+  (Communication Necessity for the hospital environment) is proved in Appendix I.3. All
+  theorems and propositions in the main text are numbered and cross-referenced to the
+  corresponding appendix proofs.
+  Guidelines:
+     • The answer [N/A] means that the paper does not include theoretical results.
+     • All the theorems, formulas, and proofs in the paper should be numbered and cross-
+       referenced.
+     • All assumptions should be clearly stated or referenced in the statement of any theorems.
+     • The proofs can either appear in the main paper or the supplemental material, but if
+       they appear in the supplemental material, the authors are encouraged to provide a short
+       proof sketch to provide intuition.
+     • Inversely, any informal proof provided in the core of the paper should be complemented
+       by formal proofs provided in appendix or supplemental material.
+     • Theorems and Lemmas that the proof relies upon should be properly referenced.
+4. Experimental result reproducibility
+  Question: Does the paper fully disclose all the information needed to reproduce the main ex-
+  perimental results of the paper to the extent that it affects the main claims and/or conclusions
+  of the paper (regardless of whether the code and data are provided or not)?
+  Answer: [Yes]
+  Justification: All information necessary to reproduce experiments is provided. The hospital
+  environment is fully specified in Appendix I (state/observation/action spaces, reward function
+  including blind-treatment, drug-interaction, and resource penalties, and transition dynamics).
+  SMAC maps are standard and publicly available [37]. Full hyperparameters are listed in
+  Appendix H (Table 4) including learning rates, CG damping, discount factor, inner-loop
+  iterations, communication dimension, and all loss weights. Algorithms 1–2 describe the
+  training procedure step-by-step. All results use 10 random seeds with reported mean ±
+  standard deviation.
+  Guidelines:
+     • The answer [N/A] means that the paper does not include experiments.
+     • If the paper includes experiments, a [No] answer to this question will not be perceived
+       well by the reviewers: Making the paper reproducible is important, regardless of
+       whether the code and data are provided or not.
+     • If the contribution is a dataset and/or model, the authors should describe the steps taken
+       to make their results reproducible or verifiable.
+
+
+                                           28
+     • Depending on the contribution, reproducibility can be accomplished in various ways.
+       For example, if the contribution is a novel architecture, describing the architecture fully
+       might suffice, or if the contribution is a specific model and empirical evaluation, it may
+       be necessary to either make it possible for others to replicate the model with the same
+       dataset, or provide access to the model. In general. releasing code and data is often
+       one good way to accomplish this, but reproducibility can also be provided via detailed
+       instructions for how to replicate the results, access to a hosted model (e.g., in the case
+       of a large language model), releasing of a model checkpoint, or other means that are
+       appropriate to the research performed.
+     • While NeurIPS does not require releasing code, the conference does require all submis-
+       sions to provide some reasonable avenue for reproducibility, which may depend on the
+       nature of the contribution. For example
+       (a) If the contribution is primarily a new algorithm, the paper should make it clear how
+           to reproduce that algorithm.
+       (b) If the contribution is primarily a new model architecture, the paper should describe
+           the architecture clearly and fully.
+       (c) If the contribution is a new model (e.g., a large language model), then there should
+           either be a way to access this model for reproducing the results or a way to reproduce
+           the model (e.g., with an open-source dataset or instructions for how to construct
+           the dataset).
+       (d) We recognize that reproducibility may be tricky in some cases, in which case
+           authors are welcome to describe the particular way they provide for reproducibility.
+           In the case of closed-source models, it may be that access to the model is limited in
+           some way (e.g., to registered users), but it should be possible for other researchers
+           to have some path to reproducing or verifying the results.
+5. Open access to data and code
+  Question: Does the paper provide open access to the data and code, with sufficient instruc-
+  tions to faithfully reproduce the main experimental results, as described in supplemental
+  material?
+  Answer: [No]
+  Justification: Code is not released with the submission to preserve anonymity. However,
+  the hospital environment is fully described in Appendix I so it can be re-implemented, the
+  SMAC benchmark is publicly available, and all hyperparameters and architectural details
+  are disclosed in Appendix H, making independent reproduction feasible. We plan to release
+  the full code upon acceptance.
+  Guidelines:
+     • The answer [N/A] means that paper does not include experiments requiring code.
+     • Please see the NeurIPS code and data submission guidelines (https://neurips.cc/
+       public/guides/CodeSubmissionPolicy) for more details.
+     • While we encourage the release of code and data, we understand that this might not
+       be possible, so [No] is an acceptable answer. Papers cannot be rejected simply for not
+       including code, unless this is central to the contribution (e.g., for a new open-source
+       benchmark).
+     • The instructions should contain the exact command and environment needed to run to
+       reproduce the results. See the NeurIPS code and data submission guidelines (https:
+       //neurips.cc/public/guides/CodeSubmissionPolicy) for more details.
+     • The authors should provide instructions on data access and preparation, including how
+       to access the raw data, preprocessed data, intermediate data, and generated data, etc.
+     • The authors should provide scripts to reproduce all experimental results for the new
+       proposed method and baselines. If only a subset of experiments are reproducible, they
+       should state which ones are omitted from the script and why.
+     • At submission time, to preserve anonymity, the authors should release anonymized
+       versions (if applicable).
+     • Providing as much information as possible in supplemental material (appended to the
+       paper) is recommended, but including URLs to data and code is permitted.
+
+
+                                           29
+6. Experimental setting/details
+   Question: Does the paper specify all the training and test details (e.g., data splits, hyperpa-
+   rameters, how they were chosen, type of optimizer) necessary to understand the results?
+   Answer: [Yes]
+   Justification: Appendix H provides a complete hyperparameter table (Table 4) covering all
+   optimizer settings (Adam with world model LR 3 × 10−5 , critic LR 10−4 ), architecture
+   details (2-layer MLP, hidden dimension 128, LeakyReLU activations, orthogonal initial-
+   ization), communication dimension (dm = 8), all loss weights (λVA = 0.1, λinf = 0.01,
+   λaware = 0.05), bilevel parameters (Kinner = 15, KCG = 10, λCG = 0.1), and the MC an-
+   nealing schedule. Hyperparameters were selected by grid search on the hospital environment
+   validation set. Both environments are evaluated without a train/test split (online RL).
+   Guidelines:
+      • The answer [N/A] means that the paper does not include experiments.
+      • The experimental setting should be presented in the core of the paper to a level of detail
+         that is necessary to appreciate the results and make sense of them.
+      • The full details can be provided either with the code, in appendix, or as supplemental
+         material.
+7. Experiment statistical significance
+   Question: Does the paper report error bars suitably and correctly defined or other appropriate
+   information about the statistical significance of the experiments?
+   Answer: [Yes]
+   Justification: All quantitative results report mean ± one standard deviation computed over
+   10 independent random seeds, with different initialization and environment seeds per run.
+   This applies to SMAC win rates (Table 2), hospital ablation rewards (Appendix F Tables),
+   and communication dimension ablation (Appendix F). The number of seeds (10) is stated in
+   §6. Learning curve figures show individual run variance. The source of variability (random
+   weight initialization and environment stochasticity across seeds) is described in §6.
+   Guidelines:
+      • The answer [N/A] means that the paper does not include experiments.
+      • The authors should answer [Yes] if the results are accompanied by error bars, confidence
+         intervals, or statistical significance tests, at least for the experiments that support the
+         main claims of the paper.
+      • The factors of variability that the error bars are capturing should be clearly stated (for
+         example, train/test split, initialization, random drawing of some parameter, or overall
+         run with given experimental conditions).
+      • The method for calculating the error bars should be explained (closed form formula,
+         call to a library function, bootstrap, etc.)
+      • The assumptions made should be given (e.g., Normally distributed errors).
+      • It should be clear whether the error bar is the standard deviation or the standard error
+         of the mean.
+      • It is OK to report 1-sigma error bars, but one should state it. The authors should
+         preferably report a 2-sigma error bar than state that they have a 96% CI, if the hypothesis
+         of Normality of errors is not verified.
+      • For asymmetric distributions, the authors should be careful not to show in tables or
+         figures symmetric error bars that would yield results that are out of range (e.g., negative
+         error rates).
+      • If error bars are reported in tables or plots, the authors should explain in the text how
+         they were calculated and reference the corresponding figures or tables in the text.
+8. Experiments compute resources
+   Question: For each experiment, does the paper provide sufficient information on the com-
+   puter resources (type of compute workers, memory, time of execution) needed to reproduce
+   the experiments?
+   Answer: [Yes]
+
+
+                                             30
+   Justification: All experiments were run on NVIDIA A100 GPUs. SMAC experiments ran for
+   10M environment steps per run over 10 random seeds; the hospital environment is smaller
+   in scale. The computational complexity analysis in Appendix E provides operation counts
+   (forward passes per step) and a ∼ 25× speedup comparison vs. the original SeqComm base-
+   line, giving a relative efficiency estimate. Wall-clock runtimes per run were approximately
+   6–18 hours per experiment for SMAC maps and 1–2 days for the hospital environment on a
+   single A100.
+   Guidelines:
+      • The answer [N/A] means that the paper does not include experiments.
+      • The paper should indicate the type of compute workers CPU or GPU, internal cluster,
+        or cloud provider, including relevant memory and storage.
+      • The paper should provide the amount of compute required for each of the individual
+        experimental runs as well as estimate the total compute.
+      • The paper should disclose whether the full research project required more compute
+        than the experiments reported in the paper (e.g., preliminary or failed experiments that
+        didn’t make it into the paper).
+ 9. Code of ethics
+   Question: Does the research conducted in the paper conform, in every respect, with the
+   NeurIPS Code of Ethics https://neurips.cc/public/EthicsGuidelines?
+   Answer: [Yes]
+   Justification: The work is foundational research on multi-agent reinforcement learning and
+   communication. No human subjects, sensitive data, or proprietary datasets are involved.
+   The hospital environment is a synthetic simulation with no real patient data. The paper is
+   submitted anonymously per NeurIPS guidelines. No harmful applications are enabled by
+   this research.
+   Guidelines:
+      • The answer [N/A] means that the authors have not reviewed the NeurIPS Code of
+        Ethics.
+      • If the authors answer [No], they should explain the special circumstances that require a
+        deviation from the Code of Ethics.
+      • The authors should make sure to preserve anonymity (e.g., if there is a special consid-
+        eration due to laws or regulations in their jurisdiction).
+10. Broader impacts
+   Question: Does the paper discuss both potential positive societal impacts and negative
+   societal impacts of the work performed?
+   Answer: [Yes]
+   Justification: The Broader Impact paragraph in §8 discusses positive impacts (principled
+   communication design for safety-critical systems such as healthcare coordination, where
+   decision-quality-focused messaging can improve treatment outcomes and reduce adverse
+   drug interactions). Potential negative impacts include dual-use in adversarial or surveil-
+   lance contexts—e.g., optimizing communication in multi-agent systems for tracking or
+   autonomous weapons. Because the contribution is a general algorithmic framework, these
+   risks are indirect; however, they are acknowledged and mitigation through deployment
+   oversight is implied by the “safety-critical” framing.
+   Guidelines:
+      • The answer [N/A] means that there is no societal impact of the work performed.
+      • If the authors answer [N/A] or [No], they should explain why their work has no societal
+        impact or why the paper does not address societal impact.
+      • Examples of negative societal impacts include potential malicious or unintended uses
+        (e.g., disinformation, generating fake profiles, surveillance), fairness considerations
+        (e.g., deployment of technologies that could make decisions that unfairly impact specific
+        groups), privacy considerations, and security considerations.
+
+
+                                            31
+       • The conference expects that many papers will be foundational research and not tied
+         to particular applications, let alone deployments. However, if there is a direct path to
+         any negative applications, the authors should point it out. For example, it is legitimate
+         to point out that an improvement in the quality of generative models could be used to
+         generate Deepfakes for disinformation. On the other hand, it is not needed to point out
+         that a generic algorithm for optimizing neural networks could enable people to train
+         models that generate Deepfakes faster.
+       • The authors should consider possible harms that could arise when the technology is
+         being used as intended and functioning correctly, harms that could arise when the
+         technology is being used as intended but gives incorrect results, and harms following
+         from (intentional or unintentional) misuse of the technology.
+       • If there are negative societal impacts, the authors could also discuss possible mitigation
+         strategies (e.g., gated release of models, providing defenses in addition to attacks,
+         mechanisms for monitoring misuse, mechanisms to monitor how a system learns from
+         feedback over time, improving the efficiency and accessibility of ML).
+11. Safeguards
+    Question: Does the paper describe safeguards that have been put in place for responsible
+    release of data or models that have a high risk for misuse (e.g., pre-trained language models,
+    image generators, or scraped datasets)?
+    Answer: [N/A]
+    Justification: The paper releases no pre-trained models, scraped datasets, or high-risk
+    generative assets. The hospital environment is a fully synthetic simulation with no real
+    patient data, and the SMAC benchmark is an established public game environment with no
+    personal or sensitive information.
+    Guidelines:
+       • The answer [N/A] means that the paper poses no such risks.
+       • Released models that have a high risk for misuse or dual-use should be released with
+         necessary safeguards to allow for controlled use of the model, for example by requiring
+         that users adhere to usage guidelines or restrictions to access the model or implementing
+         safety filters.
+       • Datasets that have been scraped from the Internet could pose safety risks. The authors
+         should describe how they avoided releasing unsafe images.
+       • We recognize that providing effective safeguards is challenging, and many papers do
+         not require this, but we encourage authors to take this into account and make a best
+         faith effort.
+12. Licenses for existing assets
+    Question: Are the creators or original owners of assets (e.g., code, data, models), used in
+    the paper, properly credited and are the license and terms of use explicitly mentioned and
+    properly respected?
+    Answer: [Yes]
+    Justification: All third-party assets are properly cited. The StarCraft Multi-Agent Challenge
+    (SMAC) is credited to Samvelyan et al. [37] and is released under the MIT License. The
+    OMD framework is attributed to Nikishin et al. [29]. SeqComm is attributed to Ding et al.
+    [8]. PyEPO is attributed to Tang and Khalil [43]. No assets are re-packaged or redistributed;
+    they are used solely for comparison and methodological building blocks.
+    Guidelines:
+       • The answer [N/A] means that the paper does not use existing assets.
+       • The authors should cite the original paper that produced the code package or dataset.
+       • The authors should state which version of the asset is used and, if possible, include a
+         URL.
+       • The name of the license (e.g., CC-BY 4.0) should be included for each asset.
+       • For scraped data from a particular source (e.g., website), the copyright and terms of
+         service of that source should be provided.
+
+
+                                             32
+      • If assets are released, the license, copyright information, and terms of use in the
+        package should be provided. For popular datasets, paperswithcode.com/datasets
+        has curated licenses for some datasets. Their licensing guide can help determine the
+        license of a dataset.
+      • For existing datasets that are re-packaged, both the original license and the license of
+        the derived asset (if it has changed) should be provided.
+      • If this information is not available online, the authors are encouraged to reach out to
+        the asset’s creators.
+13. New assets
+   Question: Are new assets introduced in the paper well documented and is the documentation
+   provided alongside the assets?
+   Answer: [Yes]
+   Justification: The paper introduces two new assets: (1) the collaborative hospital Dec-
+   POMDP environment and (2) the SeqComm-DFL algorithm implementation. The hospital
+   environment is fully documented in Appendix I, including state/observation/action spaces,
+   reward decomposition (blind-treatment, drug-interaction, and resource penalties), and tran-
+   sition dynamics. The SeqComm-DFL algorithm is documented via pseudocode in Algo-
+   rithms 1–2, hyperparameter tables in Appendix H, and architecture details in Appendix I.
+   Code will be released under an open-source license upon acceptance.
+   Guidelines:
+      • The answer [N/A] means that the paper does not release new assets.
+      • Researchers should communicate the details of the dataset/code/model as part of their
+        submissions via structured templates. This includes details about training, license,
+        limitations, etc.
+      • The paper should discuss whether and how consent was obtained from people whose
+        asset is used.
+      • At submission time, remember to anonymize your assets (if applicable). You can either
+        create an anonymized URL or include an anonymized zip file.
+14. Crowdsourcing and research with human subjects
+   Question: For crowdsourcing experiments and research with human subjects, does the paper
+   include the full text of instructions given to participants and screenshots, if applicable, as
+   well as details about compensation (if any)?
+   Answer: [N/A]
+   Justification: The paper involves no crowdsourcing and no research with human subjects.
+   All experiments are conducted in simulation (synthetic hospital environment and SMAC
+   game engine).
+   Guidelines:
+      • The answer [N/A] means that the paper does not involve crowdsourcing nor research
+        with human subjects.
+      • Including this information in the supplemental material is fine, but if the main contribu-
+        tion of the paper involves human subjects, then as much detail as possible should be
+        included in the main paper.
+      • According to the NeurIPS Code of Ethics, workers involved in data collection, curation,
+        or other labor should be paid at least the minimum wage in the country of the data
+        collector.
+15. Institutional review board (IRB) approvals or equivalent for research with human
+    subjects
+   Question: Does the paper describe potential risks incurred by study participants, whether
+   such risks were disclosed to the subjects, and whether Institutional Review Board (IRB)
+   approvals (or an equivalent approval/review based on the requirements of your country or
+   institution) were obtained?
+   Answer: [N/A]
+
+
+                                            33
+    Justification: No human subjects are involved. The hospital environment is a fully synthetic
+    simulation; no real patient data or clinical records are used at any stage of this research.
+    Guidelines:
+       • The answer [N/A] means that the paper does not involve crowdsourcing nor research
+          with human subjects.
+       • Depending on the country in which research is conducted, IRB approval (or equivalent)
+          may be required for any human subjects research. If you obtained IRB approval, you
+          should clearly state this in the paper.
+       • We recognize that the procedures for this may vary significantly between institutions
+          and locations, and we expect authors to adhere to the NeurIPS Code of Ethics and the
+          guidelines for their institution.
+       • For initial submissions, do not include any information that would break anonymity (if
+          applicable), such as the institution conducting the review.
+16. Declaration of LLM usage
+    Question: Does the paper describe the usage of LLMs if it is an important, original, or
+    non-standard component of the core methods in this research? Note that if the LLM is used
+    only for writing, editing, or formatting purposes and does not impact the core methodology,
+    scientific rigor, or originality of the research, declaration is not required.
+    Answer: [N/A]
+    Justification: LLMs are not part of the core methodology. SeqComm-DFL uses small
+    MLPs for communication and value estimation in a reinforcement learning setting; no large
+    language model is used as a component of the proposed method. LLMs were used only for
+    grammar and writing assistance, which does not require declaration per NeurIPS policy.
+    Guidelines:
+       • The answer [N/A] means that the core method development in this research does not
+          involve LLMs as any important, original, or non-standard components.
+       • Please refer to our LLM policy in the NeurIPS handbook for what should or should not
+          be described.
+
+
+
+
+                                            34
+

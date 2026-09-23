@@ -1,0 +1,1090 @@
+                                                  Do Mixed-Vendor Multi-Agent LLMs Improve Clinical Diagnosis?
+
+
+                                                 Grace Chang Yuan1 Xiaoman Zhang2 Sung Eun Kim2 Pranav Rajpurkar2 *
+                                                               1
+                                                                 Massachusetts Institute of Technology, Boston, MA
+                                                   2
+                                                     Department of Biomedical Informatics, Harvard Medical School, Boston, MA
+
+
+
+
+                                                                   Abstract                              This variability has motivated the development
+                                                                                                      of multi-agent frameworks, where several LLM
+
+
+
+
+arXiv:2603.04421v2 [cs.CL] 14 Mar 2026
+                                                 Multi-agent large language model (LLM) sys-          “doctors” collaborate under a coordinating supervi-
+                                                 tems have emerged as a promising approach
+                                                                                                      sor (Kim et al., 2024; Lee et al., 2025; Zhou et al.,
+                                                 for clinical diagnosis, leveraging collabora-
+                                                 tion among agents to refine medical reasoning.       2025). Such systems more closely resemble real
+                                                 However, most existing frameworks rely on            clinical workflows, multidisciplinary case confer-
+                                                 single-vendor teams (e.g., multiple agents from      ences where diverse perspectives converge on a
+                                                 the same model family), which risk correlated        diagnosis (Chen et al., 2025b; Zhou et al., 2025).
+                                                 failure modes that reinforce shared biases rather    Early results are promising, with such architectures
+                                                 than correcting them. We investigate the im-         frequently outperforming single-model baselines
+                                                 pact of vendor diversity by comparing Single-
+                                                                                                      (Chen et al., 2025b; Nori et al., 2025; Zhou et al.,
+                                                 LLM, Single-Vendor, and Mixed-Vendor Multi-
+                                                 Agent Conversation (MAC) frameworks. Using
+                                                                                                      2025).
+                                                 three doctor agents instantiated with o4-mini,          A small body of work has begun exploring
+                                                 Gemini-2.5-Pro, and Claude-4.5-Sonnet, we            mixed-vendor systems in general domains (Ye
+                                                 evaluate performance on RareBench and Di-            et al., 2025). However, existing mixed-vendor
+                                                 agnosisArena. Mixed-vendor configurations            approaches in medicine mostly rely on indepen-
+                                                 consistently outperform single-vendor counter-       dent model runs, combining models from dif-
+                                                 parts, achieving state-of-the-art recall and accu-   ferent providers via voting or simple aggrega-
+                                                 racy. Overlap analysis reveals the underlying
+                                                                                                      tion (Barabucci et al., 2024; Sorich et al., 2024).
+                                                 mechanism: mixed-vendor teams pool com-
+                                                 plementary inductive biases, surfacing correct       Research integrating cross-vendor models within
+                                                 diagnoses that individual models or homoge-          structured multi-agent conversations to directly
+                                                 neous teams collectively miss. These results         compare them against single-vendor baselines re-
+                                                 highlight vendor diversity as a key design prin-     mains limited.
+                                                 ciple for robust clinical diagnostic systems. Our       We address this gap by hypothesizing that ven-
+                                                 code is publicly available.1                         dor diversity improves diagnosis by introducing
+                                                                                                      complementary inductive biases and breaking the
+                                         1       Introduction
+                                                                                                      “echo chamber” of homogeneous teams. We test
+                                         Large language models are increasingly used for              this hypothesis using the Multi-Agent Conversation
+                                         clinical diagnosis (Kim et al., 2024; Lee et al.,            (MAC) framework (Chen et al., 2025b), compar-
+                                         2025; Nori et al., 2025; Zhou et al., 2025). Across          ing single-model, single-vendor MAC, and mixed-
+                                         a range of benchmarks, frontier models from Ope-             vendor MAC configurations across RareBench
+                                         nAI, Google, and Anthropic can approach or even              (rare diseases) (Chen et al., 2024) and Diagnosis-
+                                         exceed average physician performance (Nori et al.,           Arena (complex case reports) (Zhu et al., 2025).
+                                         2025; Saab et al., 2024). Yet no single model domi-             Our results demonstrate that mixed-vendor
+                                         nates: performance varies substantially across tasks         configurations deliver superior overall perfor-
+                                         and clinical domains, with different vendors ex-             mance compared to their single-vendor coun-
+                                         hibiting distinct strengths and weaknesses (Cao              terparts, achieving state-of-the-art recall and ac-
+                                         et al., 2024; Sonoda et al., 2024).                          curacy across both benchmarks. Analysis of solu-
+                                             * Corresponding author
+                                                                                                      tion space overlap reveals the mechanism driving
+                                             1
+                                             https://github.com/rajpurkarlab/                         this gain: while single-vendor teams remain highly
+                                         mixed-vendor-mac                                             correlated with their base model’s priors, mixed-
+vendor teams successfully pool complementary           gence algorithms can outperform individual base-
+inductive biases to surface diagnoses that indi-       lines (Barabucci et al., 2024; Sorich et al., 2024).
+vidual models miss. These findings suggest that        However, these frameworks treat agents as inde-
+leveraging the complementary strengths of diverse      pendent voters, missing the chance for agents to
+LLMs is crucial for building robust clinical diag-     cross-examine and refine opposing views in real-
+nostic systems.                                        time. More importantly, the clinical literature lacks
+                                                       a systematic comparison between single-vendor
+2   Related Work                                       and mixed-vendor configurations within a shared
+                                                       conversational architecture. This raises the ques-
+Clinical LLMs and Vendor Differences Sin-
+                                                       tion of whether mixed-vendor teams can introduce
+gle LLM systems have demonstrated impressive
+                                                       reasoning diversity that improves diagnostic perfor-
+capabilities in medical reasoning, often matching
+                                                       mance over single-vendor baselines.
+or even exceeding average physician performance
+(Eriksen et al., 2024; Singhal et al., 2025; Son-      3     Methods
+oda et al., 2024). However, these models exhibit
+divergent behaviors driven by differences in pre-      3.1    MAC Framework
+training data and alignment strategies (Chen et al.,   We build directly on the Multi-Agent Conversa-
+2025a; Li and et al., 2025). Rather than having        tion (MAC) framework (Chen et al., 2025b), which
+a universally superior model, existing research re-    structures clinical decision-making as a dialogue
+veals that models from different vendors possess       between three “doctor" agents and one supervising
+complementary inductive biases (Yang et al., 2024).    agent. The process follows a fixed protocol: each
+Consequently, there is potential in employing ven-     doctor LLM proposes and revises ranked diagnosis
+dor diversity to bridge these domain-specific gaps,    lists in order, while the supervisor LLM monitors
+combining distinct reasoning behaviors to achieve      the discussion, provides feedback, and ultimately
+more robust clinical performance.                      decides on the final output. Unlike Chen et al.
+                                                       (2025b), we do not use role-specialized prompts.
+Multi-agent LLM Frameworks in Clinical Di-             Instead, all doctor agents receive the same generic
+agnosis Beyond single-LLM systems, several re-         clinical instructions adapted to each benchmark.
+cent works organize multiple LLM “doctors” into        This simple, symmetric setup allows us to vary
+coordinated teams that more closely resemble clin-     the underlying LLMs while keeping the interac-
+ical workflows. Some architectures use a supervi-      tion pattern unchanged, ensuring that any observed
+sor–specialist pattern, where a director LLM co-       performance differences come strictly from vendor
+ordinates a set of role-specialized agents and in-     diversity rather than artifacts of role assignment.
+tegrates their outputs into a final decision (Kim         We compare three specific model configurations,
+et al., 2024; Zhou et al., 2025). Others emphasize     as shown in (Figure 1):
+conversational debate, with multiple specialists in-
+dependently proposing hypotheses, critiquing one           • Single-LLM, where a single model (o4-mini,
+another, and iterating under the oversight of a man-         Gemini-2.5-Pro, Claude-4.5-Sonnet) directly
+ager agent (Chen et al., 2025b; Lee et al., 2025;            produces a diagnosis list for each case.
+Nori et al., 2025). Another type of multi-agent
+                                                           • Single-vendor MAC, where all three doctor
+framework uses panel-style ensembles, where the
+                                                             agents are instantiated with the same model
+physician agents reason in parallel with limited in-
+                                                             under a fixed supervisor.
+teraction and their responses are aggregated into a
+single collective output (Barabucci et al., 2024).         • Mixed-vendor MAC, where the three doctor
+                                                             agents are instantiated with different vendor
+Mixed-vendor Multi-agent Systems In contrast
+                                                             models under a fixed supervisor.
+to the extensive work on single-vendor multi-agent
+frameworks, mixed-vendor systems have received         Model Selection For all experiments, we employ
+limited attention. Existing work mostly relies on      the current frontier models from each vendor: o4-
+“panel-style" aggregation rather than conversational   mini (2025-04-16) (OpenAI, 2025), Gemini-2.5-
+collaboration. For example, recent studies demon-      Pro (Google, 2025), and Claude-4.5-Sonnet (An-
+strate that combining outputs from cross-vendor        thropic, 2025). Preliminary experiments showed
+models via majority voting or collective intelli-      comparable diagnostic performance across models,
+                                                                                                                      Example Case Narrative
+                                                                                                                Case information:
+                      Case                                                           Diagnosis                  A 12-year-old female presented with
+                                                    Single LLM
+                     Narrative                                                          List                    asymptomatic vulvar edema of 1 month's
+                                                                                                                duration that was previously treated with
+                                                                                                                topical antifungals and corticosteroids
+                       (a) Single-LLM Baseline: Direct diagnosis by a single model                              with no improvement…
+
+                                                                                                                Physical Examination:
+                                                                                                                Examination revealed swelling, erythema
+                                                                 Doctor 1 (OpenAI)                              and palpable induration on the labia
+       Case                                       Debate &                                                      minora and majora of the vulva.
+                                 Supervisor                                                      Diagnosis
+      Narrative                                   Feedback       Doctor 2 (OpenAI)
+                                                                                                    List        Diagnostic Tests:
+                                                                                                                Slight increase in erythrocyte
+                                                                 Doctor 3 (OpenAI)                              sedimentation rate, normal
+                                                                                                                angiotensin-converting enzyme levels…
+                  (b) Single-Vendor MAC: Three identical models collaborate under a supervisor
+                                                                                                                             Diagnosis List
+                                                                 Doctor 1 (OpenAI)                               1. Crohn’s Disease (Metastatic Crohn’s)
+                                                                                                                 2. Vulvar Crohn's disease
+       Case                                        Debate &                                         Diagnosis
+                                                                 Doctor 2 (Gemini)                               3. Pediatric Vulvar Lichen Sclerosus
+      Narrative                  Supervisor        Feedback                                            List      4. Orofacial granulomatosis with
+                                                                                                                 gastrointestinal involvement
+                                                                 Doctor 3 (Claude)                               5. Sarcoidosis
+
+
+                   (c) Mixed-Vendor MAC: Three cross-vendor models collaborate under a supervisor
+
+
+Figure 1: Overview of the 3 different model configurations (Single-LLM, Single-vendor MAC, and Mixed-vendor
+MAC), and an illustrative example of a case narrative with its corresponding diagnosis list.
+
+
+so we treat them as matched frontier baselines and                               DiagnosisArena To test performance on broader
+focus on the effects of multi-agent composition.                                 clinical reasoning, we include DiagnosisArena, a
+Unless otherwise noted, o4-mini serves as a fixed                                benchmark of 1,113 complex case reports from
+supervisor to standardize aggregation.                                           10 top-tier medical journals. Even strong reason-
+                                                                                 ing models such as o3-mini, o1, and DeepSeek-R1
+3.2     Conversation Protocol and Stopping Rule                                  achieve at most about 46% accuracy on this bench-
+For each case, the MAC framework receives a phe-                                 mark (Zhu et al., 2025), highlighting its difficulty.
+notype summary or case narrative. The supervisor                                 To minimize the risk of data contamination and
+initiates the discussion, and the three doctor agents                            ensure computational feasibility, we restrict our
+contribute in a fixed round-robin order. At each                                 evaluation to the subset of 165 cases published in
+turn, doctor agents review the full conversation his-                            2024. This temporal restriction reduces overlap
+tory and the supervisor’s latest feedback before sub-                            with model pre-training data and provides a cleaner
+mitting a ranked Top-10 diagnosis list with brief                                test of generalization.
+justification. The conversation terminates when                                  4.2     Tasks and Metrics
+the supervisor determines the differential has sta-
+bilized, or upon reaching a hard limit of 13 turns                               RareBench For this benchmark, the task is to
+(following the original MAC protocol). We extract                                output a ranked Top-10 diagnosis list for each
+the final consensus Top-10 list from the supervi-                                case. We evaluate diagnostic performance using
+sor’s concluding message using a rule-based parser                               Recall@1, Recall@3, Recall@5, and Recall@10.
+and evaluate it against the ground truth.                                        DiagnosisArena In this setting, the task is to gen-
+                                                                                 erate a ranked Top-5 diagnosis list for each case.
+4     Experimental Setup                                                         We assess performance using Top-1 and Top-5 ac-
+4.1     Datasets                                                                 curacy, consistent with the standard evaluation pro-
+                                                                                 tocol for this benchmark.
+We evaluate on two distinct benchmarks to test gen-
+eralizability across rare and common conditions.                                 Evaluation Protocols Our primary evaluation
+                                                                                 uses o4-mini as an LLM judge, scoring free-
+RareBench Designed to evaluate the capabili-                                     text differential diagnoses against reference la-
+ties of LLMs on rare diseases, RareBench (Chen                                   bels. To reduce potential self-preference bias, we
+et al., 2024) consists of multiple subsets with var-                             also implement a vendor-neutral, retrieval-based
+ing difficulty. We utilize MME (40 cases across                                  judge: BioLORD (FRemyCompany/BioLORD-
+17 diseases), HMS (88 cases covering 39 diseases),                               2023) (Remy et al., 2024). In this secondary evalu-
+and LIRICAL (370 cases spanning 252 diseases).                                   ation, we embed the predicted diagnoses and match
+them to the closest standardized code before com-      crepancy in the HMS subset where technically cor-
+paring with the gold code.                             rect, granular predictions were penalized. To en-
+                                                       sure metric validity, the HMS subset (n = 88)
+5     Results                                          underwent independent clinical adjudication by
+                                                       a medical doctor across all experimental config-
+5.1    RareBench
+                                                       urations (Single-LLM, Single-Vendor MAC, and
+We present results on RareBench in Tables 1–4,         Mixed-Vendor MAC). The review revealed that
+covering aggregate performance on the MME, LIR-        the MAC consensus process often drives agents
+ICAL, and HMS subsets. Table 1 demonstrates            toward "hyper-specific" etiologic diagnoses that
+that the Mixed-Vendor MAC achieves the highest         correctly incorporate patient phenotypes not cap-
+performance across all retrieval metrics, securing a   tured by the broader gold labels, resulting in initial
+Recall@1 (39.31%) and maintaining a clear lead         penalties by the o4-mini judge. For instance, in
+through Recall@10 (61.35%). Crucially, it con-         Case HMS-73, the models identified Primary Sjö-
+sistently outperforms every Single-Vendor MAC          gren’s Syndrome with lymphomatous transforma-
+baseline. While individual models fluctuate in per-    tion; while the gold label was simply Primary Sjö-
+formance across subsets (e.g., OpenAI struggles        gren syndrome, the expert confirmed the model’s
+on MME but excels on HMS), the mixed-vendor            refinement was clinically supported by the recorded
+team effectively smooths these variances, offering     phenotype of "Night sweats." Similar refinements
+the most robust overall performance.                   occurred in cases of Cryoglobulinemic vasculitis
+MME (Table 2) On MME, which appears to                 where agents correctly identified Hepatitis C as
+be the most challenging subset with the lowest         the underlying driver. By manually verifying these
+baseline scores, the benefits of vendor diversity      “hyper-specific” cases as correct, we ensured the
+are most pronounced. The Mixed-Vendor MAC              reported HMS scores reflect the framework’s true
+achieves a Recall@1 of 40.00%, outperforming the       diagnostic depth rather than being artificially de-
+best Single-LLM (Gemini-2.5-Pro) by 10% and the        flated by automated judge sensitivity to semantic
+best Single-Vendor MAC (Claude-4.5-Sonnet) by          granularity.
+5%. This dominance extends consistently across            Notably, our results reveal that scaling up to
+all retrieval depths, with the Mixed-Vendor MAC        a multi-agent team of identical models does not
+maintaining a clear lead at Recall@3, 5, and 10.       guarantee improvement over the single-model base-
+This suggests that when individual models strug-       line. In some cases, Single-Vendor MACs actually
+gle, the diverse reasoning strategies provided by a    underperform their standalone base models, most
+mixed panel are critical for surfacing the correct     prominently with Gemini on both LIRICAL and
+diagnosis that homogeneous teams miss.                 HMS, and Claude on HMS. This degradation likely
+                                                       stems from correlated failure modes. As noted
+LIRICAL and HMS (Tables 3 & 4) On the                  earlier, we removed role-specialized prompts to
+LIRICAL and HMS subsets, the Mixed-Vendor              isolate the impact of model diversity in the MAC
+MAC demonstrates high stability and top-tier per-      framework. In this absence of role-induced vari-
+formance. On HMS, the Mixed-Vendor MAC                 ance, when homogenous agents discuss and delib-
+achieves highest overall performance across all        erate, they risk reinforcing shared hallucinations
+metrics, outperforming the strongest standalone        or collectively drifting away from a correct initial
+model (Gemini-2.5-pro) as well as all Single-          hypothesis. The Mixed-Vendor MAC avoids this
+Vendor MAC configurations. On LIRICAL,                 pitfall, effectively stabilizing performance where
+the Mixed-Vendor MAC achieves a Recall@1               single-vendor teams falter.
+of 35.69%, performing competitively with the
+best-performing Single-LLM (Gemini-2.5-Pro at          5.2   DiagnosisArena
+36.24%) while surpassing all baselines at deeper re-   Table 5 presents the results on DiagnosisArena,
+trieval levels, including Recall@3, 5, and 10. More-   a benchmark of complex real-world case reports.
+over, the Mixed-Vendor MAC maintains better per-       This dataset is notably difficult for individual mod-
+formance than all single-vendor configurations as      els: Gemini-2.5-Pro and Claude-4.5-Sonnet strug-
+depth increases.                                       gle significantly in the Single-LLM setting, achiev-
+   Upon examining the evaluations provided by          ing only 20.00% and 19.39% Top-1 accuracy, re-
+the o4-mini judge, we observed a recurring dis-        spectively lagging behind the stronger Single-LLM
+Table 1: Performance on Combined RareBench. Note:                Table 2: Performance on MME subset (n=40). Model
+OpenAI refers to o4-mini, Gemini refers to Gemini-2.5-           versions consistent with Table 1.
+Pro, and Claude refers to Claude-4.5-Sonnet.
+                                                                  Setup                        R@1 R@3 R@5 R@10
+ Setup                        R@1 R@3 R@5 R@10                    Single-LLM (OpenAI)          10.00   22.50   25.00   27.50
+ Single-LLM (OpenAI)          31.81   40.52    46.12     53.07    Single-LLM (Gemini)          30.00   37.50   42.50   47.50
+ Single-LLM (Gemini)          37.58   47.79    50.84     56.41    Single-LLM (Claude)           2.50   22.50   30.00   42.50
+ Single-LLM (Claude)          29.35   39.54    45.41     55.42    Single-Vendor MAC (OpenAI)   15.00   25.00   30.00   35.00
+ Single-Vendor MAC (OpenAI)   32.73   41.22    45.54     52.33    Single-Vendor MAC (Gemini)   35.00   45.00   47.50   47.50
+ Single-Vendor MAC (Gemini)   36.63   43.43    46.47     51.93    Single-Vendor MAC (Claude)   35.00   45.00   50.00   57.50
+ Single-Vendor MAC (Claude)   33.32   48.06    50.53     57.06    Mixed-Vendor MAC             40.00   52.50   60.00   65.00
+ Mixed-Vendor MAC             39.31   49.82    55.05     61.35
+
+
+Table 3: Performance on HMS subset (n=88). Model                 Table 4: Performance on LIRICAL subset (n=370).
+versions consistent with Table 1.                                Model versions consistent with Table 1.
+
+ Setup                        R@1 R@3 R@5 R@10                    Setup                        R@1 R@3 R@5 R@10
+ Single-LLM (OpenAI)          43.18   57.95    68.18     76.14    Single-LLM (OpenAI)          28.61   36.51   41.14   48.50
+ Single-LLM (Gemini)          47.73   59.09    64.77     70.45    Single-LLM (Gemini)          36.24   45.78   48.50   53.95
+ Single-LLM (Claude)          39.77   56.82    65.91     75.00    Single-LLM (Claude)          29.43   40.33   43.87   52.32
+ Single-Vendor MAC (OpenAI)   47.73   56.82    62.50     77.27    Single-Vendor MAC (OpenAI)   30.25   38.96   41.96   47.41
+ Single-Vendor MAC (Gemini)   43.18   51.14    56.82     59.09    Single-Vendor MAC (Gemini)   33.79   41.42   43.87   50.95
+ Single-Vendor MAC (Claude)   43.18   56.82    67.05     72.73    Single-Vendor MAC (Claude)   31.88   43.60   46.59   52.59
+ Mixed-Vendor MAC             51.14   60.23    68.18     77.27    Mixed-Vendor MAC             35.69   46.59   51.77   57.22
+
+
+
+o4-mini baseline (32.12%).                                       5.3   Overlap and Diversity Analysis
+   Yet, the Mixed-vendor MAC configuration                       To understand the mechanism driving the perfor-
+achieves a highest Top-1 accuracy of 36.36% and                  mance of the Mixed-Vendor MAC, we analyze the
+Top-5 accuracy of 49.09%. Crucially, although                    relationship between the solution sets of different
+two of the three agents in the mixed team perform                configurations. We hypothesize that the mixed-
+poorly in isolation, their distinct reasoning pro-               vendor systems succeed by aggregating comple-
+cesses allow the Mixed-Vendor system to exceed                   mentary inductive biases, thereby approximating
+the strong o4-mini Single-Vendor MAC (35.76%).                   the union of individual model capabilities. By inte-
+This result demonstrates that the Mixed-Vendor                   grating diverse reasoning priors, the system should
+framework is robust to performance disparities                   effectively expand the total valid solution space
+among its agents; it does not strictly require uni-              beyond the blind spots of any single vendor.
+formly high-performing constituents to succeed.                     To test this, we decompose the predictions of the
+By integrating these diverse perspectives, the su-               Mixed-Vendor MAC (M ) relative to two baselines
+pervisor gains unique insights from the “weaker"                 (S) for each dataset: the best-performing Single
+agents to resolve cases that a homogenous strong                 LLM and the best-performing Single-Vendor MAC.
+team would collectively miss, highlighting the sys-              For each comparison, we categorize the solution
+temic resilience of the Mixed-Vendor approach.                   sets into four mutually exclusive groups shown in
+                                                                 Figure 2:
+
+Table 5: Performance on DiagnosisArena (n=165).                     • Mutually Correct (S∩M ): Cases where both
+OpenAI refers to o4-mini, Gemini refers to Gemini-                    systems predicted the correct diagnosis.
+2.5-Pro, and Claude refers to Claude-4.5-Sonnet.
+                                                                    • Baseline Unique (S \ M ): Cases where only
+   Setup                               Top-1           Top-5          the baseline predicted the correct diagnosis.
+   Single-LLM (OpenAI)                32.12%      46.06%            • Mixed Rescue (M \ S): Cases where only the
+   Single-LLM (Gemini)                20.00%      31.51%
+   Single-LLM (Claude)                19.39%      29.70%
+                                                                      Mixed system predicted the correct diagnosis.
+   Single-Vendor MAC (OpenAI)         35.76%      47.88%
+   Single-Vendor MAC (Gemini)         33.94%      44.24%            • Both Wrong: Cases where neither system
+   Single-Vendor MAC (Claude)         32.73%      45.45%              predicted the correct diagnosis.
+   Mixed-Vendor MAC                   36.36%      49.09%
+                                                                   We then quantify the overlap and asymmetry of
+                                                                 these sets using two metrics:
+Figure 2: Analysis of Correct Prediction Overlap. The x-axis shows the dataset. For the RareBench datasets (MME,
+HMS, LIRICAL), overlap is calculated using Recall@10. For DiagnosisArena, overlap is calculated using Top-5
+Accuracy. In each pair, the left bar compares Mixed-Vendor MAC against the Best Single LLM, and the right bar
+compares it against the Best Single-Vendor MAC.
+
+
+   • ∆Coverage: Measures the net expansion of            instances where consensus dynamics override cor-
+     knowledge, defined as Coverage(S → M ) −            rect individual priors when multiple agents con-
+     Coverage(M → S), where the base metric              verge on the same incorrect hypothesis. Despite
+     Coverage(A → B) = |A∩B|  |A| . Positive values
+                                                         this "voting down" effect, the net result remains
+     indicate that the Mixed system (M ) represents      positive, confirming that the volume of unique in-
+     a net expansion of the Single system (S).           sights contributed by diverse vendors vastly out-
+                                                         weighs the dilution of any single expert’s prior.
+   • Jaccard Index (J(S, M ) = |S∩M         |
+                                      |S∪M | ): Mea-     Performance Gains are Driven by Low Model
+     sures the overall similarity of solution sets.
+                                                         Correlation (Figures 3, 4, and 5) We analyze
+   Our analysis of these metrics yields three key        the relationship between solution set diversity and
+findings: (1) mixed-vendor teams operate by "res-        coverage gain. The coverage metrics in Figure 3
+cuing" more diagnoses than they discard during           and the Jaccard similarities in Figure 4 together
+consensus; (2) performance gains are inversely cor-      reveal a strong inverse correlation: the Mixed sys-
+related with model similarity, peaking when models       tem’s advantage is maximized precisely when the
+possess distinct areas of expertise that compensate      underlying models are most distinct.
+for each other’s weakness; and (3) homogeneous               On challenging datasets like MME and Diag-
+teams remain limited by correlated failure modes         nosisArena, the heatmaps in Figure 4 show low
+that conversational debate alone cannot resolve.         Jaccard similarity between the Single LLMs. This
+                                                         confirms that individual models possess orthogonal
+Mixed-Vendor Consensus Rescues More Diag-                strengths, covering disjoint slices of the medical
+noses than it Discards Figure 2 visualizes the           knowledge. Consequently, Figure 3 shows massive
+trade-off between cases gained (Mixed Rescue)            gains in ∆Coverage, as the Mixed system success-
+versus cases lost (Baseline Unique). On all four         fully aggregates these complementary insights to
+datasets, the "Mixed Rescue" fraction consistently       envelope the capabilities of the entire field.
+exceeds the "Baseline Unique" fraction. This is              Conversely, high inter-model similarity on HMS
+most evident on MME, where the system recovers           (dark blue cells) suggests that individual agents
+22.50% of cases previously missed by the strongest       capture nearly the same information. This satura-
+Single LLM baseline (Mixed Rescue) while suf-            tion explains the low ∆Coverage in Figure 3: with
+fering zero regression (0.00% Baseline Unique),          little unique information to aggregate, consensus-
+effectively acting as a perfect superset of the base-    building cannot significantly expand the solution
+line knowledge. In other datasets, a small fraction      space. However, when comparing Mixed-Vendor
+of "Baseline Unique" cases (6.82%–14.1%) reflects        MAC with Single-Vendor MACs in Figure 5, we
+Figure 3: ∆Coverage across different datasets be-
+tween Mixed-vendor MAC and Single LLMs. High
+positive bars indicate the Mixed model subsumes Figure 4: Pairwise Jaccard similarity heatmaps between Sin-
+the baseline’s knowledge.                         gle LLMs and the Mixed-Vendor MAC.
+
+
+                                                        Homogeneous Teams Remain Trapped in Cor-
+                                                        related Failure Modes. Figure 5 shows that ven-
+                                                        dor diversity yields knowledge gains unattainable
+                                                        through homogeneous debate. Positive ∆Coverage
+                                                        across all datasets confirms that Single-Vendor
+                                                        MACs remain limited by correlated failure modes
+                                                        that internal reasoning alone cannot resolve. The
+                                                        zero net gain against Single-Vendor MAC (Ope-
+                                                        nAI) on HMS occurs because the Mixed-Vendor
+                                                        system’s ability to rescue cases missed by OpenAI
+                                                        is numerically offset by instances where the correct
+                                                        OpenAI-specific signal was suppressed by the in-
+                                                        correct majority (Gemini and Claude). This result
+Figure 5: ∆Coverage across different datasets between   shows that without sufficient cross-vendor diversity,
+Mixed-vendor MAC and Single-vendor MAC.                 the system cannot break past the reasoning limits of
+                                                        its most dominant constituent. Supplementary anal-
+                                                        ysis of Single-Vendor MACs (see Appendix) con-
+                                                        firms this mechanism: the Mixed system achieves
+observe an increase in average gains across HMS         higher gains when the competing homogeneous
+and LIRICAL. These gains reflect the "rescue"           teams exhibit the low mutual overlap.
+effect: models like Gemini suffer a performance
+drop when scaling from a single model to a Single-      5.4     Ablation Studies
+Vendor MAC on both datasets, where reinforced
+shared inductive biases lead teams to discard cor-      5.4.1    Robustness to Evaluation Protocols
+rect hypotheses originally held by the base model.      We evaluate the RareBench dataset using Bi-
+The inherent diversity of the Mixed-Vendor system       oLORD, a retrieval-based protocol that maps pre-
+provides a more robust reasoning path, allowing it      dictions to the semantically closest standardized
+to effectively recover the correct diagnoses that the   disease name based on cosine similarity against
+homogeneous teams missed.                               the OMIM (Hamosh et al., 2005), Orphanet (Rath
+Table 6: BioLORD Evaluation on Combined                       Table 7: BioLORD Evaluation on MME subset (n=40).
+RareBench. OpenAI refers to o4-mini, Gemini refers            Model versions consistent with Table 6.
+to Gemini-2.5-Pro, and Claude refers to Claude-4.5-
+Sonnet.                                                        Setup                         R@1 R@3 R@5 R@10
+                                                               Single-LLM (OpenAI)            5.00    7.50    7.50    7.50
+ Setup                        R@1 R@3 R@5 R@10                 Single-LLM (Gemini)           25.00   35.00   37.50   40.00
+                                                               Single-LLM (Claude)            2.50   22.50   30.00   35.00
+ Single-LLM (OpenAI)          17.15   23.01   26.44   29.06    Single-Vendor MAC (OpenAI)     5.00    5.00    5.00    7.50
+ Single-LLM (Gemini)          21.38   26.22   28.84   31.06    Single-Vendor MAC (Gemini)    25.00   30.00   32.50   32.50
+ Single-LLM (Claude)          16.34   23.81   27.04   31.88    Single-Vendor MAC (Claude)    27.50   30.00   35.00   37.50
+ Single-Vendor MAC (OpenAI)   18.37   23.21   25.03   29.07    Mixed-Vendor MAC              30.00   35.00   40.00   42.50
+ Single-Vendor MAC (Gemini)   20.17   24.80   26.42   28.43
+ Single-Vendor MAC (Claude)   18.35   25.81   29.25   32.07
+ Mixed-Vendor MAC             22.99   27.42   30.45   33.68
+
+
+Table 8: BioLORD Evaluation on HMS subset (n=88).             Table 9: BioLORD Evaluation on LIRICAL subset
+Model versions consistent with Table 6.                       (n=370). Model versions consistent with Table 6.
+
+ Setup                        R@1 R@3 R@5 R@10                 Setup                         R@1 R@3 R@5 R@10
+ Single-LLM (OpenAI)          42.53   57.47   67.82   74.71    Single-LLM (OpenAI)           12.43   16.49   18.65   20.54
+ Single-LLM (Gemini)          47.13   55.17   63.22   68.97    Single-LLM (Gemini)           14.86   18.38   19.73   21.08
+ Single-LLM (Claude)          39.08   56.32   64.37   74.71    Single-LLM (Claude)           12.43   16.22   17.84   21.35
+ Single-Vendor MAC (OpenAI)   47.13   56.32   63.22   75.86    Single-Vendor MAC (OpenAI)    12.97   17.30   18.11   20.27
+ Single-Vendor MAC (Gemini)   43.68   50.57   56.32   59.77    Single-Vendor MAC (Gemini)    14.05   18.11   18.65   20.54
+ Single-Vendor MAC (Claude)   39.08   55.17   64.37   72.41    Single-Vendor MAC (Claude)    12.43   18.38   20.27   21.89
+ Mixed-Vendor MAC             48.28   57.47   64.37   72.41    Mixed-Vendor MAC              16.22   19.46   21.35   23.51
+
+
+
+et al., 2012), and CCRD (Shi and Lin, 2024).                  Table 10: Supervisor Ablation on MME (n=40). Com-
+   As shown in Table 6–9, the Mixed-Vendor sys-               parison of Single-Vendor and Mixed-Vendor teams un-
+                                                              der different supervisor models.
+tem achieves the highest Recall@1 and Recall@3
+across all subsets under this metric, confirming that          Setup                        R@1      R@3     R@5     R@10
+the benefits of vendor diversity are robust.                   Baselines: Single LLM
+   The observed drop in absolute recall on MME                 Single-LLM (OpenAI)          10.00    22.50   25.00   27.50
+                                                               Single-LLM (Gemini)          30.00    37.50   42.50   47.50
+and LIRICAL compared to the LLM judge is pri-                  Single-LLM (Claude)           2.50    22.50   30.00   42.50
+marily due to lexical sensitivity. From qualitative            Supervisor: OpenAI
+                                                               Single-Vendor MAC (OpenAI)   15.00    25.00   30.00   35.00
+analysis, we found that models often predict pre-              Single-Vendor MAC (Gemini)   35.00    45.00   47.50   47.50
+cise names based on genetic etiology (e.g., EXTL3-             Single-Vendor MAC (Claude)   35.00    45.00   50.00   57.50
+                                                               Mixed-Vendor MAC             40.00    52.50   60.00   65.00
+related Immunoskeletal Dysplasia), whereas gold
+                                                               Supervisor: Gemini
+labels frequently use descriptive clinical names               Single-Vendor MAC (OpenAI)   32.50    40.00   52.50   55.00
+                                                               Single-Vendor MAC (Gemini)   32.50    42.50   42.50   50.00
+(e.g., Immunoskeletal dysplasia with neurodevelop-             Single-Vendor MAC (Claude)   32.50    40.00   40.00   50.00
+mental abnormalities). While the LLM judge cor-                Mixed-Vendor MAC             40.00    50.00   55.00   57.50
+
+rectly identifies these as equivalent, the embedding-          Supervisor: Claude
+                                                               Single-Vendor MAC (OpenAI)   22.50    27.50   40.00   52.50
+based BioLORD judge penalizes the lexical dis-                 Single-Vendor MAC (Gemini)   27.50    32.50   32.50   40.00
+                                                               Single-Vendor MAC (Claude)   27.50    37.50   42.50   45.00
+tance between these names, resulting in lower ab-              Mixed-Vendor MAC             42.50    50.00   52.50   57.50
+solute scores.
+
+5.4.2    Supervisor Model Generalization
+To verify that the observed advantages of the mixed-
+vendor configuration are not artifacts of a specific          teams, regardless of the supervisor chosen. Specif-
+supervisor model, we conduct supervisor-vendor                ically, the mixed team achieves a Recall@1 of
+ablations on the MME dataset, the most challeng-              40.00%–42.50% under Gemini and Claude super-
+ing subset of RareBench while remaining compact               visors, maintaining a substantial lead (+7.5% to
+in size. We replace the default o4-mini supervisor            +15.0%) over the best performing homogeneous
+with Gemini-2.5-Pro or Claude-4.5-Sonnet while                baselines. This stability confirms that the perfor-
+keeping the doctor agents constant.                           mance gains stem from the diverse inductive biases
+   As shown in Table 10, the Mixed-Vendor config-             of the doctor agents, rather than the specific capa-
+uration consistently outperforms all Single-Vendor            bilities of the aggregator.
+6   Limitations and Ethical Considerations              reasoning in high-stakes domains.
+
+Computational Overhead and Cost. The MAC
+framework inherently introduces higher compu-           References
+tational overhead and latency than Single-LLM           Anthropic. 2025.   The claude 4.5 model fam-
+baselines. However, our experiments revealed that         ily.    https://www.anthropic.com/research/
+the Mixed-Vendor configuration is not consistently        claude-4-5-sonnet. Accessed: 2025-12-10.
+the most resource-intensive setup. In several in-       Gioele Barabucci and 1 others. 2024.      Combin-
+stances, Single-Vendor MAC, particularly those            ing insights from multiple large language mod-
+using Gemini or Claude, incurred higher API costs         els improves diagnostic accuracy. arXiv preprint
+and resulted in longer conversation logs than the         arXiv:2402.08806.
+Mixed-Vendor MAC. A practical advantage of the          Jennie J. Cao and 1 others. 2024. Large language mod-
+Mixed-Vendor approach is that it hedges against            els’ responses to liver cancer surveillance, diagno-
+the specific verbosity or cost spikes of a single          sis and management questions: accuracy, reliability,
+                                                           readability. Abdominal Radiology.
+provider, sparing researchers from having to pre-
+select the most efficient vendor. Nevertheless, the     S. Chen, D. S. Bitterman, and et al. 2025a. Large lan-
+multi-turn nature of any MAC architecture remains          guage models prioritize helpfulness over accuracy in
+a significant hurdle for time-sensitive clinical ap-       medical contexts. npj Digital Medicine, 8(1).
+plications like emergency triage.                       X. Chen, X. Mao, Q. Guo, L. Wang, S. Zhang, and
+                                                          T. Chen. 2024. Rarebench: Can llms serve as rare
+The Consensus Trap and Diagnostic Safety. As              diseases specialists? In Proceedings of the 30th ACM
+detailed in Appendix D.2, multi-agent systems are         SIGKDD Conference on Knowledge Discovery and
+                                                          Data Mining (KDD ’24).
+susceptible to a “consensus trap” where an initially
+correct minority signal is progressively diluted by     X. Chen, H. Yi, M. You, W. Liu, L. Wang, H. Li,
+a cohesive but incorrect majority. While vendor di-       X. Zhang, Y. Guo, L. Fan, G. Chen, Q. Lao, W. Fu,
+versity mitigates correlated failure modes, it cannot     K. Li, and J. Li. 2025b. Enhancing diagnostic capa-
+                                                          bility with multi-agent conversational large language
+fully eliminate the risk of the system converging         models. npj Digital Medicine, 8:159.
+on a hallucination. In real-world clinical use, such
+errors could lead to misdiagnosis if the system’s       Alexander V Eriksen, Sören Møller, and Jesper Ryg.
+                                                          2024. Use of GPT-4 to diagnose complex clinical
+output is taken as absolute. To reduce potential          cases. NEJM AI, 1(1):AIp2300031.
+harm, these frameworks should be deployed with
+specific safeguards, such as confidence flags that      Google. 2025. Gemini 2.5: Multimodal generative
+                                                          ai. https://deepmind.google/technologies/
+alert users to high levels of agent disagreement, and     gemini/2.5-pro. Accessed: 2025-12-10.
+should always function as decision-support tools
+under the final adjudication of a human clinician.      Ada Hamosh, Alan F. Scott, Joanna S. Amberger,
+                                                          Carol A. Bocchini, and Victor A. McKusick. 2005.
+                                                          Online mendelian inheritance in man (omim), a
+7   Conclusion                                            knowledgebase of human genes and genetic disorders.
+                                                          Nucleic Acids Research, 33(Database issue):D514–
+In this work, we show that the performance gains          D517.
+of multi-agent diagnostic systems stem primarily
+from vendor diversity, rather than from scaling ho-     Yubin Kim and 1 others. 2024. Mdagents: An adaptive
+                                                          collaboration of llms for medical decision-making.
+mogeneous agents. Across multiple benchmarks,             In Proceedings of the 38th Conference on Neural
+Mixed-Vendor MACs consistently outperform both            Information Processing Systems (NeurIPS 2024).
+single-model baselines and Single-Vendor MACs,
+                                                        Yeawon Lee and 1 others. 2025. Automated clinical
+particularly on challenging cases where individ-          problem detection from soap notes using a collabo-
+ual models exhibit complementary failure modes.           rative multi-agent llm architecture. arXiv preprint
+Our analysis demonstrates that mixed-vendor sys-          arXiv:2508.21803.
+tems expand the effective solution space by aggre-      X. Li and et al. 2025. The alignment paradox of med-
+gating diverse inductive biases, recovering correct       ical large language models in infertility care. arXiv
+diagnoses missed by any single model while avoid-         preprint arXiv:2511.00924.
+ing the correlated failures that limit homogeneous      Harsha Nori and 1 others. 2025.         Sequential di-
+teams. These findings highlight model heterogene-         agnosis with language models.        arXiv preprint
+ity as a key design principle for robust multi-agent      arXiv:2506.22405.
+OpenAI. 2025. Openai o4-mini system card. https://
+  openai.com/index/o4-mini-system-card. Ac-
+  cessed: 2025-12-10.
+Ana Rath, Annie Olry, Ferdinand Dhombres, Marc M
+  Brandt, Bruno Urbero, and Ségolène Ayme. 2012.
+  Representation of rare diseases in health information
+  systems: the orphanet approach to serve a wide range
+  of end users. Human Mutation, 33(5):803–808.
+François Remy, Kris Demuynck, and Thomas De-
+  meester. 2024. Biolord-2023: Semantic textual repre-
+  sentations fusing large language models and clinical
+  knowledge graph insights. Journal of the American
+  Medical Informatics Association, 31(9):1844–1855.
+Khaled Saab, Tao Tu, and 1 others. 2024. Capabili-
+  ties of gemini models in medicine. arXiv preprint
+  arXiv:2404.18416.
+Tieliu Shi and Xiaoxia Lin. 2024. Catalogue of chi-
+  nese rare diseases (ccrd). http://www.unimd.org/
+  ccrd/. Accessed: 2025-12-19.
+Karan Singhal, Shekoofeh Azizi, Tao Tu, S Sara Mah-
+  davi, Jason Wei, Hyung Won Chung, Nathan Scales,
+  Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl,
+  and 1 others. 2025. Toward expert-level medical
+  question answering with large language models. Na-
+  ture Medicine, 31:943–950.
+Akinori Sonoda, Yuka Horiuchi, Takayuki Abe,
+  Genta Shirota, Tomohiro Mikami, Shuhei Nakao,
+  Kengo Yoshii, Misaki Sone, Kazuma Ryuzaki, Saki
+  Kageyama, and 1 others. 2024. Structured clinical
+  reasoning prompt enhances LLM’s diagnostic capa-
+  bilities in diagnosis please quiz cases. Japanese Jour-
+  nal of Radiology, 42(7):761–767.
+Michael J. Sorich, Arduino A. Mangoni, Stephen Bac-
+  chi, Bradley D. Menz, and Ashley M. Hopkins. 2024.
+  The triage and diagnostic accuracy of frontier large
+  language models: Updated comparison to physician
+  performance. Journal of Medical Internet Research,
+  26:e67409.
+
+H. Yang, M. Li, and et al. 2024. One llm is not enough:
+   Harnessing the power of ensemble learning for medi-
+   cal question answering. medRxiv.
+
+Rui Ye and 1 others. 2025. X-mas: Towards building
+  multi-agent systems with heterogeneous llms. arXiv
+  preprint arXiv:2505.16997.
+Yucheng Zhou and 1 others. 2025. Mam: Modular
+  multi-agent framework for multi-modal medical di-
+  agnosis via role-specialized collaboration. arXiv
+  preprint arXiv:2506.19835.
+Y. Zhu and 1 others. 2025. Diagnosisarena: Evaluating
+   medical reasoning in large language models. arXiv
+   preprint arXiv:2505.14107.
+A     Prompt Templates                                            approach iteratively. Guidelines: Present analy-
+                                                                  sis concisely; support with reasoning; stay open
+A.1    RareBench Prompt Templates                                 to adjustments. Include top-5 list at the END of
+                                                                  every message.
+For the rare disease benchmarks (MME, HMS,
+                                                            Supervisor System Prompt
+LIRICAL), we utilized the following prompts
+to guide the multi-agent conversation toward a                    You are the Medical Supervisor. Oversee doctors
+                                                                  and drive consensus on TOP-5 diagnoses. Tasks:
+Top-10 differential diagnosis.                                    1. Evaluate suggestions. 2. Challenge missed
+                                                                  points. 3. Facilitate discussion. 4. Drive consen-
+Doctor Agent System Prompt                                        sus. Termination Rules: Output “TERMINATE”
+                                                                  only when doctors agree and possibilities are ex-
+      You are {doctor_name}. You are a specialist in              plored. Finalization format: numbered list of
+      the field of rare diseases. You will be provided            exactly 5 diagnoses (1–5), then TERMINATE.
+      and asked about a complicated clinical case; read
+      it carefully and then provide a diverse and com-      Initial Opening Prompt
+      prehensive differential diagnosis. EVERY TIME
+      you speak, include your current top-10 list at the          As a medical expert, please make a diagnosis
+      END of the message.                                         based on the case info, physical exam, and di-
+                                                                  agnostic tests. Enumerate the top 5 most likely
+Medical Supervisor System Prompt                                  diagnoses in order.
+                                                                  Case Info: {case_text}
+      You are the Medical Supervisor in a hypothetical            Physical Exam: {exam}
+      scenario. You are a specialist in the field of rare         Diagnostic Tests: {tests}
+      diseases. You will be provided and asked about
+      a complicated clinical case; read it carefully and    A.3    Evaluation Judge Prompt Templates
+      then provide a diverse and comprehensive differ-
+      ential diagnosis.                                     For our primary evaluation, we utilized o4-mini
+      Your role (general): 1. Oversee and evaluate          as an automated judge to compare the predicted
+      suggestions and decisions made by the doctors. 2.     differential diagnoses against the reference stan-
+      Challenge diagnoses where needed. 3. Facilitate       dard. The following prompts were used to ensure
+      discussion and drive consensus about diagnoses
+      ONLY.                                                 the judge provided a standardized numerical rank
+      Strict prohibitions: Do NOT propose or list diag-     for Recall calculation.
+      nostic tests, lab work, imaging, procedures, or any
+      workup. Do NOT discuss management, treatment,         Evaluator Evaluation Prompt
+      or prognosis. Do NOT include any sections titled
+      “SUGGESTED TESTS”, “TESTS”, “WORKUP”,                       I will now provide ten predicted diseases. If
+      or similar.                                                 the standard diagnosis is among the predicted
+                                                                  diseases, please output the numerical rank;
+      Guidelines: Promote discussion unless there’s               otherwise, output “No”. Output only “No” or
+      absolute consensus. Continue dialogue if any dis-           a number from 1–10. If the standard diagnosis
+      agreement exists. Output “TERMINATE” only                   matches multiple predicted conditions, only
+      when: 1. All doctors fully agree. 2. No further             output the top rank. Output only “No” or one
+      discussion is needed. 3. All diagnostic possibili-          number, with no additional output.
+      ties are explored.
+      Finalization format: When you decide to termi-              Predicted diseases: {predict_diagnosis}
+      nate, reply ONLY with a numbered list of exactly            Standard diagnosis: {golden_diagnosis}
+      10 diagnoses: 1. ... 10. ... Then append the token
+      TERMINATE on a new line.                              B     Model and Implementation Details
+Initial Opening Prompt                                      B.1    API Configurations
+      Patient’s phenotype: {phenostr}                       All experiments were conducted between Septem-
+      Enumerate the top 10 most likely diagnoses. Be        ber and December 2025. We utilized the following
+      precise, listing one diagnosis per line, and try to
+      cover many unique possibilities (at least 10). Let    specific model versions:
+      us think step by step, you must think more steps.
+      The top 10 diagnoses are:                                 • OpenAI: o4-mini-0416
+
+A.2    DiagnosisArena Prompts                                   • Google: gemini-2.5-pro
+Doctor System Prompt
+                                                                • Anthropic: claude-4.5-sonnet
+      You are {doctor_name}. You are a medical ex-
+      pert in clinical diagnosis. Role: 1) Analyze the         All models were set to a temperature of T = 1.0
+      patient’s presentation carefully. Responsibilities:   to allow for diverse reasoning paths and to reflect
+      1. Analyze case info and others’ input. 2. Offer
+      expertise-based insights. 3. Engage in discussion.    the natural variability of clinical heuristics within
+      4. Critique opinions with arguments. 5. Refine        the multi-agent debate.
+B.2    BioLORD Retrieval Details                            Furthermore, the Mixed-Vendor MAC (D) con-
+                                                         sistently maintains a relatively high Jaccard simi-
+For the retrieval-based evaluation, we used the
+                                                         larity with each individual constituent vendor. This
+BioLORD-2023 model. Predicted diagnosis strings
+                                                         synthesis effect indicates that the mixed team suc-
+were embedded and compared against the target
+                                                         cessfully acts as an effective knowledge bridge, ag-
+ontology using cosine similarity. A match was
+                                                         gregating disjoint slices of clinical reasoning from
+recorded if the ground-truth diagnosis appeared
+                                                         diverse model families into a robust final consen-
+within the top-k closest semantic neighbors of the
+                                                         sus.
+predicted string.
+                                                            Finally, the relationship between diversity and
+C     Supplementary Diversity Analysis                   performance gain is most evident in the MME
+                                                         dataset. As illustrated in Figure 5, the ∆Coverage
+To further investigate the “correlation trap” dis-       peaks (32.97%) precisely where the cross-vendor
+cussed in Section 5.3, we present pairwise Jaccard       Jaccard indices are at their lowest (JAB =
+similarity heatmaps comparing the three Single-          0.269, JAC = 0.233, JBC = 0.750). These val-
+Vendor MAC configurations against the Mixed-             ues indicates that the performance gain is primarily
+Vendor MAC (Figure 6).                                   driven by the unique inductive biases of OpenAI
+                                                         (A) relative to the more closely correlated Gemini-
+                                                         Claude (B-C) pair. This inverse correlation proves
+                                                         that the diagnostic system derives its most signifi-
+                                                         cant benefits from the aggregation of uncorrelated
+                                                         hypotheses.
+
+                                                         D     Qualitative Analysis: The Mechanics of
+                                                               Vendor Diversity
+                                                         In this section, we provide round-by-round diag-
+                                                         nostic traces to illustrate how vendor diversity in-
+                                                         fluences the collective reasoning of multi-agent sys-
+                                                         tems. By comparing mixed-vendor teams against
+                                                         individual baselines and single-vendor configura-
+                                                         tions, we analyze two distinct phenomena: the abil-
+                                                         ity of diverse teams to recover correct diagnoses
+                                                         overlooked by dominant vendors, and the risk of a
+                                                         correct minority signal being suppressed by a cohe-
+                                                         sive but incorrect majority consensus. These cases
+                                                         demonstrate that while diversity provides uncorre-
+Figure 6: Pairwise Jaccard similarity heatmaps between
+                                                         lated reasoning paths, the final outcome depends
+Single-Vendor MAC teams (A: o4-mini, B: Gemini-2.5-      on the system’s ability to distinguish between valid
+pro, C: Claude-4.5-sonnet) and the Mixed-Vendor MAC      corrective signals and collective noise.
+(D) across benchmarks.
+                                                         D.1    Case Narrative: MME-14
+   Interestingly, the Jaccard similarities between              (Cerebrocostomandibular Syndrome)
+vendor-specific MAC teams are generally higher           We analyze Case MME-14 from the RareBench
+than those observed between their single-model           MME subset. This case serves as an example of
+counterparts. For example, in the MME subset,            successful recovery, where the mixed-vendor sys-
+the Jaccard similarity between models B and C in-        tem identifies a correct diagnosis that was missed
+creases from J = 0.565 in the single-model setting       by a single-vendor team.
+to J = 0.750 when utilizing the MAC framework.
+This increased similarity likely stems from the abil-    Case Narrative: Patient presents with Pierre-
+ity of single-vendor MAC frameworks to cover a           Robin sequence (micrognathia, glossoptosis, and
+broader set of correct solutions, causing their out-     cleft palate), a high-arched palate, and abnormal
+puts to converge.                                        thorax morphology (specifically rib gaps/defects).
+Table 11: Diagnostic Trajectory for Case MME-14. Trajectory (R0 → · · · → R5 ) denotes the rank of the gold
+label in each discussion round; 0 indicates a miss. For Mixed-Vendor, brackets indicate: (D1: OpenAI, D2: Gemini,
+D3: Claude).
+
+  Configuration           Final    Trajectory                   Final Top-3 Predictions
+                          Rank
+  Single-LLM      (Ope-   Missed   N/A                          1. Isolated PRS
+  nAI)
+                                                                2. Stickler Syndrome
+                                                                3. 22q11.2 Deletion
+  Single-LLM (Gemini)       7      N/A                          1. Stickler Syndrome
+                                                                2. Campomelic Dysplasia
+                                                                3. 22q11.2 Deletion
+  Single-LLM (Claude)       7      N/A                          1. Stickler Syndrome
+                                                                2. 22q11.2 Deletion
+                                                                3. Treacher Collins
+  Single-Vendor MAC       Missed   0→0→0→0→0→0                  1. Isolated PRS
+  (OpenAI)
+                                                                2. Stickler Syndrome
+                                                                3. 22q11.2 Deletion
+  Single-Vendor MAC         3      6→4→3→3→3→3                  1. Campomelic Dysplasia
+  (Gemini)
+                                                                2. SEDC
+                                                                3. CCMS
+  Single-Vendor MAC         6      6→2→2→6→6→6                  1. Stickler Syndrome
+  (Claude)
+                                                                2. Campomelic Dysplasia
+                                                                3. Nager Syndrome
+  Mixed-Vendor              1      0(D1) → 3(D2) → 3(D3) →      1. CCMS
+  MAC                              1(D1) → 1(D2) → 1(D3)        2. Spondylocostal Dysostosis
+                                                                3. Spondylothoracic Dysostosis
+
+
+
+Gold Diagnosis : Cerebrocostomandibular Syn-              D.2 Case Narrative: HMS-12 (The Consensus
+drome (CCMS)                                                  Trap)
+                                                          While vendor diversity often facilitates the rescue
+Discussion: As shown in Table 11, the Single-             of rare diagnoses, it can also introduce a “consen-
+Vendor MAC (OpenAI) remains trapped in an                 sus trap” where a correct minority signal is dis-
+“echo chamber,” where multiple rounds of internal         carded in favor of a cohesive but incorrect majority.
+reasoning fail to resolve a shared blind spot re-         We analyze Case HMS-12 from the HMS dataset.
+garding the thoracic cues. While the base OpenAI          Case Narrative: A complex multi-system pre-
+model prioritizes common syndromes like Stickler          sentation including Striae distensae (skin stretch
+or 22q11.2 deletion, the homogeneous team rein-           marks), Hyperuricemia (gout-related markers), Hy-
+forces this bias rather than correcting it.               pertriglyceridemia, and significant renal findings:
+   In contrast, the Mixed-Vendor MAC demon-               microscopic hematuria, Nephrosclerosis, and a de-
+strates a successful rescue. Although the first agent     creased glomerular filtration rate.
+(OpenAI) initially misses the diagnosis in Round
+                                                          Gold Diagnosis: Focal Segmental Glomeru-
+0, the introduction of CCMS by the second agent
+                                                          losclerosis (FSGS)
+(Gemini) in Round 1 provides a critical corrective
+signal. By Round 3, the diverse reasoning paths           Discussion of Dynamics: As presented in Ta-
+allow the entire team—including the previously            ble 12, HMS-12 illustrates a scenario where vendor
+biased OpenAI agent—to converge on the correct            diversity leads to the suppression of a correct hy-
+diagnosis at Rank 1. This confirms that vendor            pothesis. Individually, the OpenAI agent (D1) cor-
+diversity provides a robust reasoning path capa-          rectly identifies the gold label at Rank 1. However,
+ble of amplifying correct minority signals that are       in the Mixed-Vendor setting, the Gemini (D2) and
+otherwise discarded by homogeneous teams.                 Claude (D3) agents are both strongly biased toward
+Table 12: Temporal Diagnostic Trajectory for Case HMS-12. Trajectory (R0 → · · · → R5 ) denotes the rank of
+the gold label in each discussion round; 0 indicates a miss. For Mixed-Vendor, brackets indicate: (D1: OpenAI, D2:
+Gemini, D3: Claude).
+
+    Configuration           Final    Trajectory                 Final Top-3 Predictions
+                            Rank
+    Single-LLM      (Ope-     1      N/A                        1. Primary FSGS
+    nAI)
+                                                                2. Obesity-related glomerulopathy
+                                                                3. Hypertensive nephrosclerosis
+    Single-LLM (Gemini)     Missed   N/A                        1. Glycogen Storage Disease Type I
+                                                                2. PRPP Synthetase Superactivity
+                                                                3. Systemic Lupus Erythematosus
+    Single-LLM (Claude)     Missed   N/A                        1. Cushing Syndrome
+                                                                2. Metabolic Syndrome
+                                                                3. Familial Partial Lipodystrophy
+    Single-Vendor MAC         1      1→1→1→1→1→1                1. Primary FSGS
+    (OpenAI)
+                                                                2. Secondary FSGS (Obesity)
+                                                                3. Cushing’s Syndrome
+    Single-Vendor MAC       Missed   4→0→0→0→0→0                1. Glycogen Storage Disease Type I
+    (Gemini)
+                                                                2. Uromodulin-Associated Kidney
+                                                                3. Sarcoidosis
+    Single-Vendor MAC       Missed   0→6→0→0→0→0                1. Cushing’s Syndrome
+    (Claude)
+                                                                2. Obesity-related glomerulopathy
+                                                                3. Familial Partial Lipodystrophy
+    Mixed-Vendor            Missed   1(D1) → 6(D2) → 0(D3) →    1. Familial Partial Lipodystrophy
+    MAC                              0(D1) → 0(D2) → 0(D3)      2. Acquired Generalized Lipodystrophy
+                                                                3. Endogenous Cushing’s Syndrome
+
+
+
+metabolic and endocrine etiologies (Lipodystrophy         the pooling of diverse inductive biases allows the
+and Cushing’s), which also explain the patient’s          team to surface a correct diagnosis missed by
+striae and dyslipidemia.                                  single-vendor baselines.
+   As the trajectory reveals, the correct signal from     Case Narrative: Patient presents with Pierre-
+D1 in Round 0 is progressively diluted. By Round          Robin sequence (micrognathia, glossoptosis, and
+2, the team has reached a cohesive but incorrect          cleft palate), a high-arched palate, and abnormal
+consensus on Lipodystrophy. Even the OpenAI               thorax morphology (specifically rib gaps/defects).
+agent (D1), which was correct in the Single-Vendor        Gold Diagnosis: Cerebrocostomandibular Syn-
+setting, is eventually swayed by the confident rea-       drome (CCMS)
+soning of its peers in Round 3, leading to a final
+consensus that misses the gold label entirely. This       Supervisor: Patient’s phenotype: Pierre-Robin sequence,
+                                                               High palate, Abnormal thorax morphology. Enumer-
+confirms that while diversity provides uncorrelated            ate the top 10 most likely diagnoses. Be precise, listing
+hypotheses, it requires a supervisor capable of pro-           one diagnosis per line, and try to cover many unique
+                                                               possibilities (at least 10). Let us think step by step, you
+tecting minority signals from being overwhelmed                must think more steps. The top 10 diagnoses are:
+by majority-driven hallucinations.
+                                                          Doctor 1: Let’s break down the key features and then map
+                                                               them to known syndromes or disorders:
+E     Representative Diagnostic Transcripts
+                                                                   1. Pierre-Robin sequence (micrognathia, glossopto-
+                                                                      sis, cleft palate) is a grouping of anomalies that
+In this section, we provide a representative diag-                    can be isolated or part of multiple genetic syn-
+nostic trace to illustrate the internal reasoning and                 dromes.
+collaborative dynamics of the Mixed-Vendor MAC                     2. A high (arched) palate typically reflects an under-
+framework. By detailing the round-by-round inter-                     lying cleft-palate spectrum or connective-tissue
+                                                                      involvement.
+action for Case MME-14, we demonstrate the spe-                    3. An abnormal thoracic morphology (narrow/bell-
+cific mechanics of a "successful recovery"—where                      shaped thorax, chest wall dysplasia) points toward
+           skeletal dysplasias or segmentation defects.                     • Fetal Akinesia Deformation Sequence (FADS):
+                                                                              It’s also worth considering a different pathogenic
+     Based on these three pillars, here is a diverse top-10                   mechanism. If the primary issue is reduced fe-
+     differential:                                                            tal movement (akinesia), this can lead to a sec-
+        1. Stickler     syndrome      (COL2A1/COL11A1):                       ondary deformation sequence including microg-
+           connective-tissue disorder with Pierre-Robin and                   nathia, cleft palate, joint contractures, and a small,
+           midface hypoplasia                                                 bell-shaped thorax from pulmonary hypoplasia.
+        2. 22q11.2        deletion     syndrome        (DiGe-            By incorporating these, we can refine the differential to
+           orge/Velocardiofacial): cleft palate, micrognathia,           prioritize conditions where the thoracic and craniofacial
+           occasional chest wall anomalies                               findings are known to be mechanistically linked.
+        3. Treacher Collins syndrome (TCOF1): mandibulo-
+           facial dysostosis with micrognathia and palate                My current top-10 list, ordered by what I consider the
+           involvement                                                   most specific fits first:
+        4. Nager syndrome (SF3B4-related acrofacial dysos-                 1. Stickler                             syndrome
+           tosis): Pierre-Robin plus preaxial limb defects                    (COL2A1/COL11A1/COL11A2)
+        5. Campomelic dysplasia (SOX9): severe bent long                   2. Campomelic dysplasia (SOX9)
+           bones, bell-shaped thorax, Robin sequence in                    3. Cerebrocostomandibular syndrome (SNRPB)
+           some cases
+                                                                           4. Spondylocostal/Spondylothoracic Dysostosis
+        6. Spondylothoracic dysostosis / Jarcho-Levin syn-                    (Jarcho-Levin) (DLL3/MESP2/LFNG)
+           drome (MESP2): rib-vertebral segmentation de-
+                                                                           5. Otopalatodigital Spectrum Disorder (e.g.,
+           fect, “crab-like” thorax
+                                                                              Melnick-Needles) (FLNA)
+        7. Kabuki syndrome (KMT2D/KDM6A): distinc-
+                                                                           6. 22q11.2 deletion syndrome
+           tive face, high-arched palate, skeletal anomalies
+           including pectus                                                7. Larsen syndrome (FLNB)
+        8. Isolated Pierre-Robin sequence: non-syndromic                   8. Nager syndrome (SF3B4)
+           occurrence of micrognathia–glossoptosis–cleft                   9. Fetal Akinesia Deformation Sequence (e.g., Pena-
+           palate                                                             Shokeir syndrome)
+        9. CHARGE syndrome (CHD7): coloboma, heart                        10. Isolated Pierre-Robin sequence
+           defects, choanal atresia, cleft palate, occasional
+           chest wall findings                                     Doctor 3: Excellent analysis by both colleagues. Doctor1
+       10. Ellis-van Creveld syndrome (EVC/EVC2): short                 provided a solid foundation, and Doctor2 has astutely
+           ribs, narrow thorax, postaxial polydactyly, occa-            zeroed in on conditions where the thoracic abnormality
+           sional clefting                                              is a defining feature rather than an occasional finding.
+                                                                        As a rare disease specialist, I want to emphasize addi-
+     Top-10 current differential:                                       tional mechanistic considerations and rare entities that
+     1. Stickler syndrome, 2. 22q11.2 deletion syndrome,                might be overlooked.
+     3. Treacher Collins syndrome, 4. Nager syndrome, 5.
+                                                                         Let me add several critical points:
+     Campomelic dysplasia, 6. Spondylothoracic dysostosis
+     (Jarcho-Levin), 7. Kabuki syndrome, 8. Isolated Pierre-               1. Diastrophic dysplasia (SLC26A2): This sul-
+     Robin sequence, 9. CHARGE syndrome, 10. Ellis-van                        fate transporter defect causes severe skeletal
+     Creveld syndrome.                                                        dysplasia with characteristic “hitchhiker thumb,”
+                                                                              cleft palate (often Pierre-Robin), and progressive
+Doctor 2: An excellent and comprehensive initial list, Doc-                   kyphoscoliosis with thoracic cage restriction. The
+     tor1. You’ve covered the major categories well, from                     thoracic involvement is progressive and highly
+     common microdeletions to classic connective tissue dis-                  significant.
+     orders and skeletal dysplasias.
+                                                                           2. Weissenbacher-Zweymüller syndrome: An al-
+     I’d like to build on that by focusing even more tightly                  lelic variant of otospondylomegaepiphyseal dys-
+     on the powerful syndromic link between Pierre-Robin                      plasia (OSMED), caused by COL11A2 mutations.
+     sequence and intrinsic skeletal or rib cage abnormali-                   Features Pierre-Robin, rhizomelic limb shorten-
+     ties. The “abnormal thorax morphology” is a highly                       ing, and dumbbell-shaped long bones with poten-
+     specific clue that, in my opinion, significantly raises the              tial thoracic narrowing.
+     index of suspicion for certain rare disorders where this              3. Multiple pterygium syndromes (Esco-
+     combination is a cornerstone feature.                                    bar/Lethal forms): These can present with
+     I would propose adding a few specific diagnoses that fit                 Robin sequence secondary to decreased fetal
+     this triad almost perfectly:                                             movement, along with webbing and a restrictive
+                                                                              thorax from pulmonary hypoplasia.
+         • Cerebrocostomandibular syndrome (CCMS):
+                                                                           4. Achondrogenesis type II / Hypochondrogen-
+           This is a rare but classic triad of Pierre-Robin se-
+                                                                              esis: Severe COL2A1 spectrum disorder with
+           quence, posterior rib gap defects (creating a very
+                                                                              marked thoracic hypoplasia, though often lethal
+           specific thoracic appearance on X-ray), and severe
+                                                                              or extremely severe.
+           intellectual disability. The thoracic abnormality
+           is pathognomonic.                                               5. Toriello-Carey syndrome: Rare but includes
+         • Otopalatodigital (OPD) spectrum disorders:                         Robin sequence, agenesis of corpus callosum, and
+           Specifically, the more severe forms like Melnick-                  thoracic/cardiac anomalies.
+           Needles syndrome can present with Robin se-                  The key discriminating factors will be:
+           quence, a small thorax with characteristic thin or
+           “ribbon-like” ribs, and other skeletal anomalies.                • Type of thoracic abnormality (narrow/bell-shaped
+           This is an X-linked condition caused by mutations                  vs. rib gaps vs. pectus deformity)
+           in FLNA.                                                         • Presence of limb anomalies
+         • Vertebral segmentation defects                                  2. Should we drop any of the seven “prominent tho-
+         • Cardiac involvement                                                racic” disorders in favor of a broader syndrome
+                                                                              like EVC or FADS?
+         • Neurological features
+                                                                           3. Are there strong arguments to retain or remove
+     My current top-10 differential:                                          Nager or 22q11.2 in this context?
+
+        1. Stickler                              syndrome               Please weigh in so we can finalize exactly ten.
+           (COL2A1/COL11A1/COL11A2)
+                                                                  Doctor 1: Step-by-step reasoning toward our final top-10:
+        2. Campomelic dysplasia (SOX9)
+        3. Cerebrocostomandibular syndrome (SNRPB)                         1. Pathognomonic thoracic defects must be priori-
+                                                                              tized.
+        4. Spondylocostal                        dysostosis
+                                                                                 • Cerebrocostomandibular syndrome (CCMS)
+           (DLL3/MESP2/LFNG/HES7)
+                                                                                 • Spondylocostal dysostosis (Jarcho-Levin)
+        5. Diastrophic dysplasia (SLC26A2)                                       • Otopalatodigital       spectrum      (Melnick-
+        6. 22q11.2 deletion syndrome                                               Needles)
+        7. Otopalatodigital spectrum disorders (FLNA)                      2. Equally, we need the major generalized skeletal
+        8. Weissenbacher-Zweymüller syndrome / OSMED                          dysplasias with a consistently narrow/bell-shaped
+           (COL11A2)                                                          thorax plus Robin sequence:
+        9. Nager syndrome (SF3B4)                                                • Campomelic dysplasia
+                                                                                 • Diastrophic dysplasia
+       10. Larsen syndrome (FLNB)
+                                                                                 • Weissenbacher-Zweymüller syndrome
+Supervisor: Colleagues, we have a rich pool of candidates                        • Larsen syndrome
+     but need to converge on our top-10, prioritizing the                  3. Finally, three of the “less thorax-specific but clin-
+     triad’s most specific syndromic associations. Here are                   ically common” syndromes are essential due to
+     the main areas of divergence:                                            their prevalence and impact on management:
+                                                                                 • Stickler syndrome
+        1. Doctor1 included syndromes with only occasional                       • 22q11.2 deletion syndrome
+           thoracic involvement (Treacher Collins, Kabuki,                       • Nager syndrome
+           CHARGE).
+        2. Doctor2/3 championed entities where ab-                      We debated whether to drop Larsen in favor of Ellis-van
+           normal thoracic morphology is a defining                     Creveld or Fetal Akinesia Deformation Sequence, but
+           feature (Cerebrocostomandibular syndrome,                    Larsen’s consistent rib/vertebral involvement in infancy
+           Otopalatodigital/Melnick-Needles,          Dias-             tips the balance in its favor for our core ten.
+           trophic dysplasia, Weissenbacher-Zweymüller,                 Final Consensus Top-10 Differential Diagnosis:
+           spondylocostal dysostosis).
+                                                                          1. Cerebrocostomandibular syndrome (SNRPB)
+        3. There remains debate over whether to include                   2. Spondylocostal dysostosis / Jarcho-Levin syn-
+           more common but less specifically thoracic-                       drome (DLL3, MESP2, LFNG, etc.)
+           centered diagnoses such as 22q11.2 deletion syn-
+           drome, Nager syndrome, Stickler syndrome, fetal                3. Melnick-Needles syndrome (FLNA; severe form
+           akinesia sequence, or Ellis-van Creveld.                          of otopalatodigital spectrum)
+                                                                          4. Campomelic dysplasia (SOX9)
+     To drive consensus, let’s rank by the strength of thoracic           5. Diastrophic dysplasia (SLC26A2)
+     pathology as a core feature:                                         6. Weissenbacher-Zweymüller syndrome / OSMED
+                                                                             (COL11A2)
+         • Pathognomonic thoracic defect:
+                                                                          7. Larsen syndrome (FLNB)
+             – Cerebrocostomandibular syndrome
+                                                                          8. Stickler syndrome (COL2A1, COL11A1,
+             – Spondylocostal (Jarcho-Levin) dysostosis                      COL2A1/COL11A1/COL11A2)
+             – Otopalatodigital      spectrum   (Melnick-                 9. 22q11.2 deletion syndrome
+                Needles)
+                                                                         10. Nager syndrome (SF3B4)
+         • Prominent thoracic involvement but broader
+           skeletal phenotype:                                    Doctor 2: This is a pivotal finding. The description of “mul-
+             – Campomelic dysplasia                                    tiple posterior rib gaps” and a “’crab-like’ thoracic cage”
+             – Diastrophic dysplasia                                   is not just a general descriptor of an abnormal thorax; it
+             – Weissenbacher-Zweymüller syndrome                       is a highly specific, almost pathognomonic radiological
+                                                                       sign that dramatically narrows our differential. This
+             – Larsen syndrome
+                                                                       information allows us to move from a broad list of pos-
+         • Frequently associated with PR sequence but                  sibilities to a very focused set of top candidates.
+           less specific thorax signs:
+                                                                        My thoughts on this are as follows:
+             – Stickler syndrome
+             – Nager syndrome                                              1. The Significance of “Posterior Rib Gaps”: This
+             – 22q11.2 deletion syndrome                                      is the hallmark feature of Cerebrocostomandibu-
+             – Fetal akinesia deformation sequence                            lar syndrome (CCMS). In this condition, the
+                                                                              posterior portions of the ribs fail to form, leaving
+             – Ellis-van Creveld syndrome
+                                                                              cartilaginous or fibrous bands that are radiolucent
+     Questions for refining our final list:                                   on X-ray. The combination of these specific rib
+                                                                              defects with Pierre-Robin sequence is the clas-
+        1. Which three “less specific thorax” conditions nev-                 sic triad for CCMS. This diagnosis, which was
+           ertheless deserve inclusion in the top-10 based on                 a strong consideration before, now moves to the
+           frequency or clinical importance?                                  very top of the list.
+         2. The Significance of “’Crab-like’ Thoracic                       • Genetics: SNRPB mutations (autosomal re-
+            Cage”: This descriptor is most famously asso-                     cessive), though many cases remain geneti-
+            ciated with Spondylocostal Dysostosis (SCD)                       cally unresolved
+            / Jarcho-Levin syndrome. In SCD, extensive                      • Key feature: The spine radiograph is typi-
+            vertebral segmentation defects (hemivertebrae,                    cally NORMAL or near-normal
+            fused vertebrae) cause the ribs to emerge from                  • Prognosis: Variable; respiratory compro-
+            the spine in a fan-like or “crab-like” array. While               mise in infancy, but intellectual development
+            the primary defect is vertebral, the thoracic ap-                 often normal if airway managed
+            pearance is profound. Therefore, SCD remains an            2. Spondylocostal Dysostosis (SCD):
+            extremely high-yield diagnosis. The key differen-
+                                                                            • Primary defect: Extensive vertebral segmen-
+            tiator will be a spine X-ray: if it shows widespread
+                                                                              tation anomalies (hemivertebrae, block verte-
+            vertebral anomalies, SCD is favored; if the spine
+                                                                              brae, butterfly vertebrae)
+            is relatively normal but the ribs have intrinsic gaps,
+            CCMS is the diagnosis.                                          • Secondary effect: “Crab-like” or “fan-like”
+                                                                              thorax due to ribs arising from malformed
+         3. Impact on the Previous Differential: This find-                   spine
+            ing effectively rules out or makes extremely un-                • Multiple genetic subtypes: DLL3, MESP2,
+            likely most of the other diagnoses we were con-                   LFNG, HES7, TBX6
+            sidering.
+                                                                            • Key feature: Spine X-ray shows SEVERE
+               • Stickler, Larsen, and Nager syndromes                        vertebral malformations
+                  do not characteristically feature posterior rib           • Associated: Short trunk dwarfism, but cran-
+                  gaps or a crab-like thorax.                                 iofacial involvement is less typical
+               • Campomelic and Diastrophic dysplasia                  3. Important consideration - COVESDEM syn-
+                  cause a narrow, bell-shaped thorax, but not             drome:
+                  due to specific rib gaps.
+                                                                            • Stands for: COstal, VErtebral, Segmentation
+               • Otopalatodigital spectrum disorders (like                    Defects with Mesomelia
+                  Melnick-Needles) cause thin, wavy, or
+                                                                            • Combines features of both above: vertebral
+                 “ribbon-like” ribs, which is a different mor-
+                                                                              anomalies + rib defects + mandibulofacial
+                  phology.
+                                                                              dysostosis
+               • 22q11.2 deletion syndrome is not associ-                   • Extremely rare but would fit this phenotype
+                  ated with this type of severe, primary skeletal             perfectly
+                  malformation.
+                                                                     Practical Next Steps for Discrimination:
+      Therefore, the investigation has now zeroed in on a
+      specific class of disorders: those with primary, severe rib      1. Lateral spine X-ray is THE discriminating test:
+      and/or vertebral malformations. My refined differential               • Normal/minimal vertebral anomalies →
+      diagnosis is now heavily weighted towards these two                     CCMS
+      possibilities.                                                        • Extensive vertebral segmentation defects →
+                                                                              SCD
+      Top-10 current differential: 1. Cerebrocostomandibu-
+      lar syndrome (CCMS), 2. Spondylocostal Dysostosis                     • Both significant → COVESDEM or overlap
+      (Jarcho-Levin syndrome), 3. Atypical or severe presen-                  syndrome
+      tation of Otopalatodigital Spectrum Disorder (FLNA),             2. Detailed rib analysis:
+      4. COVESDEM syndrome (mandibulofacial dysostosis                      • Isolated posterior gaps → CCMS
+      with vertebral/costal defects), 5. An undescribed/novel               • Generalized rib fusion/crowding → SCD
+      genetic syndrome involving rib development, 6. Cam-                   • Both features → complex/severe phenotype
+      pomelic dysplasia (if the “gaps” were a misinterpre-             3. Genetic testing priority:
+      tation of profoundly hypoplastic ribs), 7. Diastrophic                • SNRPB for CCMS
+      dysplasia (less likely, but a severe thoracolumbar dys-
+                                                                            • DLL3, MESP2, LFNG, HES7, TBX6 for
+      plasia), 8. Stickler syndrome (now highly unlikely, only
+                                                                              SCD panel
+      retained as a placeholder for the most common cause
+      of PRS), 9. Larsen syndrome (severe forms can have                    • Consider exome if both negative
+      rib abnormalities, but gaps are not typical), 10. Spondy-      My final refined top-10 differential (heavily weighted
+      lometaphyseal dysplasia, Sedaghatian type (a lethal dys-       by the radiological findings):
+      plasia with vertebral/rib defects)
+                                                                       1. Cerebrocostomandibular syndrome (SNRPB)
+Doctor 3: Excellent pivot by Doctor2. The radiological detail          2. Spondylocostal                       dysostosis
+     of “multiple posterior rib gaps” combined with a “crab-              (DLL3/MESP2/LFNG/HES7/TBX6)
+     like thoracic cage” is indeed a game-changing finding             3. COVESDEM syndrome (costovertebral segmen-
+     that allows us to dramatically refine our differential. As           tation defects with mesomelia)
+     a rare disease specialist, I want to provide additional           4. Spondylothoracic dysostosis (MESP2; more uni-
+     granular distinctions and ensure we’re considering the               form rib involvement)
+     full spectrum of costovertebral segmentation defects.             5. Atypical severe ribbing syndrome (possible
+      Critical Diagnostic Distinctions:                                   novel genetic entity)
+                                                                       6. VACTERL association with prominent cos-
+         1. Cerebrocostomandibular Syndrome (CCMS):                       tovertebral defects
+             • Classic triad: Pierre-Robin sequence + pos-             7. Femoral-facial syndrome (can have rib abnor-
+                terior rib gaps + severe micrognathia                     malities + Robin sequence)
+             • Rib defect: Specific POSTERIOR gaps (ribs               8. Otopalatodigital spectrum disorder type II
+                5-9 typically), not vertebral anomalies                   (FLNA; if “gaps” represent severe hypoplasia)
+        9. Cerebrocostomandibular-like syndrome, auto-
+           somal dominant (reported rare families)
+       10. Campomelic dysplasia, severe form (SOX9; re-
+           tained as differential but now less likely)
+      Bottom line: The radiological finding has moved us
+      from a broad skeletal dysplasia differential to a highly
+      specific costovertebral malformation spectrum, with
+      CCMS and SCD as the two overwhelming top candi-
+      dates. The key discriminator is the spine X-ray.
+
+Supervisor: The panel has reached a unanimous consensus.
+     Based on the pathognomonic finding of posterior rib
+     gaps and the characteristic craniofacial features, Cere-
+     brocostomandibular syndrome is the primary diagnosis,
+     with Spondylocostal dysostosis remaining the critical
+     differential pending spine imaging.
+      Final Consensus Top-10 Differential Diagnosis:
+        1. Cerebrocostomandibular syndrome
+        2. Spondylocostal dysostosis
+        3. Spondylothoracic dysostosis
+        4. COVESDEM syndrome
+        5. Melnick-Needles syndrome
+        6. Campomelic dysplasia
+        7. Diastrophic dysplasia
+        8. Weissenbacher-Zweymüller syndrome
+        9. Larsen syndrome
+       10. Femoral-facial syndrome
+     TERMINATE.
+

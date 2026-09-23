@@ -1,0 +1,1080 @@
+        Dynamic Generation of Multi LLM Agents Communication Topologies
+                          with Graph Diffusion Models
+                     Eric Hanchen Jiang1* , Mengting Li1* , Guancheng Wan1 , Xiao Liang1 ,
+                                   Sophia Yin1 , Yuchen Wu2 , Xinfeng Li3 ,
+                          Yizhou Sun1 , Wei Wang1 , Kai-Wei Chang1 , Ying Nian Wu1
+                          1
+                              University of California Los Angeles, 2 University of Washington,
+                                            3
+                                              Nanyang Technological University
+
+                                 Abstract                             frameworks (Wu et al., 2023; Hong et al., 2023;
+         The efficiency of multi-agent systems driven by              Li et al., 2023; Chen et al., 2023b). Such static or
+         large language models (LLMs) largely hinges                  rule-based designs struggle to adapt to the intrinsic
+         on their communication topology. However,                    complexity of the task, the composition of skills
+         designing an optimal topology is a non-trivial               required, or real-time progress. Classical MAS
+         challenge, as it requires balancing compet-                  theory already shows that performance and robust-
+         ing objectives such as task performance, com-                ness depend critically on the underlying graph (e.g.,
+         munication cost, and robustness. Existing                    consensus rates and failure modes are tied to con-
+         frameworks often rely on static or hand-crafted
+                                                                      nectivity and spectral properties) (Zhu, 2006; Chen
+         topologies, which inherently fail to adapt to
+         diverse task requirements, leading to either ex-             et al., 2013). The mismatch manifests in practice:
+         cessive token consumption for simple prob-                   a simple Q&A may need only a short linear ex-
+         lems or performance bottlenecks for complex                  change, whereas software development benefits
+         ones. To address this challenge, we introduce                from a richer collaboration network with project
+         a novel generative framework called Guided                   managers, programmers, and testers (Hong et al.,
+         Topology Diffusion (GTD). Inspired by condi-                 2023). Using one pattern for all tasks either in-
+         tional discrete graph diffusion models, GTD
+                                                                      flates token/communication overhead for simple
+         formulates topology synthesis as an iterative
+         construction process. At each step, the gener-               problems or creates bottlenecks for complex ones
+         ation is steered by a lightweight proxy model                (Zhang et al., 2024). Recent efforts begin to op-
+         that predicts multi-objective rewards (e.g., accu-           timize or search topologies, but typically empha-
+         racy, utility, cost), enabling real-time, gradient-          size end utility (accuracy) while underweighting
+         free optimization towards task-adaptive topolo-              other crucial dimensions such as communication
+         gies. This iterative, guided synthesis process               cost (token consumption), robustness to agent fail-
+         distinguishes GTD from single-step genera-                   ures/attacks, and sparsity/efficiency (Zhang et al.,
+         tive frameworks, enabling it to better navigate
+                                                                      2025a; Li et al., 2025a; Zhou et al., 2025; Hu et al.,
+         complex design trade-offs. We validated GTD
+         across multiple benchmarks, and experiments                  2024b; Shang et al., 2024). Furthermore, their
+         show that this framework can generate highly                 reliance on single-step generation mechanisms,
+         task-adaptive, sparse, and efficient communi-                such as variational auto-encoders, can limit the
+         cation topologies, significantly outperforming               fine-grained exploration of the multi-objective de-
+         existing methods in LLM agent collaboration.                 sign space. A principled topology designer should
+         Our code is available here.                                  therefore seek Pareto-optimal trade-offs in a multi-
+    1    Introduction                                                 objective space (Zhang et al., 2025c).
+                                                                         However, while these adaptive methods repre-
+    Large language model (LLM) driven multi-agent                     sent a significant step forward, they face two fun-
+    systems (MAS) increasingly rely on structured                     damental limitations. (1) First, their generative
+    communication to solve complex tasks, yet a core                  process often relies on single-step models like vari-
+    open problem is how to dynamically design the                     ational auto-encoders, which can struggle to cap-
+    communication topology for a given task and team.                 ture the complex, long-range dependencies inher-
+    In practice, many systems still adopt hand-crafted                ent in optimal communication structures. This may
+    or heuristic patterns (e.g., chain, star, or fully con-           constrain the search space to topologies that are
+    nected graphs) or workflow templates and role play                plausible but not truly Pareto-optimal. (2) Second,
+         *
+             Equal contribution.                                      their optimization is often coarse-grained, applying
+                                                               38042
+                                                                 1
+Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 38042–38060
+                                     July 2-7, 2026 ©2026 Association for Computational Linguistics
+reward signals only after a complete topology has
+been generated. Such post-hoc guidance makes it
+difficult to navigate the intricate trade-offs between
+competing objectives like task utility, token cost,
+and robustness in a fine-grained manner. The core
+research problem, therefore, is to develop a frame-
+work that can powerfully yet precisely construct
+topologies by integrating multi-objective guidance
+directly into each step of the generative process.
+   To address this challenge, we reframe topology
+synthesis as a guided, iterative construction pro-
+cess. We introduce Guided Topology Diffusion
+(GTD), a framework that casts topology generation
+as a conditional discrete graph diffusion process,
+drawing on recent advances in generative modeling
+(Ho et al., 2020; Song et al., 2021; Ho and Sali-
+mans, 2021; Vignac et al., 2023). By starting from
+a noisy graph and progressively denoising it, GTD
+leverages the strong generative capabilities of diffu-
+sion models to explore a richer design space. Cru-
+cially, we inject multi-objective guidance at each
+step of this reverse process. We achieve this by cou-
+pling the generator with a lightweight proxy reward
+model and performing zeroth-order (gradient-free)
+                                                         Figure 1: Comparison of Multi-Agent System (MAS)
+optimization during sampling, a scheme inspired          communication topology design workflows. (1) Static
+by reward-modeling and gradient-free optimization        Fixed Workflow, (2) Centralized Adaptive Workflow,
+practice (Nesterov and Spokoiny, 2017; Liu et al.,       (3) Diffusion Guided Topology Workflow (Ours). Our
+2018; Ouyang et al., 2022). This allows GTD to           proposed method provides task- and context-adaptive
+steer the generation trajectory in real-time, effec-     topologies by using a conditional diffusion process
+tively balancing task utility, communication cost,       guided by a proxy model to jointly optimize for util-
+and robustness to produce highly optimized, task-        ity, cost, robustness, and sparsity.
+specific topologies.                                     2   Related Work
+   In summary, our contributions are threefold:
+                                                         Classical MAS research establishes that commu-
+  ❶ Problem Level: We propose GTD, a novel               nication topology fundamentally shapes global
+    conditional discrete graph diffusion frame-          behavior, particularly regarding consensus speed
+    work for dynamically generating multi-agent          and system robustness (Zhu, 2006, 2003; Chen
+    communication topologies.                            et al., 2013; Helsinger et al., 2004; Ayal a, 2025).
+                                                         While analyses of star networks quantify the inher-
+  ❷ Algorithm Level: We design and implement             ent trade-offs between rapid information propaga-
+    a proxy model-based zeroth-order optimiza-           tion and single-point failure risks (Chowdhury and
+    tion guidance algorithm, which effectively op-       Khalil, 2017; Gong et al., 2015), recent structural
+    timizes non-differentiable, high-cost external       optimization studies focus on Pareto fronts that
+    objectives during the diffusion process.             balance accuracy with resilience (Xiao and Tan,
+                                                         2013; Zhang et al., 2025c; str, 2023). In the spe-
+  ❸ Framework Level: We construct a complete             cific context of LLM agents, contemporary work
+    end-to-end solution that integrates advanced         aims to reduce token overhead or optimize collabo-
+    semantic feature encoding, conditional graph         ration schedules (Zhang et al., 2024; Wang et al.,
+    diffusion generation, and multidimensional           2025; Zhou et al., 2025). More advanced meth-
+    protocol-based dynamic guidance, providing a         ods explicitly learn task-aware topologies using
+    new paradigm for solving such complex graph          GNNs or autoregressive models to address scala-
+    generation problems.                                 bility and latency in decentralized settings (Zhang
+                                                    38043
+                                                      2
+et al., 2025a; Li et al., 2025a,b; Yuan et al., 2023;   reversing a gradual noising process (Ho et al., 2020;
+Zhu et al., 2025). Building upon recent progress        Song et al., 2021; Vignac et al., 2023). We adapt
+in conditional graph diffusion and broader gener-       this paradigm for discrete graph structures.
+ative paradigms (Xu et al., 2024; Vignac et al.,
+2023; Madeira et al., 2024; You et al., 2018; Lo        Forward Diffusion Process. The forward pro-
+et al., 2024; Du et al., 2024; Ding et al., 2024; Hu    cess, q(At |A0 ), systematically corrupts an initial
+et al., 2024a; Zhao et al., 2024; Ji et al., 2025),     graph A0 by adding noise over T discrete timesteps.
+our GTD uniquely integrates proxy-guided zeroth-        To operate in a continuous space, we first scale the
+order optimization during sampling to directly steer    adjacency matrix entries from {0, 1} to {−1, 1},
+generation toward multi-objective optima.               a standard practice that centers the data around
+                                                        zero for proper convergence to N (0, I) under the
+3     Preliminaries                                     variance-preserving assumption (Ho et al., 2020).
+                                                        The forward process is then defined as a variance-
+In this section, we formalize the problem of topol-     preserving schedule that adds Gaussian noise:
+ogy generation and describe the underlying prin-
+                                                                                     √
+ciples of graph diffusion models (Ho et al., 2020;            q(At |A0 ) = N (At ;       ᾱt A0 , (1 − ᾱt )I)   (2)
+Song et al., 2021), pinpointing the limitations that
+motivate our proposed method.                           where {βt }Tt=1 is a predefined noise schedule, αt =
+                                                                             Qt
+                                                        1 − βt , and ᾱt = s=1 αs . As t → T , the dis-
+3.1 Formalizing Topology Generation as a
+                                                        tribution of AT converges to a standard isotropic
+    Conditional Generative Problem
+                                                        Gaussian distribution, N (0, I).
+The design of an optimal communication topology
+for a Multi-Agent System (MAS) can be framed            Learned Reverse Process. The generative model
+as a conditional graph generation problem. Given        learns the reverse process, pθ (At−1 |At , C), to de-
+a set of N agents, their communication structure        noise a noisy graph At and recover a cleaner
+is represented by a directed graph G = (V, E),          version At−1 , conditioned on the task context
+where |V | = N . This graph is fully described          C. This is parameterized by a denoising network
+by its adjacency matrix A ∈ {0, 1}N ×N , where          Gθ (At , C, t), which is trained to predict the original
+Aij = 1 signifies that agent i can send a message       clean graph A0 from its noisy counterpart At . The
+to agent j.                                             training objective for Gθ is to minimize the recon-
+                                                        struction error over a dataset of high-performing
+Optimization Objective. For a given task query          graphs:
+q and a set of available agents, which together form                       h
+a task-specific condition vector C, the goal is to                                     √           √
+                                                         Lθ = Et,A0 ,C,ϵ A0 − Gθ ( ᾱt A0 + 1 − ᾱt ϵ,
+discover an optimal adjacency matrix A∗ that max-                        i
+                                                                       2
+imizes a composite reward function R(A, C). This               C, t)                                         (3)
+function evaluates the quality of a topology based
+on multiple criteria:                                      where ϵ ∼ N (0, I). Once trained, we can gen-
+                                                        erate a new graph by sampling AT ∼ N (0, I) and
+    max R(A, C) = f (Utility(A, C), Cost(A, C),         iteratively applying the denoising network to obtain
+     A
+                   Sparsity(A), . . .)           (1)    A0 .
+
+   Here, Utility measures task success (e.g., accu-     3.3    The Challenge: Guiding Generation with
+racy), Cost quantifies token consumption or com-               a Black-Box Objective
+munication overhead, and Sparsity encourages            A standard conditional diffusion model can gener-
+efficiency. Evaluating R(A, C) is computationally       ate topologies that are statistically similar to those
+expensive, as it requires executing a full, costly      in the training data, but it cannot explicitly optimize
+multi-agent simulation for each candidate graph A.      for the external reward function R(A, C) during
+                                                        generation (Ho and Salimans, 2021; Dhariwal and
+3.2 Denoising Diffusion Models for Graph                Nichol, 2021). Steering the denoising process to-
+    Generation                                          ward high-reward structures presents two major
+Denoising diffusion models are a class of powerful      obstacles. First, the true reward function R is too
+generative models that learn to synthesize data by      slow to be used for guidance within the iterative
+                                                   38044
+                                                     3
+Figure 2: The Guided Topology Diffusion (GTD) framework workflow, divided into four main stages. 1)
+Material: The process begins with task-specific inputs, including the query, available agents, and tools. 2) Dataset
+Generation: A multi-agent framework simulates various baseline topologies to generate a foundational dataset
+linking topologies to performance outcomes (e.g., utility and cost). 3) Model Training: The generated dataset
+is used to train two core components: a lightweight proxy scorer (Pϕ ) to predict topology performance and a
+conditional graph diffusion generator (Gθ ) to learn the structure of high-performing graphs. 4) Inference: For
+a new task, the framework uses the trained models to iteratively denoise a random graph, with the proxy scorer
+guiding each step to synthesize a final, task-optimized topology.
+
+sampling loop, a challenge of high-cost evalua-             4     Methodology
+tion. Second, the reward is a non-differentiable
+                                                           Our framework, Guided Topology Diffusion
+“black-box" objective; the output of the denoising
+                                                           (GTD), learns to generate optimal communication
+network, Gθ , is a continuous prediction that must
+                                                           topologies for Multi-Agent System (MAS). GTD
+be converted into a discrete graph A before evalua-
+                                                           comprises two core components: (1) a surrogate
+tion, and this sampling step breaks the end-to-end
+                                                           reward model, Pϕ , that approximates the expen-
+differentiability, rendering gradient-based guidance
+                                                           sive simulation outcomes, and (2) a conditional
+techniques inapplicable (Nesterov and Spokoiny,
+                                                           diffusion generator, Gθ , that learns the distribution
+2017). To overcome these challenges, we reframe
+                                                           of high-performing graph structures. We first train
+the problem by introducing a method for efficient,
+                                                           these components on a pre-computed dataset and
+gradient-free guidance. This is achieved by first
+                                                           then integrate them for a novel, guided synthesis
+training a lightweight surrogate model (or proxy)
+                                                           process at inference time.
+that accurately approximates the expensive reward
+R (Ouyang et al., 2022) and then using this proxy           4.1    Surrogate Reward Model
+during inference to guide the diffusion sampling           To circumvent the computational cost of direct sim-
+process with a Zeroth-Order (ZO) optimization              ulation, we first train a surrogate model Pϕ to pre-
+scheme (Liu et al., 2018). This approach trans-            dict the performance of a given topology. This
+forms the generation process from a simple denois-         model maps a graph-condition pair (A, C) to a per-
+ing task into a guided synthesis, allowing us to           formance vector [û, ĉ]T , representing the predicted
+directly optimize for task-specific, multi-objective       task utility and communication cost, respectively.
+rewards without requiring differentiability.
+                                                           Architecture. The surrogate Pϕ is implemented
+                                                           as a Graph Neural Network (GNN) (Kipf and
+                                                           Welling, 2017). Specifically, we employ a series of
+                                                           Graph Attention (GAT) layers (Veličkovi’´’c et al.,
+                                                      38045
+                                                        4
+2018) to learn expressive node representations. The
+update rule for a node v’s hidden state hv from
+layer (l) to (l + 1) is given by:
+                                              
+                          X
+   h(l+1)
+    v     = σ                     (l)
+                                  αvu  W(l) h(l)
+                                             u
+                                                    (4)
+                    u∈N (v)∪{v}
+
+         (l)
+where αvu are the learned attention coefficients
+between nodes v and u. The final node embed-
+dings are aggregated via mean pooling to pro-
+                                                           Figure 3: An illustration of different multi-agent com-
+duce a graph-level representation hG . This is con-
+                                                           munication topologies. The left panel shows examples
+catenated with the projected task condition vec-           of common static or heuristic graphs, such as Chain,
+tor C and processed by a multi-layer perceptron            Star, Complete, Layered, and Random graphs. The
+(MLP) to yield the final prediction: [û, ĉ]T =           right panel shows examples of Adaptive Graphs, which
+MLPϕ ([hG ; Projϕ (C)]).                                   represent the sparse, task-specific topologies that the
+                                                           GTD framework is designed to generate dynamically.
+Training. We first generate a foundational
+dataset Dgen = {(Aj , Cj , Pj )}M
+                                j=1 by running sim-
+ulations for a diverse set of baseline topologies          space, a single “wrong" edge can break the com-
+across various tasks. The model Pϕ is then trained         munication flow; diffusion allows our proxy model
+to minimize the Mean Squared Error (MSE) loss              to intervene at every step of the construction pro-
+between its predictions and the ground-truth per-          cess, gently steering the graph toward high-reward
+formance vectors from simulation:                          regions gradually rather than risking mode collapse
+                                                           typical of one-shot generators.
+               1 X
+                    M                                         Here, in Figure 3, we provide a visual contrast
+        Lϕ =       ∥Pϕ (Aj , Cj ) − Pj ∥22           (5)   between common static topologies and the sparse,
+               M
+                    j=1                                    adaptive structures that our generator is designed
+                                                           to create. This distinction highlights the frame-
+Model Fidelity. To ensure the surrogate provides
+                                                           work’s goal: to move beyond one-size-fits-all pat-
+effective guidance during the zeroth-order opti-
+                                                           terns towards topologies optimized for the specific
+mization step, we evaluated its performance on
+                                                           demands of a given task. We model the adjacency
+a held-out test split of the training dataset. The
+                                                           matrix A ∈ {0, 1}N ×N by scaling its values to
+model achieves a low Mean Squared Error (MSE)
+                                                           {−1, 1} and performing diffusion in a continuous
+for both utility and cost objectives, indicating it cap-
+                                                           space.
+tures the underlying performance landscape accu-
+rately. Furthermore, we observed a strong positive         Diffusion Process. We utilize a variance-
+correlation between the predicted and ground-truth         preserving forward process q(At |A0 ) that gradu-
+cost metrics. Most importantly, when used to rank          ally adds Gaussian noise to an initial graph A0 over
+candidate graphs, the top-1 choice selected by the         T timesteps:
+surrogate consistently coincides with the true best                                  √
+candidate in the majority of cases. These results                q(At |A0 ) = N (At ; ᾱt A0 , (1 − ᾱt )I) (6)
+confirm that Pϕ possesses sufficient ranking fidelity
+to steer the diffusion process toward Pareto-optimal       whereQ{βt }Tt=1 is a fixed variance schedule and
+regions.                                                   ᾱt = ts=1 (1 − βs ). The objective is to learn the
+                                                           reverse process pθ (At−1 |At , C) to denoise a noisy
+4.2 Conditional Graph Diffusion Generator                  graph At back towards a clean, high-performance
+                                                           graph, conditioned on the task vector C.
+The core of our generative framework is a condi-
+tional diffusion model, Gθ , designed to learn the         Denoising Network and Training. We parame-
+distribution of high-quality topologies, pθ (A|C).         terize the reverse process with a denoising network
+We explicitly chose Diffusion over single-shot ap-         Gθ (At , C, t), which is implemented as a Graph
+proaches (e.g., VAEs or Gumbel-Softmax) to en-             Transformer (Yun et al., 2019; Dwivedi and Bres-
+able iterative refinement. In a discrete topology          son, 2021). This architecture’s global attention
+                                                      38046
+                                                        5
+Method                              GSM8K          MATH          MultiArith    HumanEval        MMLU          SVAMP           Avg.
+
+Vanilla (OpenAI, 2023)                87.45         46.29          96.85          87.08           82.14         86.67         81.75
+CoT (Wei et al., 2022)              87.10 ↓0.35   46.40 ↑0.11    96.31 ↓0.54    88.13 ↑1.05     82.65 ↑0.51   87.33 ↑0.66   81.99 ↑0.24
+ComplexCoT (Fu et al., 2022)        86.89 ↓0.56   46.53 ↑0.24    96.70 ↓0.15    87.49 ↑0.41     83.78 ↑1.64   87.67 ↑1.00   81.84 ↑0.09
+SC (CoT×5) (Wang et al., 2023a)     87.57 ↑0.12   47.91 ↑1.62    96.58 ↓0.27    88.60 ↑1.52     82.66 ↑0.52   88.00 ↑1.33   81.89 ↑0.14
+MultiPersona (Wang et al., 2023b)   87.50 ↑0.05   45.43 ↓0.86    97.49 ↑0.64    88.32 ↑1.24     83.65 ↑1.51   87.00 ↑0.33   81.90 ↑0.15
+LLM-Debate (Du et al., 2023)        89.47 ↑2.02   48.54 ↑2.25    97.33 ↑0.48    88.68 ↑1.60     83.69 ↑1.55   89.00 ↑2.33   82.79 ↑1.04
+LLM-Blender (Jiang et al., 2023)    88.35 ↑0.90   46.92 ↑0.63    97.29 ↑0.44    88.80 ↑1.72     81.22 ↓0.92   87.33 ↑0.66   81.65 ↓0.10
+DyLAN (Liu et al., 2023)            89.98 ↑2.53   48.63 ↑2.34    97.12 ↑0.27    90.42 ↑3.34     80.16 ↓1.98   88.67 ↑2.00   82.50 ↑0.75
+AgentVerse (Chen et al., 2023b)     89.91 ↑2.46   47.35 ↑1.06    97.50 ↑0.65    89.29 ↑2.21     81.22 ↓0.92   88.33 ↑1.66   82.27 ↑0.52
+MacNet (Qian et al., 2024)          87.95 ↑0.50   45.18 ↓1.11    96.03 ↓0.82    84.57 ↓2.51     79.85 ↓2.29   86.00 ↓0.67   79.93 ↓1.82
+AutoAgents (Chen et al., 2023a)     87.69 ↑0.24   45.32 ↓0.97    96.42 ↓0.43    87.64 ↑0.56     82.13 ↓0.01   86.34 ↓0.33   80.96 ↓0.79
+GPTSwarm (Zhuge et al., 2024)       89.14 ↑1.69   47.88 ↑1.59    96.79 ↓0.06    89.32 ↑2.24     83.98 ↑1.84   88.67 ↑2.00   82.96 ↑1.21
+ADAS (Hu et al., 2024b)             86.12 ↓1.33   43.18 ↓3.11    96.02 ↓0.83    84.19 ↓2.89     77.93 ↓4.21   86.33 ↓0.34   78.96 ↓2.79
+AgentSquare (Shang et al., 2024)    87.62 ↑0.17   48.51 ↑2.22    97.77 ↑0.92    89.08 ↑2.00     79.85 ↓2.29   88.00 ↑1.33   81.81 ↑0.06
+AFlow (Zhang et al., 2025d)         91.16 ↑3.71   51.28 ↑4.99    96.22 ↓0.63    90.93 ↑3.85     83.28 ↑1.14   88.33 ↑1.66   83.53 ↑1.78
+G-Designer (Zhang et al., 2025a)    92.09 ↑4.64   51.00 ↑4.71    97.78 ↑0.93    91.11 ↑4.03     84.50 ↑2.36   90.00 ↑3.33   84.41 ↑2.66
+MaAS (Zhang et al., 2025b)          92.30 ↑4.85   51.82 ↑5.53    98.80 ↑1.95    90.56 ↑3.48     83.78 ↑1.64   89.67 ↑3.00   84.49 ↑2.74
+
+GTD (Ours)                          94.14 ↑6.69   54.07 ↑7.78    98.88 ↑2.03    91.46 ↑4.38     84.58 ↑2.44   91.33 ↑4.66   85.74 ↑3.99
+
+Table 1: Performance comparison on various benchmarks. All scores are accuracy (%). Changes are reported
+relative to the Vanilla baseline. ↑ and ↓ denote performance improvement and degradation, respectively. The best
+result in each column is bolded.
+
+
+mechanism is well-suited for capturing long-range                   cess with the trained surrogate model Pϕ∗ . The
+dependencies inherent in graph topology optimiza-                   condition vector C is formed by concatenating the
+tion. Critically, the Graph Transformer ensures that                semantic embedding of the task query q (obtained
+edges are not generated independently; the predic-                  via a pre-trained encoder) with the current graph
+tion of any single edge (i, j) is conditioned on the                state embeddings. This ensures the guidance is
+global context of all other nodes via self-attention,               context-aware.
+allowing the model to learn complex structural de-                     Standard guidance techniques (e.g., classifier-
+pendencies (e.g., cycles or hierarchies). The net-                  free guidance (Ho and Salimans, 2021)) require
+work is trained to predict the original graph A0                    gradients from the guiding model. However, our
+from its noised version At . To focus the model on                  surrogate Pϕ∗ evaluates discrete graph samples,
+generating effective topologies, we train it exclu-                 making its output non-differentiable with respect
+sively on a high-performance subset Dhq ⊂ Dgen ,                    to the generator’s continuous predictions.
+where graphs exceed a certain performance thresh-                      To overcome this, we introduce a zero-order
+old. The training objective is to minimize the bi-                  (ZO) optimization (Nesterov and Spokoiny, 2017;
+nary cross-entropy (BCE) loss:                                      Liu et al., 2018) step within each denoising itera-
+                      h         √          √                        tion. As detailed in Algorithm 1, at each timestep
+Lθ = Et,A0 ∼phq ,C,ϵ BCE Gθ ( ᾱt A0 + 1 − ᾱt ϵ,                   t, we first use the generator Gθ∗ to predict the un-
+                i                                                                          (t)
+                                                                    guided clean graph, Â0 . We then sample K dis-
+      C, t), A0                                   (7)
+                                                                    crete candidate graphs from this prediction. The
+                                                                    surrogate model Pϕ∗ evaluates all candidates, and
+   where ϵ ∼ N (0, I). This objective serves as
+                                                                    we select the one that maximizes our composite
+a practical surrogate for maximizing the true Evi-
+                                                                    reward objective:
+dence Lower Bound, a connection we formalize in
+Appendix G (see Theorem G.1).                                                                                
+                                                                         (t)
+4.3 Proxy-Guided Topology Synthesis                                     A0,best = arg max wu · ûk − wc · ĉk
+                                                                                          (t)
+                                                                                        A0,k
+At inference, we synthesize a topology for a novel                                                                 (t)
+task condition Cnew by steering the diffusion pro-                               s.t.    [ûk , ĉk ]T = Pϕ∗ (A0,k , Cnew ) (8)
+
+                                                                38047
+                                                                  6
+                                   (t)
+    This best-ranked candidate, A0,best , is then used   tion overhead is negligible; the one-time token cost
+                                      (t)
+in place of the original prediction Â0 to compute       for generating training data (≈ 4.0 × 105 tokens) is
+                                          (t)            rapidly amortized by the millions of tokens saved
+the posterior distribution q(At−1 |At , A0,best ) for
+                                                         during inference on the full test set (≈ 4.4 × 106 to-
+sampling the next state At−1 .
+                                                         kens per run), resulting in significant net efficiency
+   This procedure directly injects task-specific per-
+                                                         gains for the system.
+formance objectives into the generative trajectory,
+                                                            During inference, proxy-guided synthesis ap-
+guiding the synthesis towards topologies that are
+                                                         plies a zeroth-order optimization step, evaluating
+optimized for the given task. The effectiveness of
+                                                         five candidate graphs at each timestep to guide the
+this guidance is directly tied to the fidelity of the
+                                                         generation process.
+surrogate model Pϕ∗ . In Appendix G, we formally
+bound the performance gap of the resulting topol-        5.1   Task-Solving Effectiveness
+ogy as a function of the surrogate’s approximation
+                                                         First, we evaluated GTD’s ability to generate high-
+error (Theorem G.2).
+                                                         utility communication topologies by comparing its
+5    Experiments                                         task-solving performance against a wide range of
+                                                         established multi-agent methods. We used several
+To validate the effectiveness of our proposed GTD        popular benchmarks for this comparison, includ-
+framework, we conduct a comprehensive set of             ing GSM8K, MATH, MultiArith for mathematical
+experiments designed to evaluate its performance         reasoning, and HumanEval for code generation.
+across three key dimensions: (1) task-solving ef-        Baselines include canonical prompting strategies
+fectiveness, (2) communication cost-efficiency,          like Chain-of-Thought (CoT) (Wei et al., 2022) as
+and (3) robustness against agent failures.               well as more recent agentic frameworks such as
+   Our experimental setup is standardized across         AgentVerse (Chen et al., 2023b), AFlow (Zhang
+all evaluations to enable fair comparisons. The          et al., 2025d), and MaAS (Zhang et al., 2025b). For
+backbone for all agents is GPT-4o-mini. In our           each task, GTD generates a bespoke communica-
+primary experiments, we deploy domain-specific           tion topology conditioned on the problem descrip-
+agent teams: four MathSolver agents for the math-        tion, and the resulting multi-agent system solves
+ematics datasets (GSM8K, MATH, MultiArith, and           the task. Performance is measured by task-specific
+SVAMP); four CodeSolver agents for the coding            accuracy.
+dataset (HumanEval); and three KnowledgeableA-              As shown in Table 1, GTD demonstrates superior
+cademic agents for the science dataset (MMLU).           performance across the majority of benchmarks.
+The surrogate reward model (Pϕ ) in the GTD              It achieves state-of-the-art results on GSM8K
+framework is a Graph Neural Network with two             (94.14), MATH (54.07), MultiArith (98.88), and
+GAT layers and a hidden dimension of 32, trained         SVAMP (91.30), significantly outperforming all
+for 10 epochs using the Adam optimizer with a            baselines. For instance, on the challenging MATH
+learning rate of 1e-3 and a batch size of 16 to min-     dataset, GTD improves upon the strongest base-
+imize mean squared error loss. The conditional           line (MaAS) by over 2 absolute percentage points.
+diffusion generator (Gθ ) is a two-layer Graph Trans-    This highlights our framework’s ability to generate
+former with two attention heads optimized with a         highly effective, task-adaptive topologies that facil-
+learning rate of 1e-4, and the diffusion process         itate better collaboration among agents compared
+runs for 50 timesteps. To demonstrate data effi-         to static or heuristically-designed communication
+ciency, the training dataset for these models was        structures.
+constructed by evaluating baseline topologies on
+datasets. During inference, proxy-guided synthesis       5.2   Communication Cost-Efficiency
+applies a zeroth-order optimization step, evaluating     A core motivation for dynamic topology genera-
+five candidate graphs (K = 5) at each timestep           tion is to reduce unnecessary communication and
+to guide the generation process using an inference       minimize token consumption. Our analysis con-
+batch size of 2. The training dataset was con-           firms that GTD generates not only effective but
+structed by evaluating baseline topologies on a min-     also significantly sparser and more cost-efficient
+imal subset of only 50 samples from the training         topologies compared to methods that rely on dense
+set. Using GSM8K as an example, this approach            or fully-connected graphs.
+demonstrates high data efficiency, as the initializa-       The results, visualized in the scatter plots in
+                                                     38048
+                                                       7
+Figure 4: Robustness of various multi-agent systems to simulated agent failure on the GSM8K benchmark.
+The chart compares task accuracy before and after an attack, demonstrating that topologies generated by GTD
+exhibit greater resilience and more graceful performance degradation compared to other methods.
+
+
+                                                                 Variant          GSM8K HumanEval
+                                                                 GTD (Ours)        94.14        91.43
+                                                                 – w/o Guidance    88.42        87.19
+                                                                 – w/ Random       89.65        88.32
+
+                                                           Table 2: Ablation study on the impact of the proxy
+                                                           guidance mechanism.
+
+
+Figure 5: Accuracy versus token consumption for var-       training the proxy is rapidly amortized, granting
+ious multi-agent methods across the GSM8K, Multi-          GTD a net efficiency advantage over zero-shot
+Arith, MMLU, and SVAMP benchmarks. The plots               baselines immediately upon deployment.
+illustrate that topologies generated by GTD are highly
+cost-efficient, achieving strong performance while using
+significantly fewer tokens than baseline methods that      5.3   Robustness Against Agent Failures
+rely on dense communication graphs.
+
+Figure 5, show GTD’s exceptional efficiency.               The structure of a communication graph critically
+Across all tested benchmarks: GSM8K, MultiArith,           impacts a multi-agent system’s resilience. To evalu-
+SVAMP, and MMLU. GTD consistently occupies                 ate this, we tested the robustness of GTD-generated
+the optimal bottom-right position, signifying the          topologies by simulating agent failures during task
+highest accuracy achieved with the lowest token            execution on the GSM8K benchmark. In the exper-
+consumption. For instance, on GSM8K, GTD                   iment, a non-critical agent was randomly selected
+achieves over 94% accuracy while consuming only            and its failure was simulated by making it produce
+4.8e+06 tokens; in contrast, the next best performer,      erroneous outputs.
+G-Designer, requires 15% more tokens for lower
+                                                             The results in the Figure 8 above demonstrate
+accuracy, while methods like LLM-Debate use over
+                                                           that GTD-generated topologies are significantly
+five times the tokens. This efficiency is even more
+                                                           more robust to agent failure than those from all
+pronounced on MultiArith, where GTD reaches
+                                                           other compared methods.
+nearly 99% accuracy using just 8.4e+04 tokens,
+setting a new Pareto frontier that no other method            While all systems experienced some perfor-
+approaches. Similarly, on SVAMP, GTD is the only           mance degradation, GTD’s accuracy dropped by a
+method to surpass 91% accuracy while keeping to-           mere 0.3 percentage points (from 94.1% to 93.8%),
+ken usage at a minimum (1.4e+05 tokens). These             showcasing a remarkably graceful degradation.
+findings show that the proxy-guided generation pro-        This stands in stark contrast to other methods; for
+cess successfully learns to create sparse, efficient       instance, DyLan’s accuracy plummeted by nearly
+graphs by preserving only the most critical com-           13 points, and even a Complete Graph topology
+munication links, thereby avoiding the quadratic           dropped by over 2 points. This experiment con-
+overhead of fully-connected approaches while still         firms that by jointly optimizing for multiple objec-
+enabling complex, high-performance interactions.           tives, GTD learns to generate topologies with suffi-
+Crucially, this massive reduction in operational to-       cient redundancy to bypass failed agents, ensuring
+ken cost ensures that the one-time setup cost for          high resilience in practical, imperfect scenarios.
+                                                      38049
+                                                        8
+    (a) Number of agents vs. Accuracy   (b) Number of training samples vs.       (c) Number of diffusion steps vs.          (d) GT vs. GCN vs. GAT
+                                                   Accuracy                                Accuracy
+
+Figure 6: Ablation studies on key hyperparameters and components of the GTD framework. From left to right,
+the charts show the framework’s sensitivity to: (1) the number of agents, (2) the number of training samples, (3) the
+number of diffusion steps, and (4) the choice of denoising network architecture. The results consistently validate
+our primary design choices.
+
+
+6     Ablation Studies                                                       GPT-4o-mini backbone, we extended our experi-
+                                                                             ments to the open-source Qwen-3-8B model across
+6.1 Hyperparameter                                                           three benchmarks (GSM8K, MATH, and MMLU).
+To rigorously validate our design choices, we con-                           As shown in Table 3, GTD consistently outper-
+ducted a series of ablation studies to isolate the                           forms all baselines, achieving the highest aver-
+contribution of GTD’s core components and hyper-                             age accuracy of 72.8%. Furthermore, we eval-
+parameters, with results summarized in Figure 6                              uated GTD on the challenging LiveCodeBench
+and Table 2. The most critical finding, shown in Ta-                         (Pass@1) in Table 10. GTD achieved 30.8%,
+ble 2, confirms the impact of our proxy-guided syn-                          surpassing the Base Model (25.4%) and MaAS
+thesis; removing the guidance mechanism entirely                             (29.3%), demonstrating that our topology optimiza-
+causes a performance drop of nearly 6 percentage                             tion provides consistent benefits across different
+points on GSM8K (from 94.14% to 88.42%). Fur-                                model families and task difficulties.
+thermore, using random guidance instead of the
+proxy model’s intelligent selection offered only a                           Method                 GSM8K            MATH        MMLU          Avg.
+minor improvement, proving that the targeted opti-                           Vanilla (CoT)           87.8             55.0        59.6        67.5
+mization is the key driver of success.                                       SC (CoT × 5)           89.1 ↑1.3        59.2 ↑4.2   61.4 ↑1.8   69.9 ↑2.4
+   Our analysis of agent team size, visualized in                            GPT Swarm              90.9 ↑3.1        60.0 ↑5.0   63.5 ↑3.9   71.5 ↑4.0
+Figure 6 (left), revealed that performance scales                            MaAS                   91.2 ↑3.4        60.4 ↑5.4   63.9 ↑4.3   71.8 ↑4.3
+effectively up to four agents but shows diminishing                          G-Designer             91.5 ↑3.7        60.2 ↑5.2   64.6 ↑5.0   72.1 ↑4.6
+returns thereafter. This result validates our use of
+four agents as an optimal trade-off between task                             GTD (Ours)             91.7 ↑3.9        61.5 ↑6.5   65.2 ↑5.6   72.8 ↑5.3
+performance and computational efficiency. We also
+                                                                             Table 3: Performance comparison on GSM8K, MATH,
+found the framework to be highly data-efficient,
+                                                                             and MMLU benchmarks using the Qwen-3-8B back-
+with the largest performance gains achieved within                           bone. All scores are accuracy (%). Changes are reported
+the first 50 training samples (Figure 6, second                              relative to the Vanilla (CoT) baseline. The best result
+from left). This demonstrates that GTD can be                                in each column is bolded.
+trained effectively without requiring a massive, ex-
+pensive dataset. Furthermore, while current reason-
+ing benchmarks saturate at smaller team sizes, our                           7     Conclusion
+framework is technically capable of scaling to sig-
+                                                                             Current MAS struggle with inefficient static topolo-
+nificantly larger agent populations without hitting
+                                                                             gies. In this paper, we introduce Guided Topology
+memory bottlenecks (see Appendix I), ensuring its
+                                                                             Diffusion (GTD), utilizing conditional graph dif-
+applicability to more complex future scenarios.
+                                                                             fusion to construct adaptive networks. GTD pro-
+                                                                             duces sparse, robust topologies that outperform
+6.2      Generalization to Open-Source Models                                existing methods. While currently requiring seed
+         and Harder Benchmarks                                               data, future work targets online active learning and
+                                                                             dynamic, time-varying topology evolution.
+    To verify that our gains are not specific to the
+                                                                       38050
+                                                                         9
+Acknowledgments                                               distribution systems. https://d1wqtxts1xzle7.
+                                                              cloudfront.net/80670305/pdf-libre.pdf. Pro-
+Y. W. is partially supported by NSF DMS-2415226,              ceedings/Journal venue not clearly specified; ac-
+DARPA W912CG25CA007 and research gift funds                   cessed 2025-08-26.
+from Amazon and Qualcomm.                                  Aaron Helsinger, Michael Thome, and Todd Wright.
+                                                             2004. Cougaar: A scalable, distributed multi-agent
+                                                             architecture. In Proceedings of the IEEE Interna-
+References                                                   tional Conference on Systems, Man and Cybernetics
+                                                             (SMC), pages 1910–1917, The Hague, Netherlands.
+2023. Structural topology optimisation based on a multi-
+  agent model. https://www.sciencedirect.com/              Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. De-
+  science/article/pii/S0141029623013937. En-                 noising diffusion probabilistic models. In NeurIPS.
+  gineering Structures, Elsevier. Accessed 2025-08-26.
+                                                           Jonathan Ho and Tim Salimans. 2021. Classifier-free
+Brandon Ayal a. 2025. Topology-driven performance            diffusion guidance. arXiv:2207.12598.
+  analyses in consensus algorithms for multi-agent sys-
+  tems. Master’s thesis, University of Texas at Arling-    Sirui Hong and 1 others. 2023. MetaGPT: Meta pro-
+  ton, Arlington, TX.                                         gramming for multi-agent collaborative framework.
+                                                              arXiv:2308.00352.
+Guangyao Chen and 1 others. 2023a.          Autoa-
+  gents: A framework for automatic agent generation.       Shengchao Hu, Li Shen, Ya Zhang, and Dacheng Tao.
+  arXiv:2309.17288.                                          2024a. Learning multi-agent communication from
+                                                             graph modeling perspective. In ICLR.
+Wenhu Chen and 1 others. 2023b. Agentverse: Facilitat-
+  ing multi-agent collaboration and exploring emergent     Shunyu Hu and 1 others. 2024b. Automated design of
+  behaviors. arXiv:2308.10848.                               agentic systems. arXiv:2408.08435.
+
+Yao Chen, Jinhu Lü, Xinghuo Yu, and David J. Hill.         Mengda Ji, Genjiu Xu, and Liying Wang. 2025. Cora:
+  2013. Multi-agent systems with dynamical topolo-          Coalitional rational advantage decomposition for
+  gies: Consensus and applications. IEEE Circuits and       multi-agent policy gradients. arXiv:2506.04265.
+  Systems Magazine, 13(3):21–34.                           Dongfu Jiang, Bill Yuchen Lin, and Xiang Ren. 2023.
+                                                             LLM-Blender: Ensembling large language models
+Dhrubajit Chowdhury and Hassan K. Khalil. 2017. Fast
+                                                             with pairwise ranking and generative fusion. In ACL.
+  consensus in multi-agent systems with star topology
+  using high gain observers. IEEE Control Systems          Thomas N Kipf and Max Welling. 2017. Semi-
+  Letters, 1(1):188–193.                                     supervised classification with graph convolutional
+                                                             networks. In International Conference on Learning
+Prafulla Dhariwal and Alexander Nichol. 2021. Dif-           Representations.
+  fusion models beat GANs on image synthesis. In
+  Advances in Neural Information Processing Systems.       Guohao Li and 1 others. 2023. CAMEL: Communica-
+                                                             tive agents for “mind” exploration with language
+Shifei Ding, Wei Du, Ling Ding, Lili Guo, and Jian           models. arXiv:2303.17760.
+  Zhang. 2024. Learning efficient and robust multi-
+  agent communication via graph information bottle-        Shiyuan Li, Yixin Liu, Qingsong Wen, Chengqi Zhang,
+  neck. In AAAI, volume 38, pages 17346–17353.               and Shirui Pan. 2025a. Assemble your crew: Auto-
+                                                             matic multi-agent communication topology design
+Wei Du, Shifei Ding, Lili Guo, Jian Zhang, and Ling          via autoregressive graph generation. arXiv preprint
+ Ding. 2024. Expressive multi-agent communication            arXiv:2507.18224.
+ via identity-aware learning. In AAAI, volume 38,
+ pages 17354–17361.                                        Xinran Li, Xiaolu Wang, Chenjia Bai, and Jun Zhang.
+                                                             2025b. Exponential topology-enabled scalable com-
+Yilun Du and 1 others. 2023. Improving factuality and        munication in multi-agent reinforcement learning. In
+   reasoning in language models through multiagent           ICLR.
+   debate. arXiv:2305.14325.
+                                                           Sijia Liu and 1 others. 2018. Zeroth-order stochastic
+Vijay Prakash Dwivedi and Xavier Bresson. 2021. A             projected gradient descent for nonconvex optimiza-
+  generalization of transformer networks to graphs. In        tion. In NeurIPS.
+  AAAI Workshop on Deep Learning on Graphs.
+                                                           Zhen Liu and 1 others. 2023. A dynamic llm-
+Yao Fu and 1 others. 2022. Complexity-based prompt-          powered agent network for task-oriented collabora-
+  ing for multi-step reasoning. arXiv:2210.00720.            tion. arXiv:2310.02170.
+Ning Gong, Michael Korostelev, Qiangguo Ren, Li Bai,       Yat Long Lo, Biswa Sengupta, Jakob Foerster, and
+  Saroj Biswas, and Frank Ferrese. 2015. Fault               Michael Noukhovitch. 2024.    Learning multi-
+  tolerant (n, k)-star power network topology for            agent communication with contrastive learning.
+  multi-agent communication in automated power               arXiv:2307.01403.
+                                                      38051
+                                                       10
+Manuel Madeira, Clement Vignac, Dorina Thanou, and         Jiaxuan You, Bowen Liu, Rex Ying, Vijay Pande, and
+ Pascal Frossard. 2024. Generative modelling of struc-        Jure Leskovec. 2018. Graph convolutional policy net-
+ turally constrained graphs. In NeurIPS.                      work for goal-directed molecular graph generation.
+                                                              In NeurIPS.
+Yurii Nesterov and Vladimir Spokoiny. 2017. Ran-
+  dom gradient-free minimization of convex functions.      Tingting Yuan, Hwei-Ming Chung, Jie Yuan, and Xi-
+  Foundations of Computational Mathematics.                  aoming Fu. 2023. Dacom: Learning delay-aware
+                                                             communication for multi-agent reinforcement learn-
+OpenAI. 2023. Gpt-4 technical report. arXiv preprint         ing. In AAAI.
+  arXiv:2303.08774.
+                                                           Seongjun Yun, Minbyul Jeong, Raehyun Kim, Jaewoo
+Long Ouyang and 1 others. 2022. Training language            Kang, and Hyunwoo J Kim. 2019. Graph transformer
+  models to follow instructions with human feedback.         networks. In Advances in Neural Information Pro-
+  arXiv:2203.02155.                                          cessing Systems.
+                                                           Guibin Zhang, Yanwei Yue, Zhixun Li, Sukwon Yun,
+Chen Qian and 1 others. 2024.     Scaling large-
+                                                             Guancheng Wan, Kun Wang, Dawei Cheng, Jef-
+  language-model-based multi-agent collaboration.
+                                                             frey Xu Yu, and Tianlong Chen. 2024. Cut the
+  arXiv:2406.07155.
+                                                             crap: An economical communication pipeline for
+Yu Shang and 1 others. 2024. Agentsquare: Auto-              llm-based multi-agent systems. arXiv preprint
+  matic llm agent search in modular design space.            arXiv:2410.02506. ICLR 2025 (poster), OpenRe-
+  arXiv:2410.06153.                                          view version available.
+                                                           Guibin Zhang, Yanwei Yue, Xiangguo Sun, Guancheng
+Yang Song, Jascha Sohl-Dickstein, Diederik Kingma,           Wan, Miao Yu, Junfeng Fang, Kun Wang, Tian-
+  Abhishek Kumar, Stefano Ermon, and Ben Poole.              long Chen, and Dawei Cheng. 2025a. G-designer:
+  2021. Score-based generative modeling through              Architecting multi-agent communication topolo-
+  stochastic differential equations. In ICLR.                gies via graph neural networks. arXiv preprint
+                                                             arXiv:2410.11782.
+Petar Veličkovi’´’c, Guillem Cucurull, Arantxa
+  Casanova, Adriana Romero, Pietro Liò, and Yoshua         Guibin Zhang and 1 others. 2025b. Multi-agent architec-
+  Bengio. 2018. Graph attention networks. In Interna-        ture search via agentic supernet. arXiv:2502.04180.
+  tional Conference on Learning Representations.
+                                                           Guochen Zhang, Aolong Zhang, Chaoli Sun, and Qing
+Clement Vignac and 1 others. 2023. DiGress: A gener-         Ye. 2025c. An evolutionary algorithm for multi-
+  ative model for graphs via diffusion. In NeurIPS.          objective workflow scheduling with adaptive dy-
+                                                             namic grouping. Electronics, 14(13):2586.
+Song Wang, Zhen Tan, Zihan Chen, Shuang Zhou, Tian-
+  long Chen, and Jundong Li. 2025. Anymac: Cascad-         Jiayi Zhang and 1 others. 2025d. Aflow: Automating
+  ing flexible multi-agent collaboration via next-agent       agentic workflow generation. In ICLR.
+  prediction. arXiv preprint arXiv:2506.17784.             Lingxiao Zhao, Xueying Ding, and Leman Akoglu.
+                                                             2024. Pard: Permutation-invariant autoregressive
+Xuezhi Wang and 1 others. 2023a. Self-consistency im-        diffusion for graph generation. In NeurIPS.
+  proves chain of thought reasoning in language mod-
+  els. In ICLR.                                            Han Zhou, Xingchen Wan, Ruoxi Sun, Hamid Palangi,
+                                                             Shariq Iqbal, Ivan Vulić, Anna Korhonen, and Ser-
+Zhenhailong Wang and 1 others. 2023b. Unleashing the         can Ö. Arık. 2025. Multi-agent design: Optimizing
+  emergent cognitive synergy of llms: A multi-persona        agents with better prompts and topologies. arXiv
+  self-collaboration framework. arXiv:2307.05300.            preprint arXiv:2502.02533.
+Jason Wei and 1 others. 2022. Chain-of-thought             Changxi Zhu, Mehdi Dastani, and Shihan Wang. 2025.
+   prompting elicits reasoning in large language models.     Reducing variance caused by communication in de-
+   arXiv:2201.11903.                                         centralized multi-agent deep reinforcement learning.
+
+Qingyun Wu and 1 others. 2023. AutoGen: Enabling           Qiuming Zhu. 2003. The topologies of cooperation in
+  next-gen LLM applications via multi-agent conversa-        knowledge intensive multi-agent systems. In Pro-
+  tion. arXiv:2308.08155.                                    ceedings of the IEEE International Conference on
+                                                             Systems, Man and Cybernetics (SMC). IEEE Xplore
+Dan Xiao and Ah-Hwee Tan. 2013. Cooperative re-              abstract #1245130.
+  inforcement learning in topology-based multi-agent
+  systems. Autonomous Agents and Multi-Agent Sys-          Qiuming Zhu. 2006. Topologies of agents interactions
+  tems, 26(1):86–119.                                        in knowledge intensive multi-agent systems for net-
+                                                             worked information services. Advanced Engineering
+Zhe Xu, Ruizhong Qiu, Yuzhong Chen, Huiyuan Chen,            Informatics, 20(1):31–45.
+  Xiran Fan, Menghai Pan, Zhichen Zeng, Mahash-            Mingchen Zhuge and 1 others. 2024. Language agents
+  weta Das, and Hanghang Tong. 2024. Discrete-state          as optimizable graphs. arXiv:2402.16823.
+  continuous-time diffusion for graph generation.
+                                                      38052
+                                                       11
+A    Limitations                                        agents. This confirms that the GTD framework is
+                                                        technically capable of optimizing large-scale agent
+While Guided Topology Diffusion (GTD) demon-
+                                                        organizations without hitting hardware bottlenecks
+strates significant improvements in multi-agent co-
+                                                        on standard consumer hardware. All experiments,
+ordination, we identify several limitations in the
+                                                        including model training and multi-agent simula-
+current framework. First, the method relies on a
+                                                        tions, were conducted on a server equipped with
+pre-computed dataset of baseline topologies to train
+                                                        four NVIDIA A6000 GPUs, each with 48GB of
+the surrogate reward model. Although our experi-
+                                                        VRAM.
+ments indicate high data efficiency, requiring only
+a small number of samples, the initial collection
+                                                        D    Detailed Experimental Setup
+of this seed data incurs a setup cost. Second, the
+current generation process is static; the topology is   Our experimental framework was standardized
+fixed before the task begins and does not currently     across all evaluations. The backbone for all agents
+support dynamic, time-varying evolution during the      was GPT-4o-mini. We deployed domain-specific
+conversation if task requirements shift unexpect-       teams: four MathSolver agents for mathematics
+edly. Finally, our ablation studies on agent team       datasets (GSM8K, MATH, MultiArith, SVAMP),
+size suggest that performance gains diminish after      four CodeSolver agents for the coding dataset
+approximately four agents for current reasoning         (HumanEval), and three KnowledgeableAcademic
+benchmarks. While the framework is technically          agents for the science dataset (MMLU).
+capable of scaling to larger swarms, the utility of        The surrogate reward model (Pϕ ) is a Graph
+massive agent populations for standard benchmarks       Neural Network with two Graph Attention (GAT)
+remains limited by the intrinsic complexity of the      layers and a hidden dimension of 32. It was trained
+tasks themselves.                                       for 10 epochs using the Adam optimizer with a
+                                                        learning rate of 1e−3 and a batch size of 16 to
+B   Ethics and Societal Impact
+                                                        minimize mean squared error loss. The conditional
+This research focuses on improving the efficiency       diffusion generator (Gθ ) is a two-layer Graph Trans-
+of Multi-Agent Systems (MAS), which can acceler-        former with two attention heads, optimized with a
+ate scientific discovery and reduce energy consump-     learning rate of 1e−4 over 50 diffusion timesteps.
+tion. However, we acknowledge that optimizing              During inference, proxy-guided synthesis ap-
+agent coordination is a dual-use technology. In the     plies a zeroth-order optimization step, evaluating
+wrong hands, such frameworks could potentially be       five candidate graphs (K = 5) at each timestep
+used to orchestrate malicious activities, such as co-   to guide the generation process using an inference
+ordinating disinformation campaigns or automated        batch size of 2.The training dataset for the proxy
+attacks. Furthermore, the performance of our sys-       model was constructed using a minimal subset of
+tem depends on the initial dataset used to train the    only 50 samples from the training set, demonstrat-
+models; biases in this data could lead to suboptimal    ing high data efficiency.
+or inequitable communication structures.
+   Regarding the use of AI assistants in this work,     E   Algorithm
+we state that Large Language Models (specifically
+GPT-4o-mini and Qwen-3-8B) served as the back-          See Algorithm 1.
+bone for the agents in our experiments. Addition-
+ally, LLMs were utilized strictly for polishing the     F   Data Statistics
+text and generating figures; all underlying research,
+                                                        We conclude the data statistics in the table 4.
+theoretical foundations, and experimental designs
+were completed entirely by the authors.
+                                                        G    Theoretical Justification
+C    Computational Experiments
+                                                        In this section, we provide a more formal theoret-
+To verify the resource efficiency of our approach,      ical underpinning for the GTD framework. We
+we conducted a scalability analysis by measuring        begin by framing the graph diffusion model within
+GPU memory consumption as the number of agents          the lens of variational inference and then analyze
+increased. The system requires 2.8 GB of memory         the convergence properties of our proxy-guided
+for 5 agents and scales linearly to 4.9 GB for 1000     synthesis process.
+                                                   38053
+                                                    12
+Algorithm 1 Guided Topology Diffusion (GTD) Generation
+ 1: Input: Task condition Cnew , trained models Gθ∗ , Pϕ∗ , weights wu , wc .
+ 2: Sample AT ∼ N (0, I).
+ 3: for t = T, . . . , 1 do
+                                                (t)
+ 4:    Predict the unguided clean graph: Â0 = Gθ∗ (At , Cnew , t).
+                                  (t)              (t)                       (t)
+ 5:    Generate K candidates: {A0,k }Kk=1 , where A0,k ∼ Bernoulli(sigmoid(Â0 )).
+                                                                                    (t)
+ 6:    Evaluate candidates: For k = 1 . . . K, compute [ûk , ĉk ]T = Pϕ∗ (A0,k , Cnew ).
+                                          (t)
+ 7:    Select best candidate via ZO: A0,best = arg maxA(t) (wu · ûk − wc · ĉk ).
+                                                                 0,k
+                                                                                    (t)
+ 8:   Compute posterior mean µpost and variance Σpost for q(At−1 |At , A0,best ).
+ 9:   Sample the next state: At−1 ∼ N (µpost , Σpost ).
+10: end for
+11: Output: The final graph A0 .
+
+
+                                   Table 4: Dataset descriptions and statistics.
+
+             Category             Dataset             Answer Type      Metric      #Test   License
+             General reasoning    MMLU                Multi-choice     Acc.        1,530   MIT License
+                                  GSM8K               Number           Acc.        1,319   MIT License
+                                  MultiArith          Number           Acc.          180   Unspecified
+             Math reasoning
+                                  SVAMP               Number           Acc.          300   MIT License
+                                  Math                Number           Acc.          500   MIT License
+             Code generation      HumanEval           Code             Pass@1        164   MIT License
+
+Benchmark      Dataset URL
+
+GSM8K          https://huggingface.co/datasets/openai/gsm8k/viewer/main/test?views%5B%5D=main_test
+MATH           https://huggingface.co/datasets/HuggingFaceH4/MATH-500
+MMLU           https://huggingface.co/datasets/cais/mmlu/viewer/all/dev?row=5&views%5B%5D=all_dev
+HumanEval      https://huggingface.co/datasets/openai/openai_humaneval
+MultiArith     https://huggingface.co/datasets/ChilleD/MultiArith/viewer/default/test?views%5B%5D=test
+SVAMP          https://huggingface.co/datasets/ChilleD/SVAMP/viewer/default/test?views%5B%5D=test
+
+                   Table 5: Overview of publicly available benchmarks used in the experiments.
+
+
+G.1 Variational Perspective of Graph                           likelihood log pθ (A0 |C) is defined as:
+    Diffusion
+
+
+
+The generative process of denoising diffusion mod-                                                        
+                                                                                             pθ (A0:T | C)
+els can be rigorously justified as a procedure for                 LELBO = Eq(A1:T |A0 ) log
+                                                                                             q(A1:T | A0 )
+optimizing the Evidence Lower Bound (ELBO) of
+the data’s log-likelihood.                                               ≤ log pθ (A0 | C)                   (9)
+
+
+
+Definition G.1 (Evidence Lower Bound (ELBO)).
+Given a data point A0 , a joint distribu-
+tion pθ (A0:T |C), and a variational posterior                    This lower bound can be decomposed into a se-
+q(A1:T |A0 ), the ELBO for the conditional log-                ries of terms that are more amenable to optimiza-
+                                                         38054
+                                                          13
+tion:                                                      Σ1 = Σ2 = σ 2 I to 2σ1 2 ∥µ1 − µ2 ∥2 . Therefore,
+                                                           minimizing the KL divergence is equivalent to min-
+    LELBO = Eq [log pθ (A0 | A1 , C)]                      imizing the squared Euclidean distance between
+               − DKL (q(AT | A0 ) ∥ p(AT ))                their means:
+                   T
+                   X                                                                                                  
+                                                                              1                                      2
+               −         DKL (q(At−1 | At , A0 ) ∥)        Lt = EA0 ,C,ϵ          ∥µ̃t (At , A0 ) − µθ (At , C, t)∥
+                   t=2                                                       2β̃t
+                                                                                                                   (14)
+                 pθ (At−1 | At , C))               (10)
+                                                           The expression√ for the true √posterior mean is
+                                                                               ᾱ    βt          αt (1−ᾱt−1 )
+   Optimizing the ELBO involves minimizing the             µ̃t (At , A0 ) = 1−t−1 ᾱt A0 +          1−ᾱt      At . We
+KL-divergence between the true posterior of the for-       parameterize our model’s mean µθ to have the
+ward process and the learned reverse process. The          same functional form, but predicting A0 with our
+forward process posterior is known to be tractable.        network Gθ (At , C, t):
+Lemma G.1 (Forward Process Posterior). The pos-                                    √
+                                                                                      ᾱt−1 βt
+terior distribution q(At−1 |At , A0 ) is a Gaussian             µθ (At , C, t) =               Gθ (At , C, t)
+                                                                                     1 − ᾱt
+distribution given by:                                                                √
+                                                                                         αt (1 − ᾱt−1 )
+                                                                                 +                      At       (15)
+  q(At−1 |At , A0 ) = N At−1 ; µ̃t (At , A0 ), β̃t I                                        1 − ᾱt
+
+                      √              √             (11)       Substituting this into the loss function, the terms
+                        ᾱt−1 βt       αt (1−ᾱt−1 )
+where µ̃t (At , A0 ) = 1−ᾱt A0 +         1−ᾱt      At    involving At cancel out:
+           1−ᾱt−1
+and β̃t = 1−ᾱt βt .
+                                                                                    "          √
+   By parameterizing the reverse process                                                 1      ᾱt−1 βt
+pθ (At−1 |At , C) as a Gaussian whose mean is                       Lt = EA0 ,C,ϵ                        A0
+                                                                                        2β̃t   1 − ᾱt
+predicted by a neural network, we can connect the                                                          #
+                                                                            √
+variational objective to a simpler, more practical                             ᾱt−1 βt                2
+training objective.                                                        −            Gθ (At , C, t)            (16)
+                                                                             1 − ᾱt
+Theorem G.1 (Optimality of the De-                                                 " √
+                                                                                     ( ᾱt−1 βt )2
+noising    Objective). Assuming           the     re-                   = EA0 ,C,ϵ                    A0
+verse process pθ (At−1 |At , C) is Gaus-                                            2β̃t (1 − ᾱt )2
+                                                                                             #
+sian, minimizing the KL-divergence term                                               2
+DKL (q(At−1 |At , A0 )||pθ (At−1 |At , C)) in Eq. 10                 − Gθ (At , C, t)                 (17)
+with respect to θ is equivalent to training a
+denoising network Gθ (At , C, t) to predict A0 from      Since the term outside the norm is a positive
+At by minimizing the L2 loss:                         constant for a given timestep t, minimizing Lt with
+                    h           √           √         respect to θ is equivalent to minimizing the simpler
+Lsimple = Et,A0 ,C,ϵ A0 − Gθ ( ᾱt A0 + 1 − ᾱt ϵ, objective:
+                  i
+                2                                                                               
+         C, t)                                  (12)
+                                                          L′t = EA0 ,C,ϵ ∥A0 − Gθ (At , C, t)∥2       (18)
+Proof. Our goal is to minimize the KL divergence                                  √         √
+                                                           By substituting At = ᾱt A0 + 1 − ᾱt ϵ and tak-
+between the true posterior and the learned reverse
+                                                           ing the expectation over all timesteps t, we arrive
+process:
+                                                           at the simplified loss function Lsimple stated in the
+  Lt = DKL (q(At−1 |At , A0 )||pθ (At−1 |At , C))          theorem.
+                                                    (13)   G.2    Analysis of Proxy-Guided Synthesis
+Both distributions are Gaussian:
+   q(At−1 |At , A0 ) = N (·; µ̃t (At , A0 ), β̃t I) and    We now analyze the role of the surrogate model and
+pθ (At−1 |At , C) = N (·; µθ (At , C, t), σt2 I). For      the ZO optimization step in guiding the synthesis
+simplicity, we fix the variance of the reverse pro-        towards high-reward topologies.
+cess to match the true posterior, σt2 = β̃t . The          Definition G.2 (ϵ-Accurate Surrogate Model). A
+KL divergence between two multivariate Gaus-               surrogate reward model Pϕ is ϵmax -accurate with
+sians N (µ1 , Σ1 ) and N (µ2 , Σ2 ) simplifies when        respect to a true reward function R(A, C) if, for
+                                                      38055
+                                                       14
+any valid topology A and condition C, the approx-       Definition G.3 (ZO-Guided Denoising Step). At
+imation error is bounded:                               a diffusion step t, given the unguided prediction
+                                                          (t)
+                                                        Â0 = Gθ∗ (At , C, t), the ZO-guided denoising
+          |R(A, C) − Pϕ (A, C)| ≤ ϵmax          (19)                    (t)       (t)
+                                                        step replaces Â0 with A0,best , where:
+
+  The accuracy of this model directly bounds the               (t)
+                                                             A0,best = arg      max         Pϕ (A, C)         (26)
+sub-optimality of the topology generated by an                                       (t)
+                                                                             A∈{A0,k }K
+                                                                                      k=1
+ideal proxy-guided optimizer.
+Theorem G.2 (Performance Gap Bound). Let                                       (t)
+                                                        and each candidate A0,k is a discrete sample drawn
+A∗ = arg maxA R(A, C) be the true optimal                                                               (t)
+                                                        from a distribution parameterized by Â0 , e.g.,
+topology and A∗proxy = arg maxA Pϕ (A, C) be the          (t)                (t)
+topology found by an ideal optimizer using an ϵmax -    A0,k ∼ Bernoulli(σ(Â0 )).
+accurate proxy. The performance gap is bounded            This ZO step can be viewed as approximating a
+by:                                                     gradient ascent step on the proxy reward landscape.
+                                                        Let J(Â0 ) = EA∼p(A|Â0 ) [Pϕ (A, C)]. The true gra-
+     R(A∗ , C) − R(A∗proxy , C) ≤ 2ϵmax         (20)    dient ∇Â0 J is intractable. The ZO step provides
+                                                                                           (t)      (t)
+                                                        an update direction, ∆t = A0,best − Â0 , which
+Proof. By definition of A∗proxy as the maxi-
+                                                        serves as a stochastic estimate of the ascent direc-
+mizer of the proxy reward function, we have
+                                                        tion. The use of multiple samples (K > 1) reduces
+Pϕ (A∗proxy , C) ≥ Pϕ (A∗ , C). From the definition
+                                                        the variance of this estimate. The guided update
+of an ϵmax -accurate surrogate model, we know that
+                                                        for the next state At−1 is then computed using the
+for any topology A, R(A, C) ≥ Pϕ (A, C) − ϵmax .                                    (t)               (t)
+Applying this bound to A∗proxy , we get:                posterior conditioned on A0,best instead of Â0 , ef-
+                                                        fectively biasing the sampling trajectory towards
+    R(A∗proxy , C) ≥ Pϕ (A∗proxy , C) − ϵmax    (21)    regions of higher proxy reward. This greedy, step-
+                                                        wise maximization provides a computationally effi-
+Combining this with the optimality condition of         cient method for incorporating non-differentiable
+A∗proxy gives:                                          objectives directly into the generative process.
+
+     R(A∗proxy , C) ≥ Pϕ (A∗ , C) − ϵmax        (22)
+                                                        H    Inference Time Analysis
+Again, from the ϵmax -accuracy definition applied
+                                                           To address practical deployment concerns, we
+to A∗ , we can state that Pϕ (A∗ , C) ≥ R(A∗ , C) −
+                                                        compare the average per-instance inference time
+ϵmax . Substituting this into the previous inequality
+                                                        on GSM8K (4 agents, single A6000 GPU) in Ta-
+yields:
+                                                        ble 6. GTD’s inference time (7.9 s/inst.) consists
+                                                        of topology generation (∼ for the 50-step diffu-
+   R(A∗proxy , C) ≥ (R(A∗ , C) − ϵmax ) − ϵmax
+                                                        sion with ZO guidance) and agent execution (∼).
+                                             (23)
+                                                        Because the generated topologies are sparse, the
+                 = R(A∗ , C) − 2ϵmax            (24)    number of LLM API calls is reduced, making GTD
+                                                        faster than most multi-agent baselines despite the
+Rearranging this final expression gives the desired     topology generation overhead.
+bound:
+                                                        I   Scalability Analysis
+     R(A∗ , C) − R(A∗proxy , C) ≤ 2ϵmax         (25)
+                                                        To assess the scalability of GTD for larger multi-
+This completes the proof.                               agent systems, we measured the GPU memory
+                                                        consumption of the diffusion generator and proxy
+Corollary G.1 (Perfect Surrogate). If the surrogate     model as the number of agents (N ) increases. As
+model is perfect, i.e., ϵmax = 0, then any topology     shown in Table 7, the memory requirement scales
+A∗proxy that maximizes the proxy reward also max-       linearly and remains well within the capacity of
+imizes the true reward, yielding R(A∗proxy , C) =       standard consumer hardware even for large swarms.
+R(A∗ , C).
+                                                   38056
+                                                    15
+     Method           Time (s/inst.) Acc. (%)              K       Extended Robustness Analysis
+     Vanilla (CoT)           1.8              87.45          Beyond the single-agent failure scenario in the
+     LLM-Debate              11.7             89.47        main paper, we evaluated GTD under broader fail-
+     DyLAN                   8.5              89.98        ure conditions on GSM8K (Table 9).
+     G-Designer              9.2              92.09
+     MaAS                    8.8              92.30             Failure Scenario             GTD MaAS G-Des.
+     GTD (Ours)               7.9             94.14             No failure             94.14 92.30 92.09
+                                                                Single-agent failure   −0.3% −1.8% −2.1%
+Table 6: Average per-instance inference time compari-           Two-agent failure      −2.1% −5.6% −6.8%
+son on GSM8K. GTD achieves the best accuracy while              Noisy agent (50% err.) −1.4% −3.2% −3.9%
+maintaining competitive speed.
+                                                           Table 9: Accuracy degradation (∆) under various failure
+Table 7: The GPU cost with increasing number of            scenarios on GSM8K. GTD consistently exhibits more
+agents.                                                    graceful degradation.
+
+     #Agents             5      50      100     1000             Method            LiveCodeBench (Pass@1)
+
+     Memory (GB)        2.8     3.4     3.9      4.9             Base Model                    25.4%
+                                                                 MaAS                          29.3%
+                                                                 GTD (Ours)                    30.8%
+  This confirms that while our current benchmarks
+focus on small-team reasoning (4-5 agents), the            Table 10: Performance on the LiveCodeBench bench-
+GTD framework is technically capable of optimiz-           mark (Pass@1) using Qwen-3-8B, demonstrating gener-
+ing large-scale agent organizations without hitting        alization to harder coding tasks.
+hardware bottlenecks.
+                                                           L      Comparison with Alternative
+                                                                  Generation Methods
+J    Surrogate Model Fidelity Analysis
+                                                              To justify our choice of diffusion-based genera-
+  To provide transparency into the quality of the
+                                                           tion, we compared GTD against alternative graph
+surrogate reward model Pϕ , we report its perfor-
+                                                           generation strategies on the GSM8K benchmark
+mance on a held-out test split (20% of Dgen ) in
+                                                           (Table 11). Direct GNN prediction generates a
+Table 8.
+                                                           topology in a single forward pass without iterative
+                                                           guidance. MCMC performs edge-flip Metropolis-
+    Metric                            Utility    Cost
+                                                           Hastings sampling from the proxy reward land-
+    MSE                       0.0089 0.0124                scape.
+    Pearson Correlation        0.91   0.94
+    Ranking Acc. (Top-1 of 5) 78.4% 85.2%                   Method               GSM8K (%)      Proxy Evals   Time (s)
+    Ranking Acc. (Top-2 of 5) 93.6% 96.1%                   Direct GNN pred.         91.23          1           6.8
+                                                            Direct GNN + top-K       92.15         100          7.4
+                                                            MCMC (100 steps)         92.87         100          8.2
+Table 8: Surrogate model evaluation on held-out data.
+Ranking accuracy is the most relevant metric, as the ZO     GTD (Ours)               94.14         250          7.9
+step only requires selecting the best candidate among
+K options.                                                 Table 11: Comparison of graph generation strategies on
+                                                           GSM8K. GTD outperforms all alternatives while using
+                                                           fewer proxy evaluations than MCMC and maintaining
+   We further tested the proxy on OOD topolo-              competitive inference speed.
+gies generated by GTD (validated against actual
+LLM execution): Top-1 ranking accuracy = 72.8%,
+                                                           M       Ablation on Number of ZO
+Top-2 of 5 = 89.3%. This slight drop from in-
+                                                                   Candidates (K)
+distribution performance is expected but still suf-
+ficient for effective guidance, as confirmed by our          We ablate the number of candidate graphs K
+strong downstream results.                                 sampled at each diffusion step for zeroth-order
+                                                           guidance (Table 12). Performance saturates rapidly
+                                                        38057
+                                                         16
+after K=5, with marginal gains (<0.25%) for              Q    Agent Roles and Descriptions
+K>5 but significantly increased inference time.
+                                                         Figure 8 visualizes a set of specialized agents.
+                                                         These roles provide diverse perspectives that are
+                                                         combined to produce the final answer.
+ K (candidates)     GSM8K Acc. (%)         Time (s)
+ 1 (no ZO)                 88.42              3.2
+ 3                         93.15              5.8
+ 5                         94.14              7.9
+ 10                        94.31             18.1
+ 20                        94.38             36.8
+
+Table 12: Effect of the number of ZO candidates K on
+GSM8K accuracy and inference time. K=5 provides
+the optimal accuracy–efficiency trade-off.
+
+
+
+N     Computational Resources
+
+All experiments, including the training of the sur-
+rogate and diffusion models, as well as the multi-
+agent system simulations for data generation and
+evaluation, were conducted on a server equipped
+with four NVIDIA A6000 GPUs, each with 48GB
+of VRAM.
+
+O     The Use of Large Language Models
+      (LLMs)
+
+Large Language Models (LLMs) are a central com-
+ponent of our research methodology. The multi-
+agent systems evaluated in this paper are composed
+of agents powered by GPT-4o-mini, which per-
+form the reasoning and communication necessary
+to solve complex tasks. The performance of these
+LLM agents is fundamental to generating our train-
+ing data and evaluating the effectiveness of the
+communication topologies created by our GTD
+framework.
+   Separately, for the preparation of this manuscript,
+our use of LLMs was strictly limited to polishing
+the language and generating figures. All underly-
+ing research and intellectual content, including the
+GTD framework, its theoretical foundations, ex-
+perimental design, and the analysis of results, was
+completed entirely by the authors.
+
+P     Prompts
+
+Figure 7 presents the topologies designed by GTD
+under varying query difficulties for all the bench-
+marks.
+                                                      38058
+                                                       17
+Figure 7: Case study of the communication topologies designed by GTD on all benchmarks.
+
+
+
+
+                                        38059
+                                         18
+Figure 8: Overview of the different roles in our multi-agent question answering framework. Each role represents a
+distinct perspective or expertise (e.g., knowledge extraction, searching, critique, mathematics, psychology, history,
+medicine, economics, programming, law, or deliberate deception).
+
+
+
+
+                                                       38060
+                                                        19
+

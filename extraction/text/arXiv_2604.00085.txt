@@ -1,0 +1,1185 @@
+                                          One Panel Does Not Fit All: Case-Adaptive Multi-Agent Deliberation for
+                                                                    Clinical Prediction
+
+                                                                          Yuxing Lu* †♠♡ , Yushuhong Lin* ♠ , Jason Zhang♠
+                                                                                  ♠
+                                                                                      Georgia Institute of Technology
+                                                                                          ♡
+                                                                                            Peking University
+                                                                            {yxlu, ylin766, jzhang3497}@gatech.edu
+
+
+                                                                   Abstract                             We refer to this phenomenon as case-level hetero-
+                                                                                                        geneity in prediction, and argue that it reveals a
+                                                 Large language models applied to clinical pre-
+
+
+
+
+arXiv:2604.00085v1 [cs.AI] 31 Mar 2026
+                                                                                                        structural mismatch between static inference strate-
+                                                 diction exhibit case-level heterogeneity: sim-
+                                                 ple cases yield consistent outputs, while com-
+                                                                                                        gies and the heterogeneous reasoning demands of
+                                                 plex cases produce divergent predictions under         individual cases.
+                                                 minor prompt changes. Existing single-agent               Existing approaches address fragments of this
+                                                 strategies sample from one role-conditioned            challenge but do not resolve the gap. Prompt-
+                                                 distribution, and multi-agent frameworks use           ing strategies such as chain-of-thought (Wei et al.,
+                                                 fixed roles with flat majority voting, discard-        2022) and self-consistency decoding (Wang et al.,
+                                                 ing the diagnostic signal in disagreement. We          2022a) reduce output variance by marginalizing
+                                                 propose CAMP (Case-Adaptive Multi-agent
+                                                                                                        over sampled reasoning paths, yet all paths are
+                                                 Panel), where an attending-physician agent dy-
+                                                 namically assembles a specialist panel tailored        drawn from a single role-conditioned distribution.
+                                                 to each case’s diagnostic uncertainty. Each            The resulting diversity reflects sampling noise
+                                                 specialist evaluates candidates via three-valued       rather than genuinely distinct specialist perspec-
+                                                 voting (KEEP/REFUSE/NEUTRAL), enabling                 tives, and there is no mechanism to adapt which
+                                                 principled abstention outside one’s expertise.         expertise is invoked on a per-case basis (Wu et al.,
+                                                 A hybrid router directs each diagnosis through         2025). Multi-agent frameworks take a step further
+                                                 strong consensus, fallback to the attending
+                                                                                                        by instantiating diverse agents, but typically assign
+                                                 physician’s judgment, or evidence-based arbi-
+                                                 tration that weighs argument quality over vote
+                                                                                                        fixed roles across all cases and resolve disagree-
+                                                 counts. On diagnostic prediction and brief hos-        ment through flat majority voting, which discards
+                                                 pital course generation from MIMIC-IV across           the diagnostic signal carried by the disagreement it-
+                                                 four LLM backbones, CAMP consistently out-             self (Tran et al., 2025). No existing method jointly
+                                                 performs strong baselines while consuming              offers (1) case-adaptive agent composition and
+                                                 fewer tokens than most competing multi-agent           (2) structured disagreement resolution that lever-
+                                                 methods, with voting records and arbitration           ages specialist reasoning.
+                                                 traces offering transparent decision audits.
+                                                                                                           These two capabilities mirror how clinical rea-
+                                         1       Introduction                                           soning operates in practice (Gruppen and Frohna,
+                                                                                                        2011). When facing a complex or uncertain case,
+                                         When large language models are applied to clini-               an attending physician does not consult a fixed
+                                         cal prediction tasks such as diagnosis prediction,             panel of specialists. Instead, the choice of whom
+                                         their outputs exhibit notable sensitivity to prompt            to consult is driven by the specific clinical presen-
+                                         framing, specialist perspective, and the particular            tation: which organ systems are involved, which
+                                         reasoning path during inference (Hager et al., 2024;           findings are ambiguous, and where diagnostic un-
+                                         Peng et al., 2023). This instability, however, is not          certainty is greatest. Each consulted specialist in-
+                                         uniform across cases. Some cases yield consistent              dependently evaluates the evidence and renders a
+                                         predictions regardless of configuration, while oth-            judgment, endorsing, rejecting, or abstaining on
+                                         ers, particularly those involving overlapping con-             each candidate diagnosis. When specialists largely
+                                         ditions or ambiguous evidence, produce divergent               agree, the attending physician accepts their consen-
+                                         outputs under minor changes to the inference setup.            sus. When they disagree, however, the resolution
+                                             *    Equal contribution.                                   is not a simple vote count: the attending physician
+                                             †
+                                                  Corresponding author.                                 examines each specialist’s reasoning, weighs the
+
+                                                                                                    1
+strength of competing arguments, and renders a              task-specific fine-tuning (Shool et al., 2025). More
+final judgment informed by the full body of evi-            recently, inference-time reasoning strategies have
+dence (Taberna et al., 2020). This combination of           been explored to improve prediction quality with-
+adaptive expertise assembly and hierarchical arbi-          out modifying model parameters. Chain-of-thought
+tration suggests that a faithful computational model        prompting (Wei et al., 2022) encourages step-by-
+of the consultation process can address the limita-         step clinical reasoning, while self-consistency de-
+tions current methods share.                                coding (Wang et al., 2022a) marginalizes over mul-
+   Building on this analysis, we propose Case-              tiple sampled reasoning paths to reduce output
+Adaptive Multi-agent Panel (CAMP), a multi-                 variance. Medically tailored prompting strategies,
+agent architecture for clinical prediction. Given           such as those employed in Med-PaLM (Singhal
+a clinical context, an attending-physician agent ex-        et al., 2023) and other clinical LLM systems (Lu
+tracts structured evidence, generates candidate di-         et al., 2023), further incorporate domain-specific
+agnoses, and dynamically assembles a specialist             heuristics to guide reasoning. However, all of these
+panel with case-adaptive role-conditioned prompts.          strategies draw reasoning paths from a single role-
+Each specialist independently evaluates every can-          conditioned distribution, meaning that the result-
+didate diagnosis through a structured three-valued          ing diversity reflects sampling variability rather
+vote. When specialists disagree, the attending              than genuinely distinct specialist perspectives. Cru-
+physician performs informed arbitration: examin-            cially, none provides a mechanism to adapt which
+ing each specialist’s reasoning and rendering a final       expertise is invoked on a per-case basis, leaving the
+decision that weighs argument quality rather than           case-level heterogeneity problem unaddressed.
+simply counting votes. We evaluate CAMP on two
+complementary tasks derived from the MIMIC-IV               2.2   Multi-Agent Inference
+dataset. CAMP consistently outperforms strong               Multi-agent frameworks improve LLM reason-
+baselines on both tasks, while offering higher inter-       ing by instantiating multiple agents with distinct
+pretability through its explicit voting records and         roles or perspectives. Du et al. (2024) shows
+arbitration traces. Our contributions are as follows:       that inter-agent critique enhances factual accuracy,
+1. We propose CAMP, a multi-agent clinical pre-             and subsequent work explores divergent think-
+   diction framework that combines case-adaptive            ing (Liang et al., 2024), role-differentiated de-
+   specialist assembly with hierarchical arbitration,       bate (Quan et al., 2025; Lu et al., 2026), and medi-
+   dynamically tailoring both the panel composi-            cal multi-disciplinary team simulation (Han et al.,
+   tion and the resolution strategy.                        2025). However, existing frameworks share 2 limi-
+                                                            tations. First, agent roles are fixed across all inputs,
+2. We introduce a structured three-valued voting            applying the same panel regardless of case-specific
+   mechanism (K EEP/R EFUSE/N EUTRAL) that al-              reasoning demands. Second, disagreement is typ-
+   lows specialists to abstain under genuine ambi-          ically resolved through flat majority voting or de-
+   guity, and show that this yields more informative        bate aimed at convergence, neither of which lever-
+   judgment signals than binary voting.                     ages the content of specialist reasoning to inform
+3. We validate CAMP on diagnostic prediction                the final decision. Adaptive inference methods such
+   and BHC generation tasks derived from MIMIC-             as Mixture-of-Experts (Mu and Lin, 2025) offer a
+   IV, demonstrating consistent improvements over           conceptual parallel by routing inputs to specialized
+   strong baselines.                                        parameter subsets, but operate at the model level
+                                                            rather than at the level of agent roles and reasoning.
+2     Related Works                                            CAMP differs from prior multi-agent work in 3
+                                                            respects. It performs case-adaptive routing at agent
+2.1    LLMs for Clinical Prediction                         level, assembling a specialist panel tailored to each
+Large language models have been increasingly ap-            input. It introduces a structured three-valued voting
+plied to clinical prediction tasks, including diag-         mechanism that captures richer judgment signals
+nosis prediction (Lu et al., 2024), clinical note           than binary or ranked outputs. And it resolves
+summarization (Madzime and Nyirenda, 2024),                 disagreement through hierarchical arbitration, in
+and brief hospital course generation (Small et al.,         which an attending-physician agent examines spe-
+2025). These efforts have primarily focused on              cialist rationales and renders informed decisions,
+model selection, domain-adaptive pretraining, and           rather than reducing disagreement to a vote count.
+
+                                                        2
+                                                             Attending-Directed
+
+
+    Clinical Note
+                                                              Specialist Focus
+
+                                                                                                                                            Fallback to Attending Physician
+
+
+                                            Specialist A
+                                                                                   Quote: Exact supporting or opposing
+
+                                                                                   evidence from the note
+
+
+                                                                                   Explain: Specialist judgment based
+
+                                                                                   on the assigned focus
+
+                                                                                                                            Hybrid Router
+
+
+
+
+                                                                                                                               Weak
+
+                      Attending Physician
+                                                                                                                                                                              Final Results
+                                                                                                                             Consensus
+                                                                                                                                                    Directly apply
+
+                                            Specialist B
+                                                                                   Quote: Exact supporting or opposing
+
+                                                                                   evidence from the note
+
+
+                                                                                   Explain: Specialist judgment based
+
+                                                                                   on the assigned focus                       Strong
+
+
+                                                                                                                             Consensus
+
+Candidate Diagnoses
+
+
+
+
+                                                                                                                              Conflict                Arbitration
+                                            Specialist C
+                                                                                   Quote: Exact supporting or opposing
+
+                                                                                   evidence from the note
+
+
+                                                                                   Explain: Specialist judgment based
+
+                                                                                   on the assigned focus
+
+
+
+
+                                                 .   .   .
+
+
+
+
+Figure 1: Overview of the CAMP framework. Given a clinical note and candidate diagnoses, the attending
+physician first renders an initial diagnostic judgment, then assembles a case-adaptive specialist panel with directed
+focus areas. Each specialist quotes evidence from the note and casts a three-valued vote. A hybrid router directs
+each diagnosis to one of three resolution paths: strong consensus decisions are applied directly, weak consensus
+falls back to the attending physician’s initial judgment, and conflicts are escalated for evidence-based arbitration.
+
+
+3      Problem Setting                                                                                     of specialist agents through four stages: (1) ini-
+                                                                                                           tial assessment, (2) case-adaptive panel assembly,
+We consider clinical prediction tasks in which a                                                           (3) specialist deliberation, and (4) hybrid resolution.
+model receives a clinical context x and generate                                                           Figure 1 illustrates the overall architecture, and Al-
+the correct answer Y. We observe empirically                                                               gorithm 1 provides the complete pseudocode.
+that prediction consistency under different role-
+conditioned prompts varies across cases: many                                                              4.2           Initial Assessment and Panel Assembly
+yield unanimous agreement while others produce                                                             Initial assessment. Given the clinical context x
+divergent predictions under prompt changes, a phe-                                                         (organized into structured sections via rule-based
+nomenon we term case-level heterogeneity (Ap-                                                              preprocessing; see Appendix B) and the candidate
+pendix H). This motivates 3 design requirements:                                                           diagnosis set Y, the attending-physician agent first
+• R1 (Case-Adaptive Composition). The specialist                                                           performs an initial diagnostic assessment:
+  panel should vary across cases, tailored to each                                                          {ŷj0 }n                            ŷj0 ∈ {ACCEPT, R EJECT}. (1)
+                                                                                                                   j=1 = Matt (x, Y),
+  patient’s sources of diagnostic uncertainty.
+                                                                                                           This initial judgment serves as a low-cost fallback
+• R2 (Gated Resolution). Clear consensus should
+                                                                                                           for cases where the specialist panel lacks sufficient
+  be accepted directly; expertise gaps should fall
+                                                                                                           expertise (Section 4.4, Path 2). The attending physi-
+  back to a generalist judgment; only genuine con-
+                                                                                                           cian also identifies the case’s key clinical dimen-
+  flicts should trigger full arbitration.
+                                                                                                           sions: the primary organ systems involved, the
+• R3 (Evidence-Informed Arbitration). Conflicts                                                            ambiguous findings, and the principal sources of di-
+  should be resolved by reasoning over specialist                                                          agnostic uncertainty, which inform the subsequent
+  arguments, not by vote counting.                                                                         panel composition.
+These mirror clinical consultation practice (Grup-                                                         Case-adaptive panel assembly. Based on its
+pen and Frohna, 2011; Taberna et al., 2020), where                                                         analysis of the clinical context, the attending physi-
+an attending physician adapts whom to consult, ac-                                                         cian assembles a panel of k specialist agents:
+cepts consensus, falls back on generalist judgment                                                                          R = A SSEMBLE(x) = {r1 , . . . , rk },                     (2)
+when specialists lack relevant expertise, and arbi-
+trates disagreements by weighing argument quality.                                                         where each ri is a role-conditioned system prompt
+                                                                                                           consisting of a specialty identity (e.g., “neurolo-
+4      Methods                                                                                             gist”) and a case-specific focus directive that in-
+                                                                                                           structs the specialist which evidence to prioritize
+4.1        Overview                                                                                        (e.g., “pay particular attention to the nonvisual-
+CAMP consists of an attending-physician agent                                                              ization of the right vertebral artery and the wide-
+that orchestrates a dynamically assembled panel                                                            based gait”). The panel composition varies across
+
+                                                                                                 3
+cases, satisfying R1: different clinical presenta-                   When specialists who express an opinion are unan-
+tions yield different specialist configurations tai-                 imous and more than those who abstain, CAMP di-
+lored to the relevant sources of diagnostic uncer-                   rectly applies their consensus without further steps.
+tainty. We adopt k=3 as the default panel size
+                                                                     Path 2: Weak Consensus. If there is only 1 type
+based on a sensitivity analysis (Section 6.3).
+                                                                     of non-abstaining vote but abstentions dominate:
+4.3    Specialist Deliberation                                         ŷj = ŷj0   if kj · rj = 0 and max(kj , rj ) ≤ nj .               (6)
+Each specialist agent Ai evaluates all candidate
+                                                                     This covers cases where a majority of specialists
+diagnoses, producing a structured evaluation for
+                                                                     voted N EUTRAL (with the remainder agreeing),
+every diagnosis:
+                                                                     or where all specialists abstained (kj = rj = 0).
+      {(v̂ij , qij , cij , sij )}n
+                                 j=1 = M(x, ri , Y),                 In both scenarios, the panel lacks sufficient col-
+                      v̂ij ∈ {K EEP, R EFUSE, N EUTRAL}.   (3)       lective expertise on dj . Rather than invoking the
+where v̂ij is the specialist’s vote (K EEP endorses                  arbitration procedure, the system falls back to the
+dj , R EFUSE rejects it, N EUTRAL indicates insuffi-                 attending physician’s initial judgment ŷj0 : when the
+cient evidence to judge), qij is an evidence quote                   attending physician’s generalist assessment formed
+extracted from the clinical note, cij ∈ [0, 1] is a                  during the initial case analysis is a more reliable
+confidence score, and sij is a natural-language ra-                  signal than a poorly informed panel vote.
+tionale grounded in the quoted evidence. Across                      Path 3: Conflict. When both K EEP and R EFUSE
+all k specialists, this produces a vote matrix V ∈                   votes coexist (kj > 0 and rj > 0), the specialists
+{K, R, N}k×n and corresponding evidences.                            have reached a genuine disagreement. The attend-
+   The three-valued voting scheme is a deliberate                    ing physician performs evidence-based arbitration:
+design choice. Binary Keep/Refuse forces agents
+                                                                      ŷj = A RBITRATE x, dj , {(ri , v̂ij , qij , cij , sij )}ki=1
+                                                                                                                                      
+to commit even under genuine ambiguity, which                                                                                             (7)
+introduces noise when a diagnosis falls outside a                    The attending physician examines the original clin-
+specialist’s domain. The N EUTRAL option allows                      ical context, the candidate diagnosis, and every
+agents to abstain in such cases: for instance, when                  specialist’s vote together with its evidence quote,
+an addiction specialist is asked to evaluate “left                   confidence, and rationale, then renders a final AC -
+ICA stenosis,” a vascular diagnosis entirely outside                 CEPT or R EJECT judgment by weighing argument
+the scope of addiction medicine, N EUTRAL is the                     quality rather than simply counting votes (see Sec-
+only appropriate response (see Case 10330554-DS-                     tion 6.4 for cases where the arbitrator overrides the
+13 in Appendix H). A high proportion of N EUTRAL                     majority by identifying stronger evidence in the
+votes on a given diagnosis is itself an informative                  minority’s rationale).
+signal, it indicates that the current panel lacks col-
+lective expertise on that diagnosis, triggering the                  Final Output.         The predicted diagnosis set is:
+fallback path described below.                                                      Ŷ = {dj ∈ Y | ŷj = ACCEPT}                          (8)
+
+4.4    Hybrid Resolution                                             This hierarchical design ensures computational
+Given the vote matrix V, we resolve each candidate                   efficiency, as the attending-physician arbitration
+diagnosis dj independently. Let kj , rj , and nj de-                 call is reserved for genuinely contested diagnoses,
+note the number of K EEP, R EFUSE, and N EUTRAL                      while straightforward and expertise-gap cases are
+votes for dj :                                                       resolved without additional LLM calls.
+                      kj = Σki=1 1[v̂ij = K],                        4.5   Adaptation to Text Generation
+                      rj = Σki=1 1[v̂ij = R],              (4)       For the brief hospital course (BHC) generation task,
+                      nj = Σki=1 1[v̂ij = N].                        the attending-physician agent generates the narra-
+                                                                     tive by synthesizing the accepted diagnoses with
+  A hybrid router directs each diagnosis through
+                                                                     the original clinical notes: BHC = Mattend (x, Ŷ).
+one of three resolution paths, satisfying R2 and R3:
+                                                                     The predicted diagnoses serve as a structured clini-
+Path 1: Strong Consensus. If all non-abstaining                      cal summary that organizes the generation around
+specialists agree and form a strict majority:                        the panel’s verified diagnostic conclusions, ground-
+                 
+                     ACCEPT    if rj = 0 and kj > nj ,               ing the BHC in deliberative reasoning rather than
+         ŷj =                                             (5)       generating directly from raw notes alone.
+                     R EJECT   if kj = 0 and rj > nj .
+
+
+                                                                 4
+5     Experiments                                           6     Results
+
+We evaluate CAMP on two tasks: diagnostic                   We organize our evaluation around five research
+prediction and brief hospital course (BHC) gen-             questions that progressively examine CAMP from
+eration, both derived from MIMIC-IV-Ext-BHC                 overall effectiveness to component-level analysis.
+dataset (Aali et al., 2025). The dataset provides           We first assess whether CAMP outperforms strong
+270,033 preprocessed discharge summary-BHC                  baselines on diagnostic prediction and BHC gener-
+pairs from Beth Israel Deaconess Medical Center             ation across different LLM backbones (RQ1). We
+(2008-2019), derived from MIMIC-IV-Note (John-              then trace the pipeline to examine each stage. At
+son et al., 2023).                                          the panel assembly stage, we ask whether the spe-
+                                                            cialists selected by the attending-physician agent
+                                                            correspond to the clinical services the patient actu-
+5.1    Dataset
+                                                            ally encountered (RQ2). At the voting stage, we
+Diagnostic Prediction. We frame diagnosis pre-              investigate how the number of specialist agents af-
+diction as a multi-label selection task. From each          fects prediction quality, confirming the value of
+discharge summary, individual diagnoses are ex-             multi-agent deliberation over single-agent infer-
+tracted via rule-based normalization and LLM-               ence (RQ3). At the aggregation stage, we present
+assisted refinement (Appendix B and C). Each sam-           case studies in which the majority of specialists
+ple consists of a masked clinical note and a shuffled       voted to reject a diagnosis that was in fact correct;
+candidate set containing both correct diagnoses and         we show that the attending-physician arbitrator can
+distractors. We evaluate on 2,000 randomly sam-             recover these diagnoses by reasoning over the mi-
+pled instances with a fixed seed for reproducibility.       nority’s supporting rationales, validating the hierar-
+                                                            chical arbitration mechanism (RQ4). Finally, we
+BHC Generation. Given the same masked note                  analyze token consumption to verify that CAMP’s
+and the accepted diagnoses Ŷ from the diagnos-             performance gains do not come at prohibitive com-
+tic prediction pipeline, the model generates a brief        putational cost (RQ5).
+hospital course narrative. This task tests whether
+                                                            6.1    Overall Comparison (RQ1)
+structured diagnostic reasoning from CAMP im-
+proves downstream generation quality.                       We compare CAMP against 7 baselines spanning
+                                                            three categories. Single-agent methods: (1) Sin-
+5.2    LLM Backbones                                        gle Agent, which prompts the LLM once with-
+                                                            out additional reasoning structure; and (2) Chain-
+We evaluate on three LLM backbones: Llama-3.1-              of-Thought (Wei et al., 2022), which elicits step-
+70B (Grattafiori et al., 2024), Gemma-3-27B (Team           by-step reasoning. Multi-agent voting methods:
+et al., 2024), and GPT-OSS-20B (Agarwal et al.,             (3) Self-Consistency (Wang et al., 2022a), which
+2025). All LLM calls use temperature 0 to ensure            samples ten parallel reasoning paths and aggre-
+reproducible outputs. To demonstrate robustness,            gates via majority vote; (4) Majority Voting (Kaes-
+we additionally report CAMP and Single Agent                berg et al., 2025), which runs multiple agents with
+results on GPT-5.4 (OpenAI, 2026); full baseline            identical prompts; and (5) MedAgents (Tang et al.,
+comparisons on this backbone are left to future             2024), which assigns fixed medical specialties to
+work due to cost constraints.                               agents. Adjudication-based methods: (6) LLM-as-
+                                                            a-Judge (Zheng et al., 2023), which uses a separate
+5.3    Metrics                                              LLM call to adjudicate among candidate predic-
+                                                            tions; and (7) Devil’s Advocate (Ke et al., 2024),
+For diagnostic prediction we report Macro F1 (per-
+                                                            which introduces a critic agent that challenges an
+diagnosis F1 averaged across all candidates) and
+                                                            initial prediction. All methods use the same LLM
+Perfect Rate (percentage of instances whose pre-
+                                                            backbone within each model group.
+dicted set exactly matches the ground truth). For
+BHC generation, all method outputs are ranked               Diagnostic Prediction. Table 1 reports results
+by an LLM judge (based on GPT-5-mini (OpenAI,               across four LLM backbones. CAMP ranks first on
+2025), Appendix E.2), with lower average ranks in-          three of four backbones and remains competitive
+dicating better performance; seven supplementary            on the fourth. The gain is largest on GPT-OSS-20B,
+dimensions are reported in Appendix D.                      where CAMP outperforms the next-best method by
+
+                                                        5
+Table 1: Performance comparison across methods and LLM backbones. Best results within each model are bold.
+
+ Model                    Method                                      MIMIC-IV Diagnosis ↑        BHC Generation ↓
+                                                                      Macro F1 Perfect Rate Reasoning Readability Utility
+                            Single Agent                                78.68      44.25       3.24       3.61       3.67
+                            Self-Consistency (Wang et al., 2022b)       78.91      45.05       3.78       4.06       4.18
+                            Chain-of-Thought (Wei et al., 2022)         78.99      45.55       3.47       3.80       3.92
+ Llama-3.1-70B              Majority Voting (Kaesberg et al., 2025)     85.84      66.55       3.43       3.53       3.55
+ (Grattafiori et al., 2024) LLM-as-a-Judge (Zheng et al., 2023)         83.13      57.40       4.02       4.16       4.22
+                            Devil’s Advocate (Ke et al., 2024)          83.06      57.20       4.49       4.65       4.80
+                            MedAgents (Tang et al., 2024)               82.77      56.70       4.08       4.18       4.20
+                            CAMP (Ours)                                 87.50      67.10       2.49       2.78       2.73
+                          Single Agent                                  75.78      60.45       3.48       3.38       3.34
+                          Self-Consistency (Wang et al., 2022b)         76.38      60.75       3.52       3.33       3.28
+                          Chain-of-Thought (Wei et al., 2022)           76.54      60.50       3.63       3.44       3.43
+ GPT-OSS-20B              Majority Voting (Kaesberg et al., 2025)       74.00      58.60       3.93       3.75       3.81
+ (Agarwal et al., 2025)   LLM-as-a-Judge (Zheng et al., 2023)           75.98      47.92       6.02       6.25       6.34
+                          Devil’s Advocate (Ke et al., 2024)            75.56      47.47       6.00       6.37       6.30
+                          MedAgents (Tang et al., 2024)                 75.54      47.22       5.87       6.28       6.26
+                          CAMP (Ours)                                   82.20      63.15       3.55       3.20       3.24
+                          Single Agent                                  81.12      49.60       4.11       4.30       4.30
+                          Self-Consistency (Wang et al., 2022b)         81.02      49.45       4.30       4.51       4.43
+                          Chain-of-Thought (Wei et al., 2022)           83.16      56.45       4.22       4.24       4.16
+ Gemma-3-27B              Majority Voting (Kaesberg et al., 2025)       78.17      58.05       5.78       6.00       5.97
+ (Team et al., 2024)      LLM-as-a-Judge (Zheng et al., 2023)           82.22      56.15       4.68       4.68       4.76
+                          Devil’s Advocate (Ke et al., 2024)            85.56      65.50       4.49       4.24       4.19
+                          MedAgents (Tang et al., 2024)                 85.34      65.20       5.14       5.05       5.08
+                          CAMP (Ours)                                   85.10      64.20       3.30       2.97       3.11
+ GPT-5.4                  Single Agent                                  89.95      74.65        1.7        1.7       1.8
+ (OpenAI, 2026)           CAMP (Ours)                                   91.31      75.65        1.3        1.3       1.2
+
+
+
+over five Macro F1 points (82.20 vs. 76.54) and                    values indicate better performance (supplementary
+raises Perfect Rate from 60.75 to 63.15. On this                   dimensions in Appendix D). On Llama-3.1-70B,
+backbone, all other multi-agent methods either un-                 CAMP achieves the best rank across all three di-
+derperform or only marginally improve over Single                  mensions (2.49, 2.78, 2.73), outperforming Ma-
+Agent, suggesting that smaller models may benefit                  jority Voting, the next-best baseline, by a clear
+most from structured role assignment. On Llama-                    margin. Most multi-agent baselines receive worse
+3.1-70B, CAMP achieves the highest scores in both                  ranks than Single Agent, which scores 3.24 / 3.61
+metrics (87.50 / 67.10). On Gemma-3-27B, CAMP                      / 3.67; Devil’s Advocate receives the worst ranks
+(85.10) performs comparably to Devil’s Advocate                    across all dimensions (4.49, 4.65, 4.80), suggesting
+(85.56) and MedAgents (85.34), indicating that                     that adversarial critique without structured coordi-
+the advantage of case-adaptive composition varies                  nation introduces noise into open-ended generation.
+across model architectures. On GPT-5.4, CAMP                       Results on other backbones are broadly consistent,
+improves over Single Agent on both metrics (91.31                  with CAMP achieving the best ranks across most
+/ 75.65 vs. 89.95 / 74.65).                                        dimensions (Appendix D). These results indicate
+   Two cross-cutting observations worth attention.                 that CAMP’s case-adaptive panel and hierarchical
+First, multi-agent strategies do not uniformly help:               arbitration benefit not only discrete classification
+Majority Voting on GPT-OSS-20B (74.00) falls be-                   but also open-ended clinical text generation.
+low Single Agent (75.78), and adjudicator-based
+methods show inconsistent gains across backbones.                     6.2   Specialist–Service Alignment (RQ2)
+Second, among all methods tested, CAMP is the
+only one that consistently ranks in the top two                    To validate that CAMP’s case-adaptive panel as-
+across all four backbones on Macro F1.                             sembly selects clinically relevant specialists, we
+                                                                   compare the specialists chosen by the attending-
+BHC Generation. Table 1 (right) reports BHC                        physician agent against the hospital services each
+generation results. Each dimension is scored by                    patient was actually admitted to. Figure 2 shows
+pooling and ranking all method outputs, so lower                   the row-normalized distribution of specialist as-
+
+                                                               6
+                              PSYCHIATRY 70%                                                                                                                            10%                                                   10% 10%                                                                             Table 2: Diagnostic prediction performance as a func-
+                              NEUROLOGY      5% 39%                                                                      5%                               5%                             19%                                                        7%                                           5%               tion of specialist panel size, evaluated on a 200-case
+                           NEUROSURGERY                   13% 41%                                                                                                                        10%                                     8%                                               13%                             subset using Llama-3.1-70B.
+
+
+
+Actual Hospital Service
+                                  OB/GYN                                               50%                                                                              14%                                 6%                   6% 14%                                             6%
+
+                            ORTHOPAEDICS                                                         35%                                                                                                                          13% 11%                                             19%
+                                                                                                                                                                                                                                                                                                                   # Agents Macro F1 Macro Precision Macro Recall
+                                PODIATRY                                                                               33%                                                                                                    33%                               19%
+
+                          CARDIOTHORACIC                                                                                                 33%                                             17% 17%                                                  33%
+                                                                                                                                                                                                                                                                                                                        1         64.84       62.42          70.83
+                                                                                                                                                                                                                                                                                                                        2         67.77       66.33          72.33
+                                UROLOGY                                                                                  8%                               8% 17% 8%                                         8% 25% 17%                                                              8%
+                                                                                                                                                                                                                                                                                                                        3         68.97       67.50          74.33
+                                SURGERY                                                                                  5%                                             18% 8% 17% 18% 7% 10%
+                                                                                                                                                                                                                                                                                                                        4         67.37       67.00          71.33
+                                MEDICINE                    5%                                                                             8% 10%                                         11% 13% 15% 15%
+                                                                                                                                                                                                                                                                                                                        5         68.17       67.83          72.33
+                                                                                                                                                                                                                                                                                                                        6         67.22       66.83          70.83
+
+                                                                                                                                                                                                        Gastroenterologist   Infectious Disease
+                                                                                                                                        Pulmonologist
+                                           Psychiatrist                                                                                                                                                                                                                                        Geriatrician
+                                                                                                                      Endocrinologist
+                                                          Neurologist                                                                                                                    Cardiologist                                             Oncologist                      Pain/Rehab
+                                                                                                                                                        Nephrologist
+                                                                                                                                                                                                                                                               Vascular Surgeon
+                                                                                                Orthopedic Surgeon
+                                                                                                                                                                       General Surgeon
+                                                                                       OB/GYN
+                                                                        Neurosurgeon
+                                                                                                                                                                                                                                                                                                                        7         68.20       67.58          72.33
+
+                                                                                                                     Specialist Selected by CAMP
+                                                                                                                                                                                                                                                                                                                  as more agents are added. The gain from one to
+Figure 2: Alignment between specialists selected by                                                                                                                                                                                                                                                               three agents is substantial across all metrics. F1
+CAMP and patients’ actual hospital services. Each row                                                                                                                                                                                                                                                             rises from 64.84 to 68.97 and Recall from 70.83
+is normalized to sum to 100%. Specialist-specific ser-
+                                                                                                                                                                                                                                                                                                                  to 74.33. The precision improvement is the largest
+vices show strong concentration on the matching special-
+ist, while general services exhibit broader distributions.                                                                                                                                                                                                                                                        in both absolute and relative terms (62.42 to 67.50,
+                                                                                                                                                                                                                                                                                                                  +8.1%), suggesting that adding specialists primar-
+                                                                                                                                                                                                                                                                                                                  ily helps filter out incorrect diagnoses that a single
+signments across services, with rows and columns                                                                                                                                                                                                                                                                  agent would erroneously endorse.
+arranged to highlight diagonal correspondence.                                                                                                                                                                                                                                                                       Beyond three agents, all metrics fluctuate within
+   The heatmap reveals a pronounced diagonal pat-                                                                                                                                                                                                                                                                 a narrow band without a clear upward trend. For
+tern for specialty-specific services: psychiatry pa-                                                                                                                                                                                                                                                              instance, Macro F1 at k = 4 drops to 67.37, re-
+tients receive a psychiatrist in 70% of assignments,                                                                                                                                                                                                                                                              covers to 68.17 at k = 5, and remains in a similar
+OB/GYN patients an OB/GYN specialist in 50%,                                                                                                                                                                                                                                                                      range through k = 7. This plateau is consistent
+and neurosurgery, neurology, and orthopaedics pa-                                                                                                                                                                                                                                                                 with a saturation effect: once the panel covers the
+tients receive the matching specialist in 35-41%                                                                                                                                                                                                                                                                  major clinical perspectives relevant to a case, addi-
+of cases. These concentrations indicate that the                                                                                                                                                                                                                                                                  tional specialists contribute overlapping viewpoints
+attending-physician agent identifies the relevant pri-                                                                                                                                                                                                                                                            rather than genuinely new diagnostic signal. These
+mary expertise without access to the service label.                                                                                                                                                                                                                                                               results justify our default choice of k = 3 as the
+While this alignment does not directly establish a                                                                                                                                                                                                                                                                default panel size in all other experiments.
+causal link to prediction quality, it provides evi-
+dence that the panel assembly mechanism selects                                                                                                                                                                                                                                                                   6.4       Conflict Resolution by Arbitration (RQ4)
+clinically plausible specialists.                                                                                                                                                                                                                                                                                 A key advantage of CAMP is that genuine spe-
+   Off-diagonal assignments are also clinically                                                                                                                                                                                                                                                                   cialist disagreement is resolved through attending-
+plausible. For example, podiatry patients fre-                                                                                                                                                                                                                                                                    physician arbitration rather than flat majority vot-
+quently receive an endocrinologist (33%), reflect-                                                                                                                                                                                                                                                                ing. This is particularly important when the ma-
+ing diabetic foot comorbidities, and cardiothoracic                                                                                                                                                                                                                                                               jority opinion is driven by missing supporting evi-
+patients are often assigned an oncologist (33%),                                                                                                                                                                                                                                                                  dence, while the minority identifies a more decisive
+consistent with the prevalence of thoracic malig-                                                                                                                                                                                                                                                                 positive clinical finding.
+nancies. For general services such as Medicine and                                                                                                                                                                                                                                                                    Figure 3 shows a representative example from
+Surgery, no single specialist exceeds 18%, which                                                                                                                                                                                                                                                                  Case 10316267-DS-11. For the diagnosis Masti-
+is expected given the diversity of conditions these                                                                                                                                                                                                                                                               tis, two specialists vote R EFUSE because the case
+services cover.                                                                                                                                                                                                                                                                                                   lacks systemic inflammatory signs and imaging
+                                                                                                                                                                                                                                                                                                                  does not show an abscess or mass. In contrast, the
+6.3                           Effect of Panel Size (RQ3)                                                                                                                                                                                                                                                          infectious disease specialist votes K EEP based on
+Table 2 and Appendix Figure 5 show how the num-                                                                                                                                                                                                                                                                   localized erythema and swelling, arguing that these
+ber of specialist agents affects diagnostic predic-                                                                                                                                                                                                                                                               are sufficient positive findings for early-stage mas-
+tion, evaluated on a 200-case subset using Llama-                                                                                                                                                                                                                                                                 titis. The attending physician examines both sides
+3.1-70B. All three metrics follow a consistent pat-                                                                                                                                                                                                                                                               and accepts the diagnosis, reasoning that localized
+tern: performance increases sharply from one to                                                                                                                                                                                                                                                                   erythema and swelling constitute definitive positive
+three agents, then plateaus with minor fluctuations                                                                                                                                                                                                                                                               findings, while the absence of abscess or fever re-
+
+                                                                                                                                                                                                                                                                                                              7
+                                                                                                                  0.90        Fewer tokens
+
+                                                                                                                                                                             CAMP (Ours)
+                                                                                                                  0.88
+                                                                                                                             Higher F1
+                                  Attending Physician
+                                                                                                                  0.86
+                                                                                                                                Majority Voting                            MedAgents
+
+                                                                                                       Macro F1
+                                                                                                                  0.84                                          LLM-as-a-Judge
+
+                                                                                                                  0.82                                              Devil's Advocate
+Infectious Disease Specialist      Medical Oncologist                   Breast Surgeon
+
+                                                                                                                  0.80
+                                                                                                                                         Chain-of-Thought
+         Quote: “Diffuse mild            Quote: "Lack of               Quote: “No nodules or
+         swelling and mild               systemic symptoms             abscesses appreciated
+                                                                                                                  0.78                   Single Agent                Self-Consistency
+         erythema around the             (fever, leukocytosis)."       on exam or ultrasound.”
+         nipple area."                                                 Explain: The absence of
+                                         Explain: Mastitis is
+         Explain: Clinical               unlikely without              a drainable collection or
+         presentation remains
+         consistent with early-
+                                         systemic inflammatory
+                                         response; warrants
+                                                                       localized mass argues
+                                                                       against a surgical
+                                                                                                                         0                   5000           10000       15000           20000
+         stage mastitis despite
+         the absence of
+                                         investigation for
+                                         inflammatory
+                                                                       infectious diagnosis.                                                    Average Tokens per Note
+         systemic markers.               malignancy.
+                                        Conflict
+                                                                                                       Figure 4: Token consumption vs. Macro F1. CAMP
+                                                                                                       achieves the highest F1 while consuming fewer tokens
+                                                                                                       than most of other multi-agent baselines.
+                                        Conflict
+                  Since positive physical signs carry more weight than the
+               absence of late-stage complications, the diagnosis is retained.
+                                                                                                       Voting offers a favorable trade-off at ∼6.3K tokens
+                                                                                                       with an F1 of 85.84, though it lacks any mechanism
+                                                                                                       for handling disagreement beyond vote counting.
+Figure 3: Conflict resolution via attending-physician                                                     CAMP achieves the highest F1 (87.50) at 15.5K
+arbitration. The attending physician overrides a 2-to-1                                                tokens, fewer than all competing multi-agent meth-
+majority R EFUSE vote by weighing the quality of com-                                                  ods except Majority Voting. Two design choices ex-
+peting specialist rationales rather than counting votes.                                               plain this: a compact three-specialist panel avoids
+                                                                                                       the redundancy of larger fixed panels, and the gated
+flects missing late-stage complications rather than                                                    resolution mechanism (Section 4.4) resolves con-
+evidence against the diagnosis. In other words, di-                                                    sensus cases through direct vote counting, reserv-
+rect positive physical signs outweigh the absence of                                                   ing the more expensive arbitration call for gen-
+features that would only appear in more advanced                                                       uinely contested diagnoses. A detailed per-method
+presentations.                                                                                         breakdown is provided in Appendix G.
+   This example highlights why flat majority vot-                                                      7          Conclusion
+ing can be unreliable in clinically ambiguous set-
+tings. Specialist disagreement often reflects differ-                                                  We presented CAMP, a multi-agent architecture
+ent evidential standards rather than simple model                                                      for clinical prediction that addresses case-level
+error. By explicitly weighing competing rationales,                                                    heterogeneity through three mechanisms: case-
+CAMP can recover correct diagnoses that would                                                          adaptive specialist assembly tailored to each pa-
+otherwise be discarded, while also producing an                                                        tient’s clinical profile, three-valued voting that al-
+interpretable arbitration trace.                                                                       lows specialists to abstain under genuine ambiguity,
+                                                                                                       and a gated resolution procedure that routes each
+6.5     Token Consumption Analysis (RQ5)                                                               diagnosis through consensus, fallback, or evidence-
+Figure 4 plots average token consumption per note                                                      based arbitration depending on the pattern of spe-
+against Macro F1 for all methods on Llama-3.1-                                                         cialist agreement. Experiments on diagnostic pre-
+70B. Simply scaling token budget through paral-                                                        diction and BHC generation from MIMIC-IV show
+lel sampling does not help: Self-Consistency con-                                                      that CAMP achieves the best on diagnostic predic-
+sumes roughly 19K tokens yet barely improves                                                           tion and BHC generation tasks across evaluation
+over Single Agent (∼1.9K tokens), because all                                                          metrics, and consumes fewer tokens than most com-
+paths are drawn from the same prompt distribution.                                                     peting multi-agent methods. Beyond accuracy, the
+Structured multi-agent methods (LLM-as-a-Judge,                                                        explicit voting records and arbitration traces pro-
+Devil’s Advocate, MedAgents) achieve meaningful                                                        duced by CAMP offer a transparent decision audit
+F1 gains but at 17-20K tokens per note. Majority                                                       that may support downstream clinical review.
+
+                                                                                                   8
+Limitations                                                   Arash S Tehrani, and 1 others. 2025. A dataset and
+                                                              benchmark for hospital course summarization with
+All experiments use English-language notes from               adapted large language models. Journal of the Ameri-
+MIMIC-IV, a single-center U.S. dataset whose doc-             can Medical Informatics Association, 32(3):470–479.
+umentation style and coding conventions may not             Sandhini Agarwal, Lama Ahmad, Jason Ai, Sam Alt-
+generalize to other institutions, healthcare systems,         man, Andy Applebaum, Edwin Arbus, Rahul K
+or languages. As the results illustrate, CAMP’s               Arora, Yu Bai, Bowen Baker, Haiming Bao, and 1
+benefits diminish when the base model already                 others. 2025. gpt-oss-120b & gpt-oss-20b model
+                                                              card. arXiv preprint arXiv:2508.10925.
+achieves strong performance through alternative
+prompting strategies, and performance depends on            Yilun Du, Shuang Li, Antonio Torralba, Joshua B Tenen-
+model-specific prompt sensitivity that may limit               baum, and Igor Mordatch. 2024. Improving fac-
+                                                               tuality and reasoning in language models through
+reproducibility on untested LLMs. The BHC eval-                multiagent debate. In Proceedings of the 41st In-
+uation relies on LLM-based ranking rather than                 ternational Conference on Machine Learning, pages
+clinician judgment, which remains an important                11733–11763.
+direction for future validation. Finally, although
+                                                            Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri,
+hierarchical aggregation limits unnecessary compu-            Abhinav Pandey, Abhishek Kadian, Ahmad Al-
+tation by reserving arbitration for contested diag-           Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten,
+noses, multi-agent inference still requires several           Alex Vaughan, and 1 others. 2024. The llama 3 herd
+LLM calls per case, which may be impractical in               of models. arXiv preprint arXiv:2407.21783.
+latency-sensitive clinical workflows.                       Larry D Gruppen and Alice Z Frohna. 2011. Clinical
+                                                              reasoning. In International handbook of research in
+Ethical Considerations                                        medical education, pages 205–230. Springer.
+
+CAMP is a research prototype for studying multi-            Paul Hager, Friederike Jungmann, Robbie Holland, Ku-
+                                                              nal Bhagat, Inga Hubrecht, Manuel Knauer, Jakob
+agent reasoning in clinical prediction and is not             Vielhauer, Marcus Makowski, Rickmer Braren, Geor-
+intended or validated for autonomous clinical                 gios Kaissis, and 1 others. 2024. Evaluation and
+decision-making; any deployment would require                 mitigation of the limitations of large language mod-
+prospective evaluation, regulatory approval, and              els in clinical decision-making. Nature medicine,
+                                                              30(9):2613–2622.
+physician oversight. All experiments use de-
+identified MIMIC-IV records under the PhysioNet             Xudong Han, Xianglun Gao, Xiaoyi Qu, and Zhenyu
+data use agreement, and no additional patient                 Yu. 2025. Multi-agent medical decision consensus
+                                                              matrix system: An intelligent collaborative frame-
+data were collected. Because the framework del-
+                                                              work for oncology mdt consultations. arXiv preprint
+egates reasoning to LLM-instantiated agents, de-              arXiv:2512.14321.
+mographic and socioeconomic biases encoded in
+the underlying model may propagate into panel               Alistair EW Johnson, Lucas Bulgarelli, Lu Shen, Alvin
+                                                              Gayles, Ayad Shammout, Steven Horng, Tom J Pol-
+assembly, voting, and arbitration; a formal bias              lard, Sicheng Hao, Benjamin Moody, Brian Gow, and
+audit is beyond the scope of this work but is an              1 others. 2023. Mimic-iv, a freely accessible elec-
+important direction for future study. The apparent            tronic health record dataset. Scientific data, 10(1):1.
+interpretability of specialist votes and arbitration        Lars Benedikt Kaesberg, Jonas Becker, Jan Philip
+rationales should not be conflated with clinical va-          Wahle, Terry Ruas, and Bela Gipp. 2025. Voting or
+lidity, as LLM-generated reasoning can be fluent              consensus? decision-making in multi-agent debate.
+yet factually incorrect, risking undue anchoring              In Findings of the Association for Computational
+                                                              Linguistics: ACL 2025, pages 11640–11671.
+if presented to clinicians without appropriate safe-
+guards. Multi-agent inference also increases energy         Yuhe Ke, Rui Yang, Sui An Lie, Taylor Xin Yi Lim,
+consumption relative to single-agent methods, and             Yilin Ning, Irene Li, Hairil Rizal Abdullah, Daniel
+the cumulative environmental cost of large-scale              Shu Wei Ting, and Nan Liu. 2024. Mitigating cogni-
+                                                              tive biases in clinical decision-making through multi-
+deployment warrants consideration.                            agent conversations using large language models:
+                                                              simulation study. Journal of Medical Internet Re-
+                                                              search, 26:e59439.
+References
+                                                            Tian Liang, Zhiwei He, Wenxiang Jiao, Xing Wang,
+Asad Aali, Dave Van Veen, Yamin Ishraq Arefeen, Ja-           Yan Wang, Rui Wang, Yujiu Yang, Shuming Shi, and
+  son Hom, Christian Bluethgen, Eduardo Pontes Reis,          Zhaopeng Tu. 2024. Encouraging divergent thinking
+  Sergios Gatidis, Namuun Clifford, Joseph Daws,              in large language models through multi-agent debate.
+
+
+                                                        9
+  In Proceedings of the 2024 conference on empiri-              Miren Taberna, Francisco Gil Moncayo, Enric Jané-
+  cal methods in natural language processing, pages               Salas, Maite Antonio, Lorena Arribas, Esther Vila-
+  17889–17904.                                                    josana, Elisabet Peralvez Torres, and Ricard Mesía.
+                                                                  2020. The multidisciplinary team (mdt) approach
+Yuxing Lu, Yucheng Hu, Xukai Zhao, and Jiuxin                     and quality of care. Frontiers in oncology, 10:85.
+  Cao. 2026. Dytopo: Dynamic topology routing for
+  multi-agent reasoning via semantic matching. arXiv            Xiangru Tang, Anni Zou, Zhuosheng Zhang, Ziming
+  preprint arXiv:2602.06039.                                      Li, Yilun Zhao, Xingyao Zhang, Arman Cohan, and
+                                                                  Mark Gerstein. 2024. Medagents: Large language
+Yuxing Lu, Xiaohong Liu, Zongxin Du, Yuanxu Gao,                  models as collaborators for zero-shot medical rea-
+  and Guangyu Wang. 2023. Medkpl: a heterogeneous                 soning. In Findings of the Association for Computa-
+  knowledge enhanced prompt learning framework for                tional Linguistics: ACL 2024, pages 599–621.
+  transferable diagnosis. Journal of Biomedical Infor-
+  matics, 143:104417.                                           Gemma Team, Thomas Mesnard, Cassidy Hardin,
+                                                                  Robert Dadashi, Surya Bhupatiraju, Shreya Pathak,
+Yuxing Lu, Xukai Zhao, and Jinzhuo Wang. 2024. Clini-             Laurent Sifre, Morgane Rivière, Mihir Sanjay Kale,
+  calRAG: Enhancing clinical decision support through             Juliette Love, and 1 others. 2024. Gemma: Open
+  heterogeneous knowledge retrieval. In Proceedings               models based on gemini research and technology.
+  of the 1st Workshop on Towards Knowledgeable Lan-               arXiv preprint arXiv:2403.08295.
+  guage Models (KnowLLM 2024), Bangkok, Thailand.
+  Association for Computational Linguistics.                    Khanh-Tung Tran, Dung Dao, Minh-Duong Nguyen,
+                                                                  Quoc-Viet Pham, Barry O’Sullivan, and Hoang D
+Ruvarashe Madzime and Clement Nyirenda. 2024. En-                 Nguyen. 2025. Multi-agent collaboration mech-
+  hanced electronic health records text summariza-                anisms: A survey of llms.       arXiv preprint
+  tion using large language models. arXiv preprint                arXiv:2501.06322.
+  arXiv:2410.09628.
+                                                                Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc
+Siyuan Mu and Sen Lin. 2025. A comprehensive sur-
+                                                                  Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery,
+  vey of mixture-of-experts: Algorithms, theory, and
+                                                                  and Denny Zhou. 2022a. Self-consistency improves
+  applications. arXiv preprint arXiv:2503.07137.
+                                                                  chain of thought reasoning in language models. arXiv
+OpenAI. 2025. Gpt-5 is here. Accessed 2026-03-17.                 preprint arXiv:2203.11171.
+
+OpenAI. 2026. Introducing gpt-5.4. Accessed 2026-03-            Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V Le,
+  17.                                                             Ed H Chi, Sharan Narang, Aakanksha Chowdhery,
+                                                                  and Denny Zhou. 2022b. Self-consistency improves
+Cheng Peng, Xi Yang, Aokun Chen, Kaleb E Smith,                   chain of thought reasoning in language models. In
+  Nima PourNejatian, Anthony B Costa, Cheryl Martin,              The Eleventh International Conference on Learning
+  Mona G Flores, Ying Zhang, Tanja Magoc, and 1                   Representations.
+  others. 2023. A study of generative large language
+  model for medical research and healthcare. NPJ                Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+  digital medicine, 6(1):210.                                      Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,
+                                                                   and 1 others. 2022. Chain-of-thought prompting elic-
+Kexin Quan, Dina Albassam, Mengke Wu, Zijian Ding,                 its reasoning in large language models. Advances
+  and Jessie Chin. 2025. Towards ai as colleagues:                 in neural information processing systems, 35:24824–
+  Multi-agent system improves structured professional              24837.
+  ideation. arXiv preprint arXiv:2510.23904.
+                                                                Jiageng Wu, Kevin Xie, Bowen Gu, Nils Krüger,
+Sina Shool, Sara Adimi, Reza Saboori Amleshi, Ehsan                Kueiyu Joshua Lin, and Jie Yang. 2025. Why chain
+   Bitaraf, Reza Golpira, and Mahmood Tara. 2025. A                of thought fails in clinical text understanding. arXiv
+   systematic review of large language model (llm) eval-           preprint arXiv:2509.21933.
+   uations in clinical medicine. BMC Medical Informat-
+   ics and Decision Making, 25(1):117.                          Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan
+                                                                  Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin,
+Karan Singhal, Shekoofeh Azizi, Tao Tu, S Sara Mah-               Zhuohan Li, Dacheng Li, Eric Xing, and 1 others.
+  davi, Jason Wei, Hyung Won Chung, Nathan Scales,                2023. Judging llm-as-a-judge with mt-bench and
+  Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl,                chatbot arena. Advances in neural information pro-
+  and 1 others. 2023. Large language models encode                cessing systems, 36:46595–46623.
+  clinical knowledge. Nature, 620(7972):172–180.
+William R Small, Jonathan Austrian, Luke O’Donnell,
+  Jesse Burk-Rafel, Katherine A Hochman, Adam
+  Goodman, Jonah Zaretsky, Jacob Martin, Stephen
+  Johnson, Vincent J Major, and 1 others. 2025. Evalu-
+  ating hospital course summarization by an electronic
+  health record–based large language model. JAMA
+  network open, 8(8):e2526339.
+
+
+                                                           10
+A    CAMP Algorithm Pseudocode                                        In Stage 3, the hierarchical aggregation procedure
+                                                                      resolves each diagnosis: unanimous or majority
+                                                                      consensus leads to direct acceptance or rejection,
+Algorithm 1 Case-Adaptive Multi-Agent Panel
+                                                                      while contested or ambiguous cases are escalated
+Require: Clinical context x, candidate diagnoses                      to the attending-physician agent for evidence-based
+    Y = {d1 , . . . , dn }                                            arbitration.
+Ensure: Set of accepted diagnoses Ŷ
+ 1: {Stage 1: Initial Assessment and Panel Assem-                     B   Data Preprocessing
+    bly (Sec. 4.2)}
+ 2: {ŷj0 }n
+           j=1 ← Matt (x, Y) {Initial judgment}                       We extract clinical records from MIMIC-IV dis-
+ 3: R ← A SSEMBLE(x) = {r1 , . . . , rk }                             charge summaries. Given that the DISCHARGE
+ 4: {Stage 2: Specialist Deliberation (Sec. 4.3)}                     DIAGNOSIS section frequently contains complex
+ 5: for i = 1, . . . , k do                                           formatting, nested sub-lists, and implicit groupings
+ 6:    {(v̂ij , qij , cij , sij )}nj=1 ← M(x, ri , Y)                 that resist direct parsing, we first employ an LLM-
+ 7: end for                                                           assisted diagnosis extraction technique. The model
+ 8: {Stage 3: Hybrid Resolution (Sec. 4.4)}                           is instructed to refine the raw text into individual,
+ 9: Ŷ ← ∅                                                            verbatim diagnosis entries. These extracted terms
+10: for j = 1, . . . , n do                                           serve both as the ground-truth labels for the cur-
+       kj ← i 1[v̂ij = K]; rj ← i 1[v̂ij =
+                  P                              P
+11:                                                                   rent note and as candidate material for the global
+        R]; nj ← i 1[v̂ij = N]
+                      P
+                                                                      diagnosis pool used in distractor sampling.
+12:    if rj = 0 and kj > nj then                                        Following the extraction of structured diagnoses,
+13:        {Path 1: Strong consensus – Accept}                        we apply a multi-stage filtering pipeline to ensure
+14:        Ŷ ← Ŷ ∪ {dj }                                            dataset quality. First, to maintain a manageable
+15:    else if kj = 0 and rj > nj then                                label space and avoid cases with overly diffuse di-
+16:        {Path 1: Strong consensus – Reject}                        agnostic conclusions, we retain only those records
+17:        continue                                                   with no more than three final diagnoses. Second,
+18:    else if kj · rj = 0 and max(kj , rj ) ≤ nj                     we utilize an LLM-based semantic filter to assess
+       then                                                           whether the discharge diagnoses are "directly or
+19:        if ŷj0 = ACCEPT then                                      partially" recoverable from the history of present
+20:            {Path 2: Weak consensus – Fallback}                    illness, past medical history, or medication-related
+21:            Ŷ ← Ŷ ∪ {dj }                                        content. Cases exhibiting excessive informational
+22:        end if                                                     overlap are excluded to preserve the inferential in-
+23:    else                                                           tegrity of the diagnostic task.
+24:        ŷj                                               ←           We then parse these tagged sections and retain
+           A RB(x, dj , {(ri , v̂ij , qij , cij , sij )}ki=1 )        only those that do not leak discharge-time infor-
+           {Path 3: Conflict – Arbitration}                           mation. Sections such as DISCHARGE DIAGNOSIS,
+25:        if ŷj = ACCEPT then                                       DISCHARGE            INSTRUCTIONS,       DISCHARGE
+26:            Ŷ ← Ŷ ∪ {dj }                                        CONDITION, DISCHARGE DISPOSITION, FOLLOWUP
+27:        end if                                                     INSTRUCTIONS, and DISCHARGE MEDICATIONS
+28:    end if                                                         are masked from the model input. Conversely,
+29: end for                                                           admission-time and in-hospital sections, including
+30: return Ŷ                                                         demographics, vital signs, laboratory results,
+                                                                      medications, and clinical notes are preserved.
+   Algorithm 1 presents the complete pseudocode                       This masking mechanism ensures that the model
+for the CAMP pipeline. The procedure takes a clin-                    must infer diagnoses from the cumulative clinical
+ical context as input and returns a set of accepted di-               course rather than simply retrieving them from the
+agnoses through three sequential stages. In Stage 1,                  discharge summary.
+the attending-physician agent extracts structured                        From the DISCHARGE DIAGNOSIS section of each
+evidence from the clinical note and assembles a                       note, we extract individual diagnoses through a
+case-adaptive specialist panel. In Stage 2, each                      multi-step normalization pipeline. First, section-
+specialist independently evaluates every candidate                    level prefixes such as “Primary:”, “Secondary:”,
+diagnosis using the three-valued voting scheme.                       and axis labels (e.g., “Axis I:”) are stripped. The
+
+                                                                 11
+     Table 3: Descriptive statistics of the dataset.          current record. To accommodate varying clinical
+                                                              complexities, we implement a dynamic candidate
+Metric                 Mean Std Min Median Max
+                                                              scaling strategy: for cases with 1, 2, or 3 correct
+Options per case         7.239 1.921 6      6    12           diagnoses, the total number of candidate options is
+Correct labels per case 1.505 0.692 1       1     3
+Distractors per case     5.734 1.253 5      5     9           set to 6, 8, or 12, respectively. This proportional
+Input words               621 382 46       537 3353           design maintains task difficulty while effectively
+Input characters         3991 2447 325 3434 22391             differentiating the model’s diagnostic screening ca-
+Correct option ratio (%) 19.92 4.07 16.67 16.67 25.00
+                                                              pabilities across levels of complexity. To prevent
+                                                              near-duplicate contamination, an LLM-based fil-
+remaining text is split on newlines and inline de-            tering step removes candidates that are synonyms,
+limiters (e.g., hyphens and numbered markers)                 abbreviations, or semantic paraphrases of the cor-
+to isolate individual entries. Each entry is fur-             rect diagnoses, ensuring that distractors represent
+ther cleaned by removing bullet characters, trail-            clearly distinct medical conditions. Filtered distrac-
+ing periods, placeholder tokens (e.g., “stage ___”),          tor lists are cached per note for reproducibility.
+and entries shorter than three characters. Comma-             Phase 3: Question Assembly. The final candi-
+separated lists within a single entry are expanded            date set is formed by concatenating the correct
+into separate diagnoses. After normalization, en-             diagnoses with the filtered distractors, followed by
+tries that exceed a length threshold or contain resid-        shuffling with a fixed random seed. As a final safe-
+ual multi-diagnosis patterns are re-split recursively.        guard, we perform an exact-match masking pass
+The union of all normalized diagnoses across the              over the assembled note. Any substring matching
+dataset forms a global diagnosis pool, which serves           a candidate option (case-insensitive, length > 4)
+as the source for both correct answers and candi-             is replaced with the placeholder token. This dy-
+date distractors in downstream task construction.             namic masking operates across both the main text
+Records that yield no valid diagnoses after normal-           and individual fields, ensuring that no candidate
+ization are excluded from the evaluation set.                 is recoverable through surface-level string match-
+                                                              ing. The resulting structure, comprising the masked
+C    Diagnostic Task Construction
+                                                              clinical note, the shuffled candidate list, and the
+We frame diagnostic prediction as a multi-label               ground-truth label set, constitutes a single evalua-
+selection task: given a masked clinical note and              tion instance.
+a curated set of candidate diagnoses, the model
+must identify all correct diagnoses while rejecting           D    Supplementary BHC Generation
+distractors. The task construction proceeds through                Evaluation
+three distinct phases.                                        To provide a more comprehensive assessment of
+Phase 1: Diagnosis-Aware Note Masking. Be-                    BHC generation quality beyond the three primary
+yond section-level removal, we perform fine-                  dimensions reported in the main text, we evaluate
+grained masking to eliminate phrases within the               all methods on seven supplementary dimensions.
+remaining text that explicitly name or strongly re-           Correctness measures whether the principal diag-
+veal any known diagnoses. An LLM with tool-                   noses are stated accurately. Coverage assesses the
+calling capabilities is invoked; for each diagnosis-          inclusion of major diagnoses, clinical events, and
+revealing phrase identified, the model calls a struc-         care decisions. Coherence captures the logical and
+tured mask_phrase tool to extract the exact span.             temporal consistency of the generated narrative.
+All identified spans are replaced with a placeholder          Linkage evaluates whether diagnoses are explicitly
+token (“___”), ordered by length to prevent partial-          connected to their corresponding treatments and
+match artifacts. This step ensures that diagnoses             follow-up actions. Priority reflects the emphasis
+cannot be trivially recovered from in-text mentions           placed on the most clinically significant problems
+within otherwise retained sections, such as treat-            relative to peripheral details. Tracking measures
+ment notes referencing a condition by name.                   the consistency with which complications and out-
+                                                              comes are followed throughout the hospital course.
+Phase 2: Distractor Sampling and Filtering.                   Density captures the ratio of clinically useful infor-
+Candidate distractors are sampled from the global             mation to unnecessary redundancy. All dimensions
+diagnosis pool, excluding any labels assigned to the          are scored through pooled ranking, with lower val-
+
+                                                         12
+Table 4: Supplementary BHC evaluation dimensions across LLM backbones. All scores are pooled ranks (lower is
+better). Best results within each model are bold.
+
+ Model                    Method               Correct. Coverage Coherence Linkage Priority Tracking Density
+                            Single Agent        3.73     3.08             3.24        3.27      3.55        3.45       3.92
+                            Self-Consistency    4.00     3.78             3.88        3.88      3.98        3.84       4.00
+                            Chain-of-Thought    3.96     3.73             3.69        3.67      3.84        3.67       4.10
+ Llama-3.1-70B              Majority Voting     2.88     3.78             3.18        3.53      3.63        3.16       3.49
+ (Grattafiori et al., 2024) LLM-as-a-Judge      3.65     4.80             3.63        3.71      4.39        3.82       3.94
+                            Devil’s Advocate    3.98     4.57             4.00        4.31      4.45        4.37       4.59
+                            MedAgents           4.04     4.16             3.71        4.00      4.27        3.92       4.39
+                            CAMP (Ours)         2.08     2.16             2.49        2.20      2.59        2.53       2.82
+                          Single Agent          3.27     3.39             3.38        3.38      3.29        3.36       3.22
+                          Self-Consistency      3.22     3.24             3.37        3.36      3.25        3.52       3.30
+                          Chain-of-Thought      3.30     3.36             3.48        3.48      3.55        3.49       3.45
+ GPT-OSS-20B              Majority Voting       3.84     3.82             3.79        3.87      3.83        3.78       3.88
+ (Agarwal et al., 2025)   LLM-as-a-Judge        6.32     6.28             6.01        6.14      6.22        5.98       6.17
+                          Devil’s Advocate      6.47     6.32             6.22        6.22      6.35        6.20       6.42
+                          MedAgents             6.44     6.23             6.07        6.26      6.29        6.06       6.44
+                          CAMP (Ours)           3.14     3.36             3.68        3.29      3.22        3.61       3.12
+                          Single Agent          4.32     4.11             4.43        4.24      4.32        4.05       4.95
+                          Self-Consistency      4.68     4.32             4.11        4.41      4.27        4.51       4.68
+                          Chain-of-Thought      4.08     4.19             4.08        4.16      4.35        3.97       4.32
+ Gemma-3-27B              Majority Voting       5.81     6.14             5.76        5.97      6.05        5.68       5.68
+ (Team et al., 2024)      LLM-as-a-Judge        4.76     4.95             4.62        4.73      4.68        4.97       4.57
+                          Devil’s Advocate      4.62     4.51             4.38        4.30      4.24        4.16       4.16
+                          MedAgents             4.92     4.89             5.03        4.95      5.11        5.14       4.65
+                          CAMP (Ours)           2.81     2.89             3.59        3.24      2.97        3.51       3.00
+ GPT-5.4                  Single Agent           1.6      1.7             1.7         1.7        1.7        1.7        1.3
+ (OpenAI, 2026)           CAMP (Ours)            1.4      1.3             1.3         1.3        1.3        1.3        1.7
+
+
+
+ues indicating better performance.                              E      Prompt Templates
+                                                                This section presents the prompt templates used in
+                                                                our experiments, covering the main diagnosis se-
+   Table 4 reports these results on Llama-3.1-70B.
+                                                                lection pipeline (Section E.1), comparison methods
+CAMP achieves the lowest (best) score on every
+                                                                (Section E.2), and the downstream BHC generation
+supplementary dimension, demonstrating broad im-
+                                                                and evaluation pipeline (Section E.3).
+provements across multiple aspects of note qual-
+ity rather than gains confined to a single criterion.           E.1     Main Diagnosis Selection Pipeline
+Compared to the Single Agent baseline, CAMP                         Single Baseline
+reduces Correctness from 3.73 to 2.08, Coverage
+                                                                    You are an attending physician reviewing a clinical note
+from 3.08 to 2.16, Coherence from 3.24 to 2.49,                     to determine discharge diagnoses.
+Linkage from 3.27 to 2.20, Priority from 3.55 to
+                                                                    Clinical Note: {clinical_note}
+2.59, Tracking from 3.45 to 2.53, and Density from
+3.92 to 2.82. Averaging across all seven dimen-                     Candidate Diagnoses: {options_text}
+sions, CAMP scores 2.41, compared with 3.38 for                     Instructions: This is a multi-label task. Select only
+                                                                    diagnoses supported by the inpatient course during this
+Majority Voting (the strongest competing baseline)                  hospitalization. Do not include conditions mentioned
+and 3.46 for Single Agent. These results indicate                   only in past medical history unless they were actively
+that CAMP simultaneously improves factual faith-                    managed during this admission. Do not include diag-
+                                                                    noses explicitly negated in the note. For each selected
+fulness, clinical completeness, narrative organiza-                 diagnosis, output its exact 1-based index and brief sup-
+tion, and information selection. Among compari-                     porting evidence.
+son methods, Majority Voting is the most competi-
+tive overall, whereas LLM-as-a-Judge, Devil’s Ad-                   CoT Baseline
+vocate, and MedAgents consistently underperform                     You are an attending physician reviewing a clinical note
+on most dimensions, suggesting that unstructured                    to determine discharge diagnoses.
+critique or fixed-role aggregation introduces noise                 Clinical Note: {clinical_note}
+that degrades open-ended generation quality.
+
+                                                          13
+Candidate Diagnoses: {options_text}                                 Task: For each contested diagnosis, decide INCLUDE or
+                                                                    EXCLUDE based on the clinical note and the collected
+Instructions: This is a multi-label task. Select only               evidence. Include only diagnoses supported by the inpa-
+diagnoses supported by the inpatient course during this             tient course during this hospitalization. Exclude past-
+hospitalization. Exclude past-medical-history-only and              medical-history-only or explicitly negated diagnoses.
+explicitly negated diagnoses. Think step by step about              Verify quoted evidence against the note and disregard
+the hospital course before answering. For each selected             unsupported or unverifiable claims.
+diagnosis, output its exact 1-based index and brief sup-
+porting evidence.
+
+
+Confidence-Aware Initial Review
+You are an attending physician reviewing a clinical note           E.2   Comparison Methods
+to determine discharge diagnoses.
+Clinical Note: {clinical_note}
+                                                                     Majority Vote
+Candidate Diagnoses: {options_text}
+Instructions: This is a multi-label task. Select only               You are Agent {agent_id}. You must independently
+diagnoses supported by the inpatient course during this             review the clinical note and decide for each candidate
+hospitalization. Exclude past-medical-history-only and              diagnosis.
+explicitly negated diagnoses. Think step by step about              Clinical Note: {clinical_note}
+the hospital course before answering. For each selected
+diagnosis, output its exact 1-based index and a confi-              Candidate Diagnoses: {options_text}
+dence label (high or medium); omit low-confidence di-
+                                                                    Rules: This is a multi-label task. Only include diagnoses
+agnoses.
+                                                                    supported by the inpatient course during this hospitaliza-
+                                                                    tion. Do not include past-medical-history-only diagnoses
+                                                                    unless actively managed during this admission. Do not
+Orchestrator                                                        include diagnoses explicitly negated in the note. If ev-
+You are a chief physician coordinating a diagnostic con-            idence is absent or weak, choose REMOVE. Return one
+sultation.                                                          decision per candidate diagnosis using KEEP or REMOVE,
+                                                                    together with a brief rationale.
+Clinical Note: {clinical_note}
+Candidate Discharge Diagnoses: {options_text}
+Task: First summarize the key clinical issues driving this
+admission in 1–2 sentences. Then recruit exactly three               MedAgents-Style Revote
+specialists whose expertise is most relevant to this case.          You are Agent {agent_id}. You may revise your deci-
+For each specialist, provide a clinical role and a one-             sions after reading other agents’ opinions.
+sentence focus describing the evidence that the specialist
+should prioritize.                                                  Clinical Note: {clinical_note}
+                                                                    Candidate Diagnoses: {options_text}
+Specialist Review                                                   Other Agents’ Opinions: {peer_opinions}
+You are a {role}.                                                   Rules: Be evidence-based and do not conform for con-
+                                                                    sensus. If peers provide direct evidence you missed,
+Clinical Note: {clinical_note}                                      update accordingly. If peers’ reasoning is weak or hal-
+Candidate Diagnoses: {candidates_text}                              lucinated, keep your prior decision. Maintain the same
+                                                                    decision format, giving a KEEP or REMOVE judgment for
+Task: Review every candidate diagnosis from your spe-               each candidate diagnosis together with a brief rationale.
+cialist perspective. For each diagnosis, provide a decision
+(KEEP, REMOVE, or NEUTRAL), confidence, whether it is in
+scope, the level of evidence support, an evidence quote
+from the note, and brief reasoning. Only keep diagnoses
+supported by the inpatient course during this hospitaliza-           Devil’s Advocate
+tion; do not keep past-medical-history-only or explicitly
+negated diagnoses.                                                  You are the Devil’s Advocate in a diagnostic panel.
+                                                                    Clinical Note: {clinical_note}
+
+Arbitration                                                         Proposed Diagnoses: {pool_text}
+
+You are an attending physician making final discharge-              Task: Challenge every proposed diagnosis. For each
+diagnosis decisions.                                                one, identify evidence that contradicts or fails to sup-
+                                                                    port its inclusion. If you genuinely cannot challenge it
+Clinical Note: {clinical_note}                                      because the evidence is strong, vote KEEP. Vote REMOVE
+                                                                    only when you can provide a specific counterargument
+Contested Diagnoses with Specialist Quotes, Reason-                 grounded in the clinical note. Be rigorous but fair, and
+ing, and Confidence: {contested_evidence}                           do not remove well-supported diagnoses.
+
+
+
+                                                              14
+                                                                                                          68.97
+E.3      BHC Generation and Evaluation                                                                                          68.17               68.20
+                                                                                                 67.77
+                                                                                  0.68                               67.37                67.22
+    BHC Generation                                                    F1
+    You are a hospitalist writing a Brief Hospital Course                         0.66   64.84
+    (BHC) for discharge documentation.
+                                                                                                          67.50                 67.83               67.58
+                                                                                  0.68                               67.00                66.83
+    Source Note (the original discharge-diagnosis section                                        66.33
+
+                                                                      Precision
+    has been removed): {clinical_note}                                            0.65
+    Predicted Diagnoses: {diagnosis_list}                                                62.42
+                                                                                  0.63
+    Task: Write a concise and clinically useful BHC                                                       74.33
+
+    grounded in the source note and organized around the                          0.74
+                                                                      Recall
+    predicted diagnoses. Focus on the presenting problem,                                        72.33                          72.33               72.33
+    the major active inpatient problems, key treatments or                        0.72                               71.33
+                                                                                         70.83                                            70.83
+    procedures, the clinical course, and the discharge status.
+    Use discharge-summary style prose. Do not copy the                                   1        2        3          4           5        6         7
+    note verbatim. Do not invent unsupported diagnoses,                                                        Number of Agents
+    procedures, outcomes, or discharge plans. Keep the
+    summary concise, clinically specific, and faithful to the         Figure 5: Effect of specialist panel size on diagnostic
+    hospitalization.                                                  prediction (evaluated on a 200-case subset). The dashed
+                                                                      line marks where performance peaks.
+    BHC Judge
+                                                                      Table 5: Per-note token consumption and diagnostic
+    You are a senior hospitalist evaluating multiple candidate
+    Brief Hospital Course (BHC) summaries for the same                prediction performance on Llama-3.1-70B.
+    hospitalization.
+                                                                          Method                         Tokens      Macro F1           Perfect Rate
+    Source Note (the original discharge-diagnosis section
+    has been removed): {clinical_note}                                    CAMP (Ours)                    15,458              0.8750               67.10
+                                                                          Majority Voting                 6,252              0.8584               66.55
+    Reference BHC: {target_bhc}                                           LLM-as-a-Judge                 17,249              0.8313               57.40
+    Anonymous           Candidate                   Systems:              Devil’s Advocate               18,673              0.8306               57.20
+    {candidate_systems_text}                                              MedAgents                      19,721              0.8277               56.70
+                                                                          Chain-of-Thought                1,854              0.7899               45.55
+    Task: Evaluate all candidate BHCs using both the source               Self-Consistency               19,079              0.7891               45.05
+    note and the reference BHC. Rank all systems on the                   Single Agent                    1,908              0.7868               44.25
+    following dimensions: faithfulness to the source note,
+    agreement with the reference BHC, clinical prioritiza-
+    tion, timeline coherence, diagnosis-treatment linkage,            for all methods on Llama-3.1-70B. The compar-
+    complication and outcome tracking, information com-               ison reveals that the relationship between token
+    pleteness, conciseness and information density, clinical
+    readability, and discharge utility. For each dimension,           budget and prediction quality is far from linear;
+    rank every system with 1 as the best. Then provide an             how tokens are allocated matters more than how
+    overall ranking from best to worst.
+                                                                      many are consumed. Self-Consistency and MedA-
+                                                                      gents both use approximately 19,000 tokens per
+F      Panel Size Sensitivity and Selection                           note, yet MedAgents achieves an F1 of 0.8277 com-
+       Rationale                                                      pared to Self-Consistency’s 0.7891, a gap of nearly
+                                                                      four points at equivalent cost. This discrepancy
+Figure 5 visualizes the trends reported in Table 2.                   arises because MedAgents distributes tokens across
+The improvement from one to three agents is con-                      role-differentiated agents that contribute distinct di-
+sistent across all three metrics, with precision show-                agnostic perspectives, whereas Self-Consistency
+ing the largest relative gain (+8.1%), suggesting                     draws multiple paths from the same prompt distri-
+that additional specialists primarily help filter false-              bution, yielding redundant reasoning traces. A sim-
+positive diagnoses. Beyond three agents, all met-                     ilar contrast emerges between CAMP and Devil’s
+rics fluctuate within a narrow band (F1 between                       Advocate: CAMP consumes roughly 3,200 fewer
+0.672 and 0.682 for k = 4 − 7), with no statisti-                     tokens (15,458 vs. 18,673) while achieving a 4.4-
+cally meaningful upward trend. We adopt k = 3 as                      point F1 advantage (0.8750 vs. 0.8306). The ef-
+the default in all other experiments.                                 ficiency gain stems from two sources. Together,
+G      Per-Method Token Consumption                                   these results show that CAMP occupies a favor-
+                                                                      able position in the cost–performance trade-off,
+       Breakdown
+                                                                      achieving the highest F1 among all methods while
+Table 5 reports the average per-note token consump-                   maintaining a token footprint below that of most
+tion alongside diagnostic prediction performance                      competing multi-agent approaches.
+
+                                                                 15
+H     CAMP Example Outputs
+Case 10144089-DS-20 and Case 10330554-DS-13 illustrate the pipeline’s ability to resolve clinical term
+ambiguity and diagnostic conflicts through multi-specialist consensus.
+    Case 10144089-DS-20:
+    Subarachnoid Hemorrhage with Anatomical Ambiguity
+
+ Case Summary. The patient (F) presented with unresponsiveness and agonal breathing after a fall. Transfer notes show
+ SBPs up to 240s. CT demonstrated a large left-sided aneurysm with diffuse hemorrhage; subsequent CTA confirmed an
+ 11 mm midline shift and signs of herniation (newly blown right pupil). Clinical findings strongly support diagnoses of SAH
+ and cerebral edema with mass effect.
+    Gold Diagnoses: Subarachnoid hemorrhage, Left MCA aneurysm, Cerebral edema with compression.
+
+
+     Subarachnoid hemorrhage
+     C ONSENSUS : K EEP
+     Neurosurgeon → KEEP (1.0) — “CTA again demonstrates. . . interval increase in hemorrhage in lateral, [third] and
+     [fourth] ventricles.” Extensive intraventricular blood is a hallmark of SAH from a large ruptured aneurysm.
+     Neurointensivist → KEEP (1.0) — “CT scan demonstrated a large (2.5 × 3.5) [aneurysm] with [hemorrhage].” Acute
+     onset with GCS 3T and imaging findings confirm a catastrophic SAH.
+     Vascular Neurologist → KEEP (1.0) — “Diffuse subarachnoid hemorrhage along bilateral cerebral hemispheres.” The
+     diffuse pattern of hemorrhage is consistent with a high-pressure aneurysmal rupture.
+
+
+     Left MCA aneurysm
+     C ONFLICT → A RBITRATION : ACCEPT
+     Neurosurgeon → KEEP (1.0) — “CTA again demonstrates a large L-sided anterior aneurysm.” Clinically, a large
+     aneurysm in the anterior circulation is categorized as MCA or ICA terminus; supports this classification.
+     Neurointensivist → REMOVE (1.0) — “Large (2.5 × 3.5) left sided aneurysm.” Note only specifies ‘L-sided anterior’;
+     lacks explicit ‘MCA’ anatomical confirmation, thus removing specific label per strict criteria.
+     Vascular Neurologist → KEEP (0.9) — “CTA again demonstrates a large L-sided anterior aneurysm.” Based on
+     bleeding distribution and location, this ‘anterior’ aneurysm is functionally equivalent to left MCA territory involvement.
+
+
+     Attending Arbitration: The neurosurgeon and vascular neurologist provide converging anatomical reasoning that
+     “L-sided anterior” maps to MCA territory given the hemorrhage distribution. The neurointensivist’s objection reflects
+     strict labeling criteria but does not provide counter-evidence against MCA localization. → INCLUDE.
+
+
+     Cerebral edema with compression
+     C ONSENSUS : K EEP
+     Neurosurgeon → KEEP (1.0) — “Increase in midline shift to approximately 11 mm.” Severe midline shift is direct
+     evidence of mass effect and cerebral edema causing compression.
+     Neurointensivist → KEEP (1.0) — “Newly blown right pupil with left pupil 2 mm and fixed.” The abnormal pupillary
+     changes (herniation signs) confirm neurologic decline from compressive edema.
+     Vascular Neurologist → KEEP (0.9) — “Loaded with mannitol and transferred.” Clinical use of mannitol protocol
+     corroborates the presence of severe compressive edema.
+
+
+     Vestibular migraine
+     C ONSENSUS : R EMOVE (Distractor)
+     Neurosurgeon → REMOVE (1.0) — No mention of migraine history; current herniation signs preclude this diagnosis.
+     Neurointensivist → REMOVE (1.0) — GCS 3T and intubated status are incompatible with vestibular clinical presenta-
+     tion.
+     Vascular Neurologist → REMOVE (1.0) — “GCS 3T with absent cough and gag reflexes.” Severity of acute neurological
+     collapse is inconsistent with the benign nature of migraine.
+
+
+    Final Output: {Cerebral edema with compression, Left MCA aneurysm, Subarachnoid hemorrhage}.
+
+
+
+
+                                                                16
+Case 10330554-DS-13:
+Gait Instability with Vascular and Alcohol Etiologies
+
+Case Summary. A 65-year-old male with a history of HTN, DM, and chronic ETOH abuse presents with acute unsteadiness.
+The patient admits to vodka consumption at 12 AM and 4 AM. Exam reveals a wide-based gait with stumbling to the
+right. Imaging shows nonvisualization of the right vertebral artery and focal left ICA stenosis. The diagnostic focus is
+differentiating between ethanol-induced ataxia and posterior circulation insufficiency.
+Gold Diagnoses: Gait difficulty, likely related to alcohol use, Right vertebral artery occlusion, Left
+ICA stenosis.
+
+
+  Gait difficulty, likely related to alcohol use
+  C ONFLICT → A RBITRATION : ACCEPT
+  Neurologist → KEEP (0.7) — “Gait: Wide based, stumbles to the right.” While the right-sided stumbling is focal, the
+  wide-based gait in the setting of active ETOH intake strongly suggests ethanol-related cerebellar impact.
+  Vascular Surgeon → REMOVE (0.6) — “Nonvisualization of the right vertebral artery. . . likely due to occlusion.” The
+  patient’s specific tendency to ‘stumble to the right’ aligns anatomically with the right vertebral artery pathology rather
+  than systemic intoxication.
+  Addiction Specialist → KEEP (0.9) — “He awoke around 4 am. . . each time he had a drink or two of vodka.” Active
+  consumption less than one hour prior to symptoms directly correlates with the onset of acute ataxia.
+
+
+  Attending Arbitration: The temporal correlation between acute alcohol consumption and symptom onset is the
+  strongest evidence. The vascular surgeon’s lateralization argument, while plausible, is lower-confidence (0.6) and
+  speculative. The neurologist and addiction specialist converge on the ethanol etiology. → INCLUDE.
+
+
+  Right vertebral artery occlusion
+  C ONSENSUS : K EEP
+  Neurologist → KEEP (0.8) — “CTA HEAD/NECK: Nonvisualization of the right vertebral artery from its origin.”
+  Imaging evidence supports occlusion; although MRI showed no acute infarct, chronic occlusion impacts global
+  perfusion.
+  Vascular Surgeon → KEEP (1.0) — “Minimal retrograde flow into the V4 segment of the right vertebral artery.”
+  Nonvisualization at the origin with distal retrograde flow is pathognomonic for total occlusion; requires hemodynamic
+  assessment.
+  Addiction Specialist → NEUTRAL (0.0) — Interpretation of complex neurovascular flow patterns is outside the scope
+  of addiction medicine expertise.
+
+
+  Left ICA stenosis
+  C ONSENSUS : K EEP
+  Neurologist → KEEP (0.8) — “Focal narrowing of the distal ICA just before the entrance into the carotid canal.”
+  Significant narrowing identifies a high-risk vascular profile, necessitating secondary stroke prevention.
+  Vascular Surgeon → KEEP (0.9) — “Focal narrowing. . . consideration should be given to dissection.” Critical
+  segment narrowing requires MRI/MRA to rule out acute dissection, which would fundamentally change the surgical
+  management.
+  Addiction Specialist → NEUTRAL (0.0) — Large vessel stenosis is a structural vascular diagnosis and does not impact
+  the immediate detoxification or substance abuse treatment plan.
+
+
+  Left frontal SDH
+  C ONSENSUS : R EMOVE (Distractor)
+  Neurologist → REMOVE (1.0) — “CT HEAD: No evidence of acute intracranial process.” Acute hemorrhage is
+  radiographically excluded.
+  Vascular Surgeon → REMOVE (1.0) — No vascular or traumatic evidence to support a subdural collection.
+  Addiction Specialist → REMOVE (1.0) — Clinical presentation is more consistent with ETOH effects than trauma-
+  induced mass effect.
+
+
+Final Output: {Gait difficulty, likely related to alcohol use, Left ICA stenosis, Right vertebral
+artery occlusion}.
+
+
+
+
+                                                             17
+

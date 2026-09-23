@@ -1,0 +1,790 @@
+                                           MedCritical: Enhancing Medical Reasoning in Small
+                                           Language Models via Self-Collaborative Correction
+                                               Xinchun Su1 , Chunxu Luo1 , Yixuan Li1 , Weidong Yang1,∗, Lipeng Ma1,∗
+                                                       a
+                                                           School of Computer Science, Fudan University, Shanghai, China
+
+
+
+
+arXiv:2509.23368v1 [cs.CL] 27 Sep 2025
+                                         Abstract
+                                         In the field of medicine, complex reasoning tasks such as clinical diagnosis, treat-
+                                         ment planning, and medical knowledge integration pose significant challenges,
+                                         where small language models often underperform compared to large language
+                                         models like GPT-4 and Deepseek. Recent knowledge distillation-based meth-
+                                         ods aim to address these issues through teacher-guided error correction, but this
+                                         LLM as judge approach remains challenging in terms of cost, time, and efficiency.
+                                         To circumvent this issue, we propose a novel two-stage framework, MedCritical,
+                                         which uses a small language model fine-tuned by a large teacher model to play
+                                         against itself. In the first stage, we extract high-level and detailed long-chain
+                                         thought templates from the teacher model to guide the student model to gener-
+                                         ate more complex reasoning thoughts. In the second stage, we introduce direct
+                                         preference optimization (DPO) through model self-iteration collaboration to en-
+                                         hance the reasoning ability of the student model by playing against the correction
+                                         trajectory of the fine-tuned model during training. This model self-learning DPO
+                                         approach teaches the student model to use its own error-driven insights to consol-
+                                         idate its skills and knowledge to solve complex problems, and achieves compa-
+                                         rable results to traditional knowledge distillation methods using teacher models
+                                         at a lower cost. Notably, our MedCritical 7B model outperforms the Taiyi and
+                                         Huatuo-o1-7B models by 3.04% and 10.12% respectively on the CMExam bench-
+                                         mark, achieving new SOTA performance among 7B-class small models. All con-
+                                         tent mentioned is open-sourced at https://github.com/destinybird/
+                                         SP-Huatuo.
+
+                                           ∗
+                                              Corresponding authors
+                                              Email addresses: 22300240012@m.fudan.edu.cn (Xinchun Su),
+                                         22110240100@m.fudan.edu.cn (Chunxu Luo), yxli24@m.fudan.edu.cn (Yixuan
+                                         Li), wdyang@fudan.edu.cn (Weidong Yang), lpma21@m.fudan.edu.cn (Lipeng Ma)
+Keywords: Knowledge acquisition, Large Language Models, Medical
+Application
+
+
+1. Introduction
+    LLMs, such as GPT-4 and DeepSeek, demonstrate remarkable performance
+across various reasoning tasks. However, their application in specialized and
+highly complex domains, particularly medicine, presents unique and significant
+challenges that often expose the limitations of general-purpose models. Unlike
+other fields, medical reasoning demands not only a vast breadth of knowledge,
+encompassing diverse sub-disciplines from diagnostics to pharmacology, but also
+an unparalleled depth of understanding, requiring nuanced interpretation of symp-
+toms, patient histories, and intricate biological processes. The inherent com-
+plexity of medical knowledge, coupled with the dynamic and evolving nature of
+medical knowledge, means that traditional LLMs, despite extensive pre-training,
+frequently struggle with the precision, reliability, and contextual understanding
+critical for clinical applications. Existing research attempts to enhance the medi-
+cal performance of LLMs through various methods, broadly categorized into tra-
+ditional fine-tuning optimization and reflection-based optimization. Traditional
+fine-tuning approaches, including supervised fine-tuning (SFT) and alignment
+strategies like reinforcement learning from human feedback (RLHF) or direct
+preference optimization (DPO), achieve notable progress in general language tasks.
+However, these methods often optimize for direct answers or simplistic reasoning
+paths, proving insufficient for the multi-step, intricate reasoning required in com-
+plex medical scenarios. The challenges in medicine, such as the need for accurate
+differential diagnoses, personalized treatment plans, and the integration of mul-
+tidisciplinary information, necessitate models that can perform deep reasoning
+rather than merely generating plausible responses. Recent reflection-based meth-
+ods aim to overcome these limitations by guiding language models to self-reflect
+and self-correct during reasoning. While LLMs possess some inherent capacity
+for self-correction,SLMs typically lack this ability. Although large models can
+be employed to correct errors in SLMs, relying on them for this purpose incurs
+significant computational cost and time consumption, making it an economically
+unfeasible solution for widespread application. Consequently, existing methods
+often fail to strike a balance between effectiveness in handling medical complex-
+ity and computational efficiency. To address these specific challenges within the
+medical domain and overcome the limitations of current LLM training paradigms,
+
+
+                                        2
+we propose MedCritical, a novel two-stage framework designed to significantly
+improve the reasoning capabilities of SLMs in medical contexts. Our approach is
+specifically tailored to tackle the dual challenges of broad knowledge scope and
+deep reasoning requirements in medicine. In the first stage, we employ SFTby ex-
+tracting high-level and detailed long-chain thought templates from a large teacher
+model. This process guides the student model to generate more sophisticated and
+medically relevant reasoning thoughts, thereby addressing the knowledge breadth
+and initial reasoning depth. In the second stage, we introduce a novel model self-
+collaboration DPO mechanism. This stage enhances the reasoning ability of the
+student model by enabling it to learn from its own error-driven insights through
+self-iteration and adversarial correction trajectories. This self-learning DPO ap-
+proach is crucial for consolidating the skills and knowledge of the SLM, allowing
+it to navigate the intricate and often ambiguous nature of medical problems more
+effectively and efficiently than traditional knowledge distillation methods. By en-
+abling the model to identify and correct its own weaknesses, MedCritical provides
+a robust solution for developing highly capable medical SLMs at a significantly
+lower cost. Furthermore, we construct high-quality fine-tuning and optimization
+datasets specifically curated for medical question-answering, comprising 13,000
+samples from an original dataset, with a thought-level error correction optimiza-
+tion training set of 3,000 samples. This training set includes medical questions,
+pre-designed thought chain formats, and teacher-generated steps based on real an-
+swers, alongside a 10,000-sample test set. Our contributions are summarized as
+follows:
+     (i) We propose MedCritical, a novel two-stage fine-tuning method specifically
+designed to enhance the medical reasoning ability of SLMs by addressing the
+unique challenges of the domain.
+     (ii) We introduce model self-collaboration DPO, an innovative approach that
+leverages a fine-tuned small LLM for self-adversarial learning, thereby signif-
+icantly improving its reasoning capabilities and overcoming inherent reasoning
+bottlenecks in complex medical tasks.
+     (iii) We construct two high-quality, medically-focused datasets and develop
+a powerful medical reasoning model, achieving an accuracy of 70.62% on the
+CMExam dataset, setting a new SOTA performance record among all 7B models.
+
+2. Related Work
+   Application of Reinforcement Learning with Human Feedback in LLMs
+To enhance the performance and reliability of LLMs , the RLHF method pro-
+
+                                        3
+posed by [1] and [2] is introduced for LLM alignment. This method imposes
+higher requirements on the dataset, as it necessitates paired annotated data to train
+the reward model, thereby reflecting human preferences. Subsequently, reinforce-
+ment learning is employed to train the policy model to maximize the estimated
+reward. Although this method has proven effective, the process is complex and
+computationally intensive due to its reliance on the quality of the reward model.
+To simplify this process, DPO [3] is proposed, which directly uses paired data for
+optimization. By defining the preference loss as a function of the policy, DPO can
+optimize the policy using simple training techniques, avoiding the complexity of
+reinforcement learning. However, current methods have limited improvements in
+medical reasoning, stemming from the design of the optimization unit. Studies
+such as Step-DPO [4] establish more granular reward units by treating each in-
+termediate reasoning step as a basic unit. However, they fail to fully leverage the
+self-learning capabilities of fine-tuned models. This paper specifically designs a
+model self-collaborative reasoning reward to efficiently utilize this aspect.
+    Thinking Extensions for Medical Reasoning Thinking extensions for med-
+ical reasoning primarily focus on pre-designed reasoning structures or templates
+to enhance LLM medical reasoning capabilities through prompting techniques.
+Chain-of-Thought (CoT) prompts [5] and their variants [6, 7, 8], such as from
+few to many [9], decomposed prompts [10], and automatic CoT [11] — prompt-
+ing LLMs to decompose complex problems into simpler sub-tasks, systematically
+solve them, and then summarize the final answer. Innovative methods such as
+“Thinking Trees” [12] and “Thinking Maps” [13] further complicate the field by
+exploring dynamic, nonlinear reasoning paths to expand the heuristic capabilities
+of LLMs [14, 15]. However, these methods face challenges such as increased re-
+source requirements, higher time complexity, reliance on manual prompt design,
+and optimization for specific task types. The recently proposed BoT [16] adopts
+a task-agnostic meta-buffer paradigm to efficiently solve problems based on ac-
+cumulated thinking templates. However, this is a training-free framework that
+may not fundamentally enhance LLM’s reasoning capabilities. This paper pro-
+poses a new paradigm that enables LLM to enhance its reasoning ability through
+its own right-wrong confrontation, thereby breaking through the limitations of
+LLM’s original thinking and expanding the model’s ability to solve a wider range
+of problems.
+
+
+
+
+                                         4
+3. Method
+3.1. Overview of two-stage training framework
+    This section introduces our two-stage training framework in detail and shows
+our training process in Figure 1. In the first stage, given a raw medical question-
+answer set, we use a large language model (see Section 3.2) to generate detailed
+reasoning chains and answers for it based on a given long thought chain template,
+and then use these data to fine-tune the small model. In the second stage, based on
+multiple responses of the fine-tuned small model to the original question, we use
+the large language model to make correct or incorrect judgments, and combine
+its correct or incorrect answers to the same question into pairs (see Section 3.3)
+for DPO to obtain the final result model. The whole process is essentially a self-
+criticism of the small model after training, so it is named MedCritical.
+
+      1    Stage 1:Knowledge Distillation-guided Supervised Fine-tuning
+
+              QwQ-32B                          Qwen2.5-7B-Instruct
+
+                          Long CoT                                   answer              T1
+                                     Knowledge
+                                     question-
+                                      answer                          xN          T2     …      TN
+                                                   SFT
+
+      2   Mid-process: Transforming Errors into Valuable Insights
+
+                     T1
+                                                         …                                     T-F
+                     …                                                                        tuples
+              T2            TN
+                                       Judge                      Compose
+
+      3   Stage 2:Direct preference optimization and result verification
+
+                          DPO             answer
+             T-F
+            tuples                                     Original
+                                                       Question
+                                                                                                scores
+                                                                          LLM as Judge
+
+
+
+
+Figure 1: Pipeline of MedCritical framework, illustrating supervised fine-tuning with long chain-
+of-thought templates and model self-collaborative DPO for enhancing medical reasoning inSLMs.
+
+
+
+
+                                                   5
+3.2. Supervised Fine-Tuning Based on Long Thinking Chain Thinking Templates
+     Constructing Thinking Templates from Teacher LLMs
+Traditional instruction-response datasets used for training LLMs [2] primarily fo-
+cus on the correctness of responses, leading LLMs to merely simulate given so-
+lutions and answers while neglecting the importance of intermediate long think-
+ing chains. Recent studies such as BoT utilize high-level reasoning guidelines
+(thinking templates) to enable LLMs to efficiently solve similar problems without
+additional training. However, for complex and diverse mathematical reasoning
+tasks, we find that high-level thinking templates alone are insufficient, especially
+for small LLMs. To enable small LLMs to handle complex reasoning tasks, we
+specifically design a long-chain thinking template extracted from a large teacher
+LLM to transfer its capabilities to a small student LLM. This new long-chain
+thinking template includes a format requirement specification and a detailed ex-
+ample of long-chain reasoning. To avoid irrelevant information in the template
+interfering with medical domain problems, the former provides a generic format
+specification solution for general problems, while the latter details the model’s
+self-reasoning, exploration, and reflection processes in long thinking chains for
+problems in other domains. Based on this long thinking chain thinking tem-
+plate, we can propose a new fine-tuning objective aimed at integrating human-like
+problem-solving structures into model reasoning and explicitly generating long
+thinking chains during the reasoning process. We first collect a set of medical
+problem instances D = {(q, a)}, where each instance contains a question q and
+its direct answer a. For each problem q ∈ D, we first use a predefined prompt P
+to extract a long reasoning chain c from a teacher state-of-the-art reasoning LLM
+(e.g., QwQ-32B).
+Then, we can obtain a high-quality fine-tuning dataset Dsft :
+
+                                  Dsft = (q, a, c)
+
+where c is the solution of the long reasoning chain. We provide an example of a
+long reasoning chain thinking template, as shown in the text box below.
+
+
+
+
+                                         6
+ Long Chain-of-Thought Template Introduction
+ You are a medical expert. Please structure your response to the question:{user_question}{question_mark} using
+ the format <think>-[here is your chain of thought]-</think>-<answer>-[here is your formal
+ answer]-</answer>.
+
+    - Role: This section defines the model’s role as a medical expert and specifies the required response structure
+ (<think> and </think>, <answer> and </answer> tags). It ensures a professional perspective and clear
+ output organization.
+
+ Please provide a detailed reasoning process, ensuring the chain of thought is clear, logically rigorous, and
+ progresses step-by-step. Analyze the problem thoroughly, explore possible answers, correct any errors, and
+ ultimately arrive at a conclusion. This is a multi-line text to test the effect on subsequent lines.
+
+    - Role: This section guides the model to use a detailed, step-by-step reasoning process, enhancing medical
+ problem-solving quality.
+
+ <think> Hmm, the user is asking why people on the internet often compare opponents to something worse than
+ Nazis, even making Nazis seem good by comparison. This is a complex question, and I need to clarify the
+ possible aspects first. Initially, the user might notice extreme online rhetoric, where one side uses Nazis to
+ denigrate the other, leading to phrases like “worse than Nazis,” which relativizes the original symbol of extreme
+ evil. This could involve several factors: the exaggeration of online speech, lack of historical knowledge, a
+ slippery slope in moral comparisons, and the trend toward polarized communication. </think>
+
+    - Role: This section provides a non-medical example of the <think> format, using a detailed, step-by-step
+ reasoning process about internet rhetoric. Its purpose is to guide the model to emulate this depth for medical
+ questions, avoiding interference by focusing on an unrelated domain.
+
+ <answer> The phenomenon of people on the internet labeling opponents as “worse than Nazis” and even
+ making Nazis seem glorified is the result of multiple complex social, psychological, and communicative factors.
+ The main causes and logical chain are as follows: . . . II. Influence of Internet Propagation Mechanisms
+ Emotion-Driven Algorithm Logic Social media platforms favor promoting controversial, emotional content.
+ Extreme rhetoric (e.g., comparing opponents to Nazis) triggers emotions like anger or fear, gaining more
+ visibility. . . . IV. Consequences and Reflection Undermining Historical Seriousness The uniqueness of Nazi
+ crimes is blurred, weakening public vigilance against true extremism. . . . Conclusion This phenomenon is a
+ microcosm of the internet era’s struggle for discourse dominance: when extremism becomes a shortcut to
+ attention, the complexity of history and reality is sacrificed. </answer>
+
+    - Role: This section demonstrates the <answer> format with a non-medical example, summarizing reasoning
+ into a structured conclusion. It guides the model to present concise medical diagnoses or treatments, maintaining
+ clarity without domain overlap.
+
+ This question’s answer is: {reference_answer}
+
+    - Role: This section subtly embeds the correct answer for medical questions, ensuring the model derives it
+ through reasoning without direct reference, preserving the authenticity of the process.
+
+ Please strictly follow the format, starting with the <think> tag for a detailed self-reflection, exploration, and
+ self-correction long chain of thought, ending with </think>. Then begin the formal answer with <answer>,
+ ending with </answer>. The question to address is: {user_question}{question_mark}
+
+    - Role: This section enforces the structured format, ensuring disciplined medical reasoning and response
+ alignment.
+
+   Thought-based supervised fine-tuning
+After organizing the long chain-of-thought dataset Dsft , our optimization goal is
+
+
+                                                         7
+to enable student LLMs π to reason using long chains of thought and gain a more
+comprehensive understanding of each problem-solving process, which can be ex-
+pressed as:
+                   Lsft (π) = E(q,a,c)∼Dsft [log π(c, a|q, Pstu )]
+Starting from the base student LLM π, Lsft achieves optimization by maximizing
+the likelihood of the response given the prompt Pstu and the input question q,
+where Pstu represents the predefined prompt Ptea . After the fine-tuning process,
+we significantly enhance the reasoning capabilities of the base student LLM by
+learning the long chain-of-thought reasoning of state-of-the-art reasoning LLMs,
+enabling the student LLM to generate reasoning similar to that accompanying the
+final answer. Subsequently, we obtain the fine-tuned student LLM πref , which can
+be used for cross-model collaborative DPO in Section 4.2.
+
+3.3. Model self-improvement DPO
+    Improving DPO by self-comparison
+Although error correction methods dominated by LLMs have proven effective in
+DPO practice, their optimization objectives are inefficient for complex medical
+reasoning tasks. As pointed out by [4], the problem arises because the monopoly
+of LLMs makes us ignore the valuable resources generated by small models in
+large corpora. This may lead to a longer training process without significant im-
+provement in results, because the previously fine-tuned small model’s ability to
+solve is comparable to that of LLMs in the medical field. In addition, it is difficult
+for LLM to locate errors and obtain improvements from them [17]. This is similar
+to a student trying to gain subtle insights from a correct long solution. The root
+of the problem is that there are too many distractions and it is difficult to focus on
+pointing out the problem and giving the correct solution. To solve this problem,
+we avoid the overly fine error pointing of LLMs and instead focus on the overall
+optimization objective, giving priority to instance-level preferences. Specifically,
+we first let the large language model judge whether the student model is correct,
+and then use the overall comparison results of correct and incorrect answers in
+multiple answers to the same question as the optimization unit. This method pri-
+oritizes the model self-control trajectory of the student LLM πtea rather than the
+minor correction trajectory of the teacher LLM πref , thereby improving the ability
+of the student LLM.
+    Collecting correct and incorrect thinking
+In order to achieve correction at the thinking level, we need to collect a dataset
+containing paired data of correct and incorrect thinking. Specifically, we use the
+
+
+                                          8
+fine-tuned student model πref to perform multiple reasoning based on thinking
+chains on the sampled test dataset Dtest = {qtest }, and obtain the test result Dpred =
+{qtest , atest }. The teacher LLM makes a binary judgment of correct or incorrect for
+each atest , and finally obtains the correct-incorrect dataset:
+                                                         −
+                           Dcor-err = {qtest , {A+
+                                                 test , Atest }},
+
+                                                      −
+Where A+   test is the correct solution set, Atest is the incorrect solution set of the
+corresponding problem. Here, we use powerful models in the current medical
+reasoning field (such as QwQ-32B) as experienced teacher models πtea . To ensure
+the accuracy of the correct or incorrect binary classification, we design a prompt
+PC to guide πtea to deterministically output 1 or 2 (representing correct or incor-
+rect) in the provided answer.
+    Improving Reasoning Ability by Model Self-correction
+In the second stage of the method, our proposed model self-collaborative DPO
+uses the self-opposition of the student LLM to improve its reasoning and general-
+ization ability. As shown in formula (7), comparing the above correct reasoning
+                                          −
+A+test with the incorrect reasoning Atest , our model self-collaborative DPO aims to
+maximize the probability that the student LLM correctly answers the question q.
+The optimization objective of our model self-cooperative DPO can be expressed
+as:
+                                                                     πθ (A+
+                                                             
+                                                                            test |q)
+           LDPO-self (θ) = − E(q,Atest ,Atest )∼Dcor-err log σ β log
+                                   +     −
+                                                                     πref (A+test |q)
+                                               −
+                                                        
+                                    πθ (Atest |q)
+                           −β log                          ,
+                                   πref (A−    test |q)
+
+
+
+
+4. Experiments
+4.1. Experimental Setup and Baselines
+    To evaluate our MedCritical framework, we utilize the CMExam dataset from
+https://github.com/williamliujl/CMExam, which originally con-
+tains 68,000 samples. We filter 13,887 eligible samples, with a training set of
+3,000 for fine-tuning and optimization, and a test set of 10,887 for evaluation.
+As detailed below, we explain the implementation details of the ten evaluation
+methods. The baseline Student model is Qwen2.5-7B-Instruct and the Teacher
+model is QwQ-32B, which serves as the provider of high-quality reasoning chains.
+
+                                             9
+ Algorithm 1: Pseudocode of MedCritical Framework for Student Model
+   Input: Medical Dataset D, Teacher Model πtea , Student Model πstu
+   Output: Fine-tuned Student Model πstu
+   Stage 1: Supervised Fine-Tuning with Long Chain-of-Thought
+   Initialize fine-tuning dataset Dsft = ∅;
+   foreach (q, a) ∈ D do
+          c ← πtea (q, Ptea ) Add (q, a, c) to Dsft ;
+   foreach (q, a, c) ∈ Dsft do
+        Update πstu to maximize log πstu (c, a|q, Pstu )
+   Set πref ← πstu Stage 2: Model Self-Collaborative DPO
+   Initialize correct-erroneous dataset Dcor-err = ∅;
+   foreach q ∈ Dtest do
+                                   −
+          Initialize A+test = ∅, Atest = ∅;
+          for i = 1 to n do
+                 atest ← πref (q) j ← πtea (q, atest , PC ) if j = 1 then
+                       Add atest to A+ test ;
+              else
+                     Add atest to A−
+                                   test ;
+
+                         −
+        Add (q, A+
+                 test , Atest ) to Dcor-err ;
+                        −
+   foreach (q, A+
+                test , Atest ) ∈ Dcor-err do
+        Update πstu to minimize LDPO-self (θ)
+   Output: Return the fine-tuned Student Model πstu ;
+   return πstu
+
+
+
+RawSFT adopts the standard knowledge distillation method to SFT of the stu-
+dent model using the answers generated by the teacher. ThoughtSFT requires the
+teacher model to generate knowledge chains. ThoughtDPO, AnswerDPO, and
+ExpandDPO are teacher-guided DPO methods applied to ThoughtSFT. Specifi-
+cally, ThoughtDPO adopts DPO, where the teacher generates correct answers for
+incorrect answers without providing the original answers; AnswerDPO provides
+the correct answers to the teacher; and ExpandDPO augments the dataset by gen-
+erating three teacher answers for each incorrect answer. In contrast, SelfDPO
+employs a self-improvement mechanism, where ThoughtSFT generates four an-
+swers for each question, which are judged as correct-wrong answer pairs, all of
+which are used for DPO training on SelfDPO. TemplateSFT is trained by intro-
+ducing Chain of Thoughts (CoT) and example templates derived from the teacher
+model in the SFT process. Finally, MedCritical is similar to SelfDPO, but uses
+TemplateSFT, which leverages CoT templates, to generate four answers for im-
+proving self-collaborative DPO.
+
+
+
+
+                                                           10
+4.2. Inter-Model Comparison and Analysis
+    As shown in Table 1, our method achieves new SOTA performance among all
+7B models on the CMExam benchmark. It significantly outperforms the strong
+Taiyi by 4.16% and Huatuo-o1-7B by 11.24%. Notably, our best self-learning
+model MedCritical even achieves superior results than QwQ-32B in this test. This
+result establishes the MedCritical model as the leading performer in 7B-level
+complex medical reasoning tasks. It demonstrates the effectiveness of our pro-
+posed MedCritical framework in enhancing reasoning capabilities. We attribute
+the improvement in reasoning accuracy to two aspects. The first CSFT stage pro-
+vides LLM student models with a deeper and more fine-grained reasoning process.
+Compared with the traditional reasoning process, it helps LLM student models
+reason more meticulously, thereby improving the consistency of reasoning and
+reducing the student model’s illusion of “misconception of its own capabilities”.
+The second model self-DPO stage helps LLM student models break through the
+reasoning limitations by comparing the model’s own correctness and errors and
+trying to foster deeper reasoning paths, thereby helping LLM student models gain
+skills and knowledge to solve problems encountered in partial problem solving.
+These “partially or inconsistently solved” problems are the most important part
+that students need to consolidate and improve.
+
+                                                                          Test Sets
+   ModelName                                BaseModel
+                                                                 TRAIN TEST total
+   MedCritical                     TemplateSFT                    68.17     71.29     70.62
+   Taiyi                             Qwen-7B                      65.03     66.86     66.46
+   Huatuo-o1-7B                    Qwen2.5-7B                     54.43     60.75     59.38
+   DeepSeek-R1-Distill-Qwen-7B   Qwen2.5-Math-7B                  56.00     57.87     57.47
+   Lingshu-7B                  Qwen2.5-VL-7B-Instruct             46.40     48.89     48.35
+   Baichuan2-7B-Chat            Baichuan2-7B-Base                 22.43     21.81     21.94
+   Apollo2-7B                       Qwen2-7B                       9.60     13.70     12.81
+
+Table 1: Performance comparison of MedCritical with other 7B models on the CMExam dataset,
+demonstrating superior medical reasoning accuracy and state-of-the-art performance at 70.62%.
+
+
+
+4.3. Intra-Model Ablation and Analysis
+    We conduct an ablation study on the MedCritical model and list the results
+in Table 2. The results show that compared with our CSFT model ThoughtSFT,
+
+
+                                             11
+                              MedCritical                    Taiyi            Huatuo-o1-7B
+                              DeepSeek-R1-Distill-Qwen-7B
+                              Lingshu-7B                     Baichuan2-7B-Chat                 Apollo2-7B
+
+
+
+                                                                             Result
+                   80
+                                                                71.29                              70.62
+                        68.17                                        66.86
+                             65.03                                                                      66.46
+                                                                         60.75                              59.38
+                   60                                                         57.87                              57.41
+                                 54.4356.00
+
+
+
+
+     Accuracy(%)
+                                                                                  48.89                              48.35
+                                          46.40
+
+
+                   40
+
+
+                                              22.43                                    21.81                             21.94
+                   20
+                                                                                           13.70                             12.81
+                                                      9.60
+
+
+
+                   0
+                                 TrainingSet                                 TestSet                            Total
+                                                                              Sets
+
+
+
+
+Figure 2: Cross-model comparison of MedCritical against other 7B models on CMExam dataset,
+showcasing superior medical reasoning accuracy and state-of-the-art performance at 70.62% in
+complex reasoning tasks.
+
+
+the improvement of traditional SFT is limited, and the accuracy rate lags behind
+by 10.06%. This demonstrates the effectiveness of the first stage. Based on our
+CSFT model ThoughtSFT, we further apply some DPO methods to compare with
+one of our Self-DPO models, SelfDPO. The results show that our method achieves
+higher accuracy than the ThoughtDPO model by 0.75%. This underscores the
+effectiveness of the second stage. To better understand our two-stage method,
+consider the example shown in the figure. The base model misunderstands the
+characteristics of “dry pneumococcal meningitis” because it does not consider
+the effect of reduced mucus in the lung membranes implied by dry pneumococcal
+meningitis. After applying our long chain thinking reasoning template (denoted as
+CTP) for training, we can see that the model identifies this factor. However, it fails
+to correctly apply the impact of this fact on the patient’s lung pain to the model,
+
+
+                                                                         12
+which is precisely caused by the hallucination problem. Finally, our combined
+one-two-stage model, MedCritical, successfully addresses this issue by accurately
+understanding dry pneumococcal meningitis.
+
+ Comparison of answers from three models
+ What are the chest pain characteristics of dry pleurisy?
+
+ Student: The chest pain associated with dry pleurisy is typically sharp, localized, and can be quite intense. It
+ often feels like a stabbing sensation and is usually felt on one side of the chest, corresponding to the inflamed
+ area of the pleura. This discomfort can be persistent and may significantly impact a person’s ability to move or
+ take deep breaths comfortably. While the pain itself is a primary symptom, it can also be accompanied by other
+ general symptoms such as a dry cough, mild fever, or a general feeling of malaise, making the overall experience
+ quite uncomfortable for the individual.
+
+   - Critique: This section presents the Student model’s response, which describes general symptoms but misses
+ key pain patterns, indicating its limitation in medical reasoning.
+
+ TemplateSFT: Chest pain stemming from dry pleurisy is characteristically sharp or stabbing in nature, often
+ described as a “knife-like” sensation. A key feature of this pain is exacerbation with respiratory movements. It
+ tends to significantly worsen when you inhale deeply, cough forcefully, sneeze, or even laugh, as these actions
+ cause the chest wall and lungs to move. Conversely, patients often find that the pain lessens considerably, or may
+ even temporarily disappear, when they hold their breath or take very shallow breaths. This distinct pattern of pain
+ makes it a strong indicator of pleuritic involvement.
+
+   - Critique: This section shows the TemplateSFT model’s response, correctly noting pain patterns but failing to
+ explain the mechanism, indicating partial improvement.
+
+ MedCritical: Dry pleurisy results in a distinctive, sharp, and often severe chest pain due to the underlying
+ pathological mechanism. Normally, the two layers of the pleura—the visceral pleura covering the lungs and the
+ parietal pleura lining the chest wall—are smooth and lubricated by a small amount of fluid, allowing them to
+ glide effortlessly past each other during breathing. However, in dry pleurisy, inflammation causes these pleural
+ surfaces to become rough and sticky, and the lubricating fluid may be diminished. Consequently, with each
+ inhalation and exhalation, these inflamed, roughened surfaces rub directly against one another, creating intense
+ friction. This friction is the direct cause of the sharp pain. When an individual holds his or her breath, the
+ movement between these inflamed pleural layers is temporarily suspended, thereby eliminating the friction and
+ providing a noticeable, albeit temporary, relief from the agonizing pain. This explains why the pain is so closely
+ linked to the act of breathing.
+
+   - Critique: This section displays the MedCritical model’s response, offering a detailed and accurate
+ mechanism, demonstrating enhanced reasoning capability.
+
+    The performance comparison in Table 2 yields some key findings. First, the
+performance of ThoughtSFT based on classic CoT is significantly better than that
+of RawSFT and Teacher models, with the overall accuracy increased from 58.47%
+and 65.37% to 68.53%, which reflects the effectiveness of knowledge distillation.
+Second, the performance of TemplateSFT based on long CoT template is further
+improved to 69.09%, which is higher than RawSFT, indicating that adding long
+thinking chain reasoning templates with examples can further enhance the model’s
+reasoning ability. Third, three teacher-guided self-learning policy optimization
+methods (ThoughtDPO, AnswerDPO, and ExpandDPO) slightly improve over
+
+
+                                                        13
+ThoughtSFT (68.53%) (68.75%, 69.06%, and 68.75%), but still lag behind Self-
+DPO (69.50%), which highlights the advantage of our self-learning method in
+mining error-driven insights. Finally, MedCritical achieves the highest accuracy
+of 70.62%, outperforming SelfDPO and all other methods, which corroborates the
+effectiveness of combining long CoT templates with self-collaborative DPO. We
+qualitatively analyze the teacher-guided T-DPO model ExpandDPO and our Self-
+DPO model MedCritical. For fairness, we choose the same parameter settings and
+prompting methods for each model. As shown below, both perform more effec-
+tive analysis based on the same problem. Considering their accuracies (68.75%
+vs 70.62%), our method is more resource-efficient and enables more accurate rea-
+soning compared to T-DPO, thus solving previously unsolvable problems.
+ Comparison of responses from T-DPO and Self-DPO Model
+ What are the chest pain characteristics of dry pleurisy?
+
+ T-DPO: Dry pleurisy leads to sharp chest pain primarily because the usual lubrication between the two pleural
+ layers is compromised. In a healthy state, a small amount of fluid allows the visceral and parietal pleura to glide
+ smoothly. However, with dry pleurisy, this fluid may be reduced or absent, and the pleural surfaces become
+ inflamed and sticky. Consequently, during inhalation and exhalation, these unlubricated, inflamed membranes
+ come into direct, abrasive contact. This direct rubbing is the source of the severe pain, which is exacerbated by
+ breathing. Holding one’s breath stops this abrasive contact, thus alleviating the pain.
+
+ Self-DPO: Dry pleurisy results in a distinctive, sharp, and often severe chest pain due to the underlying
+ pathological mechanism. Normally, the two layers of the pleura—the visceral pleura covering the lungs and the
+ parietal pleura lining the chest wall—are smooth and lubricated by a small amount of fluid, allowing them to
+ glide effortlessly past each other during breathing. However, in dry pleurisy, inflammation causes these pleural
+ surfaces to become rough and sticky, and the lubricating fluid may be diminished. Consequently, with each
+ inhalation and exhalation, these inflamed, roughened surfaces rub directly against one another, creating intense
+ friction. This friction is the direct cause of the sharp pain. When an individual holds his or her breath, the
+ movement between these inflamed pleural layers is temporarily suspended, thereby eliminating the friction and
+ providing a noticeable, albeit temporary, relief from the agonizing pain. This explains why the pain is so closely
+ linked to the act of breathing.
+
+
+
+5. Conclusion
+    This paper proposes a novel two-stage framework that can significantly im-
+prove the reasoning ability of language models. We propose fine-tuning based
+on long thought chain templates to enable LLM to produce more sophisticated
+reasoning thinking, and introduce model self-collaborative DPO to improve the
+reasoning ability of student LLM through self-correct confrontation on the same
+problem. Experiments show that our method is superior to previous methods.
+In the CMExam benchmark, our method is 4.16% more accurate than the strong
+Taiyi and 11.24% higher than Huatuo-o1-7B. In future work, we will extend this
+new framework to larger models and more complex datasets.
+
+
+                                                        14
+                                                                  Sets
+                ModelName             BaseModel
+                                                          Train   Test    Total
+                Student     Qwen2.5-7B-Instruct 47.57 52.81 51.68
+                Teacher         QwQ-32B         59.07 67.52 65.37
+                RawSFT           Student        55.37 59.33 58.47
+                ThoughtSFT       Student        64.87 69.54 68.53
+                ThoughtDPO     ThoughtSFT       62.43 70.49 68.75
+                AnswerDPO      ThoughtSFT       63.63 70.56 69.06
+                ExpandDPO      ThoughtSFT       64.27 69.98 68.75
+                SelfDPO        ThoughtSFT       66.27 70.39 69.50
+                TemplateSFT      Student        66.03 69.93 69.09
+                MedCritical   TemplateSFT       68.17 71.29 70.62
+
+Table 2: Performance comparison of student, teacher, and fine-tuned models across training, test,
+and total sets, evaluating reasoning accuracy in ablation study.
+
+
+6. Acknowledgements
+   This research is funded by the FDUROP program of Fudan University (No.
+24254) and supported by the CFFF computing platform.
+
+References
+ [1] P. F. Christiano, et al., Deep reinforcement learning from human preferences,
+     Advances in Neural Information Processing Systems (2017).
+
+ [2] L. Ouyang, et al., Training language models to follow instructions with hu-
+     man feedback, arXiv preprint arXiv:2203.02155 (2022). arXiv:2203.
+     02155.
+
+ [3] R. Rafailov, et al., Direct preference optimization: Your language model is
+     secretly a reward model, arXiv preprint arXiv:2305.18290 (2024). arXiv:
+     2305.18290.
+
+ [4] V. Lai, et al., Step-dpo: Step-wise preference optimization for long-chain
+     reasoning of llms, arXiv preprint arXiv:2406.18629 (2024). arXiv:2406.
+     18629.
+
+
+
+                                               15
+                                                  TrainSet                      TestSet                    Total
+                  80
+
+
+
+                                                                                              70.49            70.56                                                               71.2970.62
+                                                                            69.54                                               69.98            70.39            69.93
+                                                                                                   68.75            69.06            68.75            69.50            69.09
+                  70                                                             68.53                                                                                         68.17
+                                          67.52
+                                                                                                                                             66.27            66.03
+                                               65.37
+
+
+
+
+    Accuracy(%)
+                                                                        64.87                                               64.27
+                                                                                                           63.63
+                                                                                          62.43
+
+                                      59.07                59.33
+                  60                                            58.47
+                                                       55.37
+                         52.81
+                              51.68
+                  50 47.57
+
+
+
+
+                  40
+                       Student          Teacher          RawSFT         ThoughtSFT ThoughtDPO AnswerDPO ExpandDPO                              SelfDPO        TemplateSFT MedCritical
+                                                                                                  ModelName
+
+
+
+
+Figure 3: Self-comparison of MedCritical model with various fine-tuning and optimization meth-
+ods, demonstrating improved reasoning accuracy across training and test sets in ablation study for
+medical reasoning tasks.
+
+
+ [5] J. Wei, X. Wang, D. Schuurmans, M. Bosma, F. Xia, E. Chi, Q. V. Le,
+     D. Zhou, et al., Chain-of-thought prompting elicits reasoning in large lan-
+     guage models, Advances in Neural Information Processing Systems 35
+     (2022) 24824–24837.
+ [6] T. Kojima, S. S. Gu, M. Reid, Y. Matsuo, Y. Iwasawa, Large language mod-
+     els are zero-shot reasoners, Advances in Neural Information Processing Sys-
+     tems 35 (2022) 22199–22213.
+ [7] O. Press, M. Zhang, S. Min, L. Schmidt, N. A. Smith, M. Lewis, Measuring
+     and narrowing the compositionality gap in language models, Findings of
+     the Association for Computational Linguistics: EMNLP 2023 (2023) 5687–
+     5711.
+ [8] S. Arora, A. Narayan, M. F. Chen, L. Orr, N. Guha, K. Bhatia, I. Chami,
+     C. Re, Ask me anything: A simple strategy for prompting language models,
+     The Eleventh International Conference on Learning Representations (2022).
+ [9] D. Zhou, N. Schärli, L. Hou, J. Wei, N. Scales, X. Wang, D. Schuurmans,
+     C. Cui, O. Bousquet, Q. V. Le, et al., Least-to-most prompting enables com-
+     plex reasoning in large language models, The Eleventh International Confer-
+     ence on Learning Representations (2022).
+
+                                                                                                   16
+[10] T. Khot, H. Trivedi, M. Finlayson, Y. Fu, K. Richardson, P. Clark, A. Sab-
+     harwal, Decomposed prompting: A modular approach for solving complex
+     tasks, The Eleventh International Conference on Learning Representations
+     (2022).
+
+[11] Z. Zhang, A. Zhang, M. Li, A. Smola, Automatic chain of thought prompting
+     in large language models, The Eleventh International Conference on Learn-
+     ing Representations (2022).
+
+[12] S. Yao, D. Yu, J. Zhao, I. Shafran, T. Griffiths, Y. Cao, K. Narasimhan,
+     Tree of thoughts: Deliberate problem solving with large language models,
+     Advances in Neural Information Processing Systems 36 (2024).
+
+[13] M. Besta, N. Blach, A. Kubicek, R. Gerstenberger, M. Podstawski, L. Gian-
+     inazzi, J. Gajda, T. Lehmann, H. Niewiadomski, P. Nyczyk, et al., Graph of
+     thoughts: Solving elaborate problems with large language models, Proceed-
+     ings of the AAAI Conference on Artificial Intelligence 38 (2024) 17682–
+     17690.
+
+[14] W. Chen, X. Ma, X. Wang, W. W. Cohen, Program of thoughts prompting:
+     Disentangling computation from reasoning for numerical reasoning tasks,
+     Transactions on Machine Learning Research (2023).
+
+[15] X. Ning, Z. Lin, Z. Zhou, Z. Wang, H. Yang, Y. Wang, Skeleton-of-thought:
+     Large language models can do parallel decoding, The Twelfth International
+     Conference on Learning Representations (2023).
+
+[16] L. Yang, Z. Yu, T. Zhang, S. Cao, M. Xu, W. Zhang, J. E. Gonzalez, B. Cui,
+     Buffer of thoughts: Thought-augmented reasoning with large language mod-
+     els, Advances in Neural Information Processing Systems (2024).
+
+[17] G. Tyen, et al., Llms cannot find reasoning errors, but can correct them given
+     the error location, Findings of the Association for Computational Linguistics
+     ACL 2024 (2024).
+
+
+
+
+                                        17
+

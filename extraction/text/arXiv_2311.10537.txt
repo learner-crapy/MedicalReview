@@ -1,0 +1,1118 @@
+                                                M EDAGENTS : Large Language Models as Collaborators for Zero-shot
+                                                                    Medical Reasoning
+
+                                                           Xiangru Tang♡∗, Anni Zou♠∗, Zhuosheng Zhang♠ , Ziming Li♡ ,
+                                                          Yilun Zhao♡ , Xingyao Zhang♡ , Arman Cohan♡ , Mark Gerstein♡
+                                                                 ♡
+                                                                   Yale University ♠ Shanghai Jiao Tong University
+                                                                 xiangru.tang@yale.edu, mark@gersteinlab.org
+
+
+                                                                Abstract                        necessitate a combination of domain expertise and
+                                                                                                complex reasoning abilities (Moor et al., 2023;
+                                            Large language models (LLMs), despite their
+                                                                                                Wu et al., 2023b; Singhal et al., 2023a; Yang
+                                            remarkable progress across various general
+                                            domains, encounter significant barriers in
+                                                                                                et al., 2023). Amidst this backdrop, a noteworthy
+
+
+
+
+arXiv:2311.10537v4 [cs.CL] 4 Jun 2024
+                                            medicine and healthcare. This field faces           research topic lies in the adoption of LLMs in
+                                            unique challenges such as domain-specific           the medical field, which has gained increasing
+                                            terminologies and reasoning over specialized        prominence recently (Zhang et al., 2023b; Bao
+                                            knowledge. To address these issues, we pro-         et al., 2023; Singhal et al., 2023a).
+                                            pose M EDAGENTS, a novel multi-disciplinary            Two major challenges prevent LLMs from
+                                            collaboration framework for the medical             effectively handling tasks in the medical sphere: (i)
+                                            domain. MedAgents leverages LLM-based
+                                                                                                Limited volume and specificity of medical training
+                                            agents in a role-playing setting that participate
+                                            in a collaborative multi-round discussion,          data compared to the vast general text data, due
+                                            thereby enhancing LLM proficiency and               to cost and privacy concerns (Thirunavukarasu
+                                            reasoning capabilities. This training-free          et al., 2023).1 (ii) The demand for extensive
+                                            framework encompasses five critical steps:          domain knowledge (Schmidt and Rikers, 2007)
+                                            gathering domain experts, proposing individual      and advanced reasoning skills (Liévin et al.,
+                                            analyses, summarising these analyses into           2022) makes eliciting medical expertise via simple
+                                            a report, iterating over discussions until a
+                                                                                                prompting challenging (Kung et al., 2023; Singhal
+                                            consensus is reached, and ultimately making
+                                            a decision. Our work focuses on the zero-
+                                                                                                et al., 2023a). Although numerous attempts,
+                                            shot setting, which is applicable in real-          particularly within math and coding, have been
+                                            world scenarios. Experimental results on nine       made to enhance prompting methods (Besta et al.,
+                                            datasets (MedQA, MedMCQA, PubMedQA,                 2023; Lála et al., 2023; Wang et al., 2023b),
+                                            and six subtasks from MMLU) establish that          strategies used in the medical field have been
+                                            our proposed M EDAGENTS framework excels            shown to induce hallucination (Umapathi et al.,
+                                            at mining and harnessing the medical expertise      2023; Harris, 2023; Ji et al., 2023), indicating the
+                                            within LLMs, as well as extending its reasoning
+                                                                                                need for more robust approaches.
+                                            abilities. Our code can be found at https:
+                                            //github.com/gersteinlab/MedAgents.                    Meanwhile, recent research has surprisingly
+                                                                                                witnessed the success of multi-agent collaboration
+                                        1   Introduction                                        (Xi et al., 2023; Wang et al., 2023d) which
+                                                                                                highlights the simulation of human activities (Du
+                                        Large language models (LLMs) (Brown et al.,             et al., 2023; Liang et al., 2023; Park et al., 2023)
+                                        2020; Scao et al., 2022; Chowdhery et al., 2022;        and optimizes the collective power of multiple
+                                        Touvron et al., 2023; OpenAI, 2023) have exhibited      agents (Chen et al., 2023; Li et al., 2023d; Hong
+                                        notable generalization abilities across a wide          et al., 2023). Through such design, the expertise
+                                        range of tasks and applications (Lu et al., 2023;       implicitly embedded within LLMs, or that the
+                                        Zhou et al., 2023; Park et al., 2023), with             model has encountered during its training, which
+                                        these capabilities stemming from their extensive        may not be readily accessible via traditional
+                                        training on vast comprehensive corpora covering         prompting, is effectively brought to the fore.
+                                        diverse topics. However, in real-world scenarios,
+                                                                                                     1
+                                        LLMs tend to encounter domain-specific tasks that              Although Med-PaLM 2 (Singhal et al., 2023b) serves as
+                                                                                                a specialized medical LLM fine-tuned on the basis of PaLM 2,
+                                            ∗
+                                                Equal contribution.                             it is closed-sourced and not publicly accessible yet.
+  A 66-year-old male with a history of heart attack and recurrent stomach ulcers is experiencing persistent cough and chest pain, and
+  recent CT scans indicate a possible lung tumor. Designing a treatment plan that minimizes risk and maximizes outcomes is the
+  current concern due to his deteriorating health and medical history.
+
+
+
+
+  ① Expert Gathering                                ② Analysis Proposition                            ③ Report Summarization
+
+                                                   Domain: Cardiology      Domain: Gastroenterology
+                ......
+                                                   Analysis:               Analysis:
+       ......
+                         ......                    Domain: Radiology CT    Domain: Surgery                    Key knowledge:
+                                                                                                              Total Analysis:
+                                                   Analysis:               Analysis:
+
+
+
+
+  ④ Collaborative Consultation                                                                        ⑤ Decision Making
+
+
+
+                                                                                                                   Unanimous Report
+
+                Summarized                 Summarized                          Summarized
+                  Report                     Report                              Report
+
+                                                                                                                        Answer
+
+
+
+
+Figure 1: Diagram of our proposed M EDAGENTS framework. Given a medical question as input, the framework
+performs reasoning in five stages: (i) expert gathering, (ii) analysis proposition, (iii) report summarization, (iv)
+collaborative consultation, and (v) decision making.
+
+This process subsequently enhances the model’s                            setting compared with the 5-shot baselines.
+reasoning capabilities throughout multiple rounds                            Based on our results, we further investigate
+of interaction (Wang et al., 2023c; Fu et al., 2023).                     the influence of agent numbers and conduct
+   Motivated by these notions, we pioneer a                               human evaluations to pinpoint the limitations
+multi-disciplinary collaboration framework                                and issues prevalent in our approach. We find
+(MedAgents) specifically tailored to the clinical                         four common categories of errors: (i) lack of
+domain. Our objective centers on unveiling                                domain knowledge, (ii) mis-retrieval of domain
+the intrinsic medical knowledge embedded in                               knowledge, (iii) consistency errors, and (iv) CoT
+LLMs and reinforcing reasoning proficiency in                             errors. Targeted refinements focused on mitigating
+a training-free manner. As shown in Figure                                these particular shortcomings would enhance the
+1, the M EDAGENTS framework gathers experts                               model’s proficiency and reliability.
+from diverse disciplines and reaches consistent                              Our contributions are summarized as follows:
+conclusions through collaborative discussions.                               (i) To the best of our knowledge, we are the
+   Based on our M EDAGENTS framework, we                                  first to propose a multi-agent framework within
+conduct experiments on nine datasets, including                           the medical domain and explore how multi-agent
+MedQA (Jin et al., 2021), MedMCQA (Pal et al.,                            communication within the medical setting can
+2022), PubMedQA (Jin et al., 2019) and six                                lead to a consensus decision, adding a novel
+medical subtasks from MMLU (Hendrycks et al.,                             dimension to the current literature on medical
+2020).2 To better align with real-world application                       question answering.
+scenarios, our study focuses on the zero-shot                                (ii) Our proposed M EDAGENTS framework
+setting, which can serve as a plug-and-play method                        enjoys enhanced faithfulness and interpretability
+to supplement existing medical LLMs such as Med-                          by harnessing role-playing and collaborative
+PaLM 2 (Singhal et al., 2023b). Encouragingly, our                        agent discussion. And we demonstrate that
+proposed approach outperforms settings for both                           role-playing allows LLM to explicitly reason
+chain-of-thought (CoT) and self-consistency (SC)                          with accurate knowledge, without the need for
+prompting methods. Most notably, our approach                             retrieval augmented generation (RAG). Examples
+achieves better performance under the zero-shot                           illustrating interpretability are shown in Appendix
+   2
+    We follow the evaluation setting from Faln-PaLM
+                                                                          B.
+(Singhal et al., 2023a).                                                     (iii) Experimental results on nine datasets
+Question: A 3-month-old infant is brought to her pediatrician because she coughs and seems to have difficulty breathing while feeding. In
+addition, she seems to have less energy compared to other babies and appears listless throughout the day. She was born by cesarean
+section to a G1P1 woman with no prior medical history and had a normal APGAR score at birth. Her parents say that she has never been
+observed to turn blue. Physical exam reveals a high-pitched holosystolic murmur that is best heard at the lower left sternal border. The
+most likely cause of this patient's symptoms is associated with which of the following abnormalities?
+Options: (A) 22q11 deletion (B) Deletion of genes on chromosome 7 (C) Lithium exposure in utero (D) Retinoic acid exposure in utero
+
+
+    Domain Experts                                                                    Initial Report
+    Question domains:                                   Option domains:              Key Knowledge: Clinical assessment of an infant with symptoms
+                                                                                     suggesting VSD...
+       Pediatrics                   Cardiology               Cardiology
+                                                                                     Total Analysis: The infant's symptoms are consistent with VSD...
+       Pulmonology                  Neonatology              Genetics                Options such as 22q11 deletion, deletion of genes on chromosome
+                                                                                     7, lithium exposure in utero are not relevant to the given scenario.
+ Question Analyses                                      Option Analyses
+         ...It’s important to manage VSD                    Option A:
+         promptly to prevent complications such             The symptoms...are
+         as congestive heart failure, pulmonary                                          :             :      :         :         :    ,the report should...
+                                                            consistent with a VSD
+         hypertension, and growth failure.                  Option B:
+         ...VSD is a congenital heart defect,
+                                                            ...a deletion of genes       :             :      :         :         :    ,the report should...
+                                                            on chromosome 7
+         meaning it is present at birth, and it is          Option C:...
+         not related to the mode of delivery or             Option D:...                 :             :      :         :         :
+         the APGAR score.
+         ...Cyanosis is often seen in infants with          Option A: ...
+         significant left-to-right shunting of blood,       Option B: ...            Unanimous Report
+         but in this scenario, the absence of               Option C:
+         cyanosis suggests that the VSD is small            ...not known to cause    Key Knowledge: The infant's symptoms are concerning for a
+          to moderate in size.                              ventricular septal       possible congenital heart defect or a respiratory condition...
+                                                            defects....
+         ...Small VSDs may close spontaneously              Option D: ... be         Total Analysis: ...one of the most common genetic abnormalities
+         over time, while larger VSDs may
+         require surgical intervention to prevent
+                                                            associated with a        associated with congenital heart defects, including VSD, is the
+                                                            range of birth defects
+         complications.                                                              22q11 deletion syndrome, also known as DiGeorge syndrome...
+
+
+Figure 2: Illustrative example of our proposed MedAgents, a multi-disciplinary collaboration framework. The
+questions and options are first presented, with domain experts subsequently gathered. The recruited experts
+conduct thorough Question and Option analyses based on their respective fields. An initial report synthesizing
+these analyses is then prepared to concisely represent the performed evaluations. The assembled LLM experts,
+possessing respective disciplinary backgrounds, engage in a discussion over the initial report, voicing agreements
+and disagreements. Ultimately, after iterative refinement and consultation, a unanimous report is generated that best
+represents the collective expert knowledge and reasoning on the given medical problem.
+
+demonstrate the general effectiveness of our                                           2.1      Expert Gathering
+proposed M EDAGENTS framework. Besides, we
+identify and categorize common error types in our                                      Given a clinical question q and a set of options
+approach through rigorous human evaluation to                                          op = {o1 , o2 , . . . , ok } where k is the number of
+shed light on future studies.                                                          options, the goal of the Expert Gathering stage
+                                                                                       is to recruit a group of question domain experts
+2        Method                                                                        QD = {qd1 , qd2 , . . . , qdm } and option domain
+                                                                                       experts OD = {od1 , od2 , . . . , odn } where m
+This section presents the details of our proposed                                      and n represent the number of question domain
+multi-disciplinary collaboration M EDAGENTS                                            experts and option domain experts, respectively. 4
+framework. Figure 1 and 2 give an overview and                                         Specifically, we assign a role to the model and
+an illustrative example of its pipeline, respectively.                                 provide instructions to guide the model output
+Our proposed M EDAGENTS framework works                                                to the corresponding domains based on the input
+in five stages: (i) expert gathering: assemble                                         question and options, respectively:
+experts from various disciplines based on the
+clinical question; (ii) analysis proposition: domain                                                                        
+experts present their own analyses with their                                                     QD = LLM q, rqd , promptqd ,
+                                                                                                                                                         (1)
+expertise; (iii) report summarization: develop a                                                  OD = LLM (q, op, rod , promptod ) ,
+report summary on the basis of previous analyses;
+(iv) collaborative consultation: hold a consultation                                                         
+                                                                                       where rqd , promptqd and (rod , promptod ) stand
+over the summarized report with the experts. The
+                                                                                       for the system role and guideline prompt to gather
+report will be revised repeatedly until every expert
+                                                                                       domain experts for the question q and options op.
+has given their approval. (v) decision making:
+derive a final decision from the unanimous report.3
+                                                                                           4
+                                                                                             We design domain experts for the question and options
+     3
+    Details about all guideline prompts and roles are shown                            in order to leverage diverse agents to elicit multifaceted and
+in Section D for clarification.                                                        comprehensive knowledge.
+ Dataset               Format                      Choice             Testing Size                 Domain
+ MedQA            Question + Answer                A/B/C/D                1273        US Medical Licensing Examination
+ MedMCQA          Question + Answer       A/B/C/D and Explanations        6.1K       AIIMS and NEET PG entrance exams
+ PubMedQA Question + Context + Answer           Yes/No/Maybe               500              PubMed paper abstracts
+                                                                                        Graduate Record Examination
+ MMLU             Question + Answer                A/B/C/D                1089
+                                                                                     & US Medical Licensing Examination
+
+      Table 1: Summary of the Datasets. Part of the values are from the appendix of (Singhal et al., 2023a).
+
+2.2   Analysis Proposition                                   Algorithm 1: Collaborative Consultation
+After gathering domain experts for the question                Input: Domain experts D = {d1 , ..., dn }, initial
+                                                                      report R0 , Model M, maximum attempts t,
+q and options op, we aim to inquire experts                           prompts {pvote , pmod , prev }
+to generate corresponding analyses prepared for                Output: Final report Rf
+later reasoning: QA = {qa1 , qa2 , . . . , qam } and          // Initialize variables
+OA = {oa1 , oa2 , . . . , oan }.                              nocon_f lag ← T rue, ntry ← 0
+                                                              Rcur ← R0 , M ods ← ∅
+Question Analyses Given a question q and a                    // Iterative review
+question domain qdi ∈ QD, we ask LLM to                       while nocon_f lag is T rue and ntry < t do
+                                                                  ntry ← ntry + 1
+serve as an expert specialized in domain qdi and                  nocon_f lag ← F alse
+derive the analyses for the question q following the              // vote for the report
+guideline prompt promptqa :                                       for i in 1, ..., n do
+                                                                       votei ← M(Rcur , di , pvote )
+                                                                      // propose modifications
+       qai = LLM q, qdi , rqa , promptqa .       (2)                   if votei is no then
+                                                                            M odi ← M(Rcur , di , pmod )
+Option Analyses Now that we have an option                                  Update M ods with M odi
+                                                                            nocon_f lag ← T rue
+domain odi and question analyses QA, we can                            end
+further analyze the options by taking into account                end
+both the relationship between the options and                     // modify the report
+                                                                  if nocon_f lag is T rue then
+the relationship between the options and question.                     Rcur ← M(Rcur , M ods, prev )
+Concretely, we deliver the question q, the options                end
+op, a specific option domain odi ∈ OD, and the                end
+                                                              return Rf ← Rcur
+question analyses QA to the LLM:
+
+ oai = LLM (q, op, odi , QA, roa , promptoa ) . (3)
+                                                            experts. The overall procedure of this phase is
+2.3   Report Summarization                                  presented in Algorithm 1. During each round of
+In the Report Summarization stage, we attempt to            discussions, the experts give their votes (yes/no):
+summarize and synthesize previous analyses from             vote = LLM (Repo, rvote , promptvote ), as well
+various domain experts QA ∪ OA. Given question              as modification opinions if they vote no for the
+analyses QA and option analyses OA, we ask                  current report. Afterward, the report will be revised
+LLMs to play the role of a medical report assistant,        based on the modification opinions. Specifically,
+allowing it to generate a synthesized report by             during the j-th round of discussion, we note the
+extracting key knowledge and total analysis based           modification comments from the experts as M odj ,
+on previous analyses:                                       then we can acquire the updated report as Repoj =
+                                                            LLM (Repoj−1 , M odj , promptmod ). In this way,
+   Repo = LLM (QA, OA, rrs , promptrs ) .          (4)      the discussions are held iteratively until all experts
+                                                            vote yes for the final report Repof or the discussion
+2.4   Collaborative Consultation                            number attains the maximum attempts threshold.
+Since we have a preliminary summary report Repo,
+                                                            2.5   Decision Making
+the objective of the Collaborative Consultation
+stage is to engage distinct domain experts in               In the end, we demand LLM act as a medical
+multiple rounds of discussions and ultimately               decision maker to derive the final answer to the
+render a summary report that is recognized by all           clinical question q referring to the unanimous
+report Repof :                                                  • Setting w/ CoT: Zero-shot CoT (Kojima
+                                                             et al., 2022) directly incorporates the prompt Let’s
+        ans = LLM (q, op, Repof , promptdm ) .        (5)    think step by step after a question to facilitate
+                                                             inference. Few-shot CoT (Wei et al., 2022)
+3       Experiments                                          adopts comparable methodologies to Few-shot but
+                                                             distinguishes itself by integrating rationales before
+3.1      Setup                                               deducing the answer.
+Tasks and Datasets. We evaluate our M EDA-                      • Setting w/ SC: SC (Wang et al., 2022) serves
+GENTS framework on three benchmark datasets                  as an additional sampling method on Zero-shot
+MedQA (Jin et al., 2021), MedMCQA (Pal et al.,               CoT and Few-shot CoT, which yields the majority
+2022), and PubMedQA (Jin et al., 2019), as well as           answer by sampling multiple chains.
+six subtasks most relevant to the medical domain
+                                                             3.2      Main Results
+from MMLU datasets (Hendrycks et al., 2020)
+including anatomy, clinical knowledge, college               Table 2 presents the main results on the
+medicine, medical genetics, professional medicine,           nine datasets, including MedQA, MedMCQA,
+and college biology. Table 1 summarizes the data             PubMedQA, and six subtasks from MMLU. We
+statistics. More information about the evaluated             compare our method with several baselines in
+datasets is presented in Appendix C.                         both zero-shot and few-shot settings. Notably, our
+                                                             proposed M EDAGENTS framework outperforms
+Implementation. We utilize the popular and                   the zero-shot baseline methods by a large margin,
+publicly available GPT-3.5-Turbo and GPT-4                   indicating the effectiveness of our M EDAGENTS
+(OpenAI, 2023) from Azure OpenAI Service.5 All               framework in real-world application scenarios.
+experiments are conducted in the zero-shot setting.          Furthermore, our approach achieves comparable
+The temperature is set to 1.0 and top_p to 1.0 for all       performance under the zero-shot setting compared
+generations. The iteration number and temperature            with the strong baseline Few-shot CoT+SC.
+of SC are 5 and 0.7, respectively. The number k                 Interestingly, the introduction of CoT occa-
+of options is 4 except for PubMedQA (3). The                 sionally leads to a surprising degradation in
+numbers of domain experts for the question and               performance.7 We have found that reliance
+options are set as: m = 5, n = 2 except for                  on CoT in isolation can inadvertently result
+PubMedQA (m = 4, n = 2). The number of                       in hallucinations - spurious outputs typically
+maximum attempts t is set as 5. We randomly                  associated with the misapplication of medical
+sample 300 examples for each dataset and conduct             terminologies. In contrast, our multi-agent role-
+experiments on them. Statistically, the cost of our          playing methodology effectively mitigates these
+method is $1.41 for 100 QA examples (about ¢1.4              issues, thus underscoring its potential as a more
+per question) and the inference time per example             robust approach in medically oriented LLM
+is about 40s.6                                               applications.
+Baselines. We have utilized models that are                  4       Analysis
+readily accessible through public APIs with the
+following baselines:                                         4.1      Ablation Study
+   • Setting w/o CoT: Zero-shot (Kojima et al.,              Since our M EDAGENTS framework simulates
+2022) appends the prompt /emphA: The answer is               a multi-disciplinary collaboration process that
+to a given question and utilizes it as the input fed         contains multiple intermediate steps, a natural
+into LLMs. Few-shot (Brown et al., 2020) intro-              question is whether each intermediate step
+duces several manually templated demonstrations,             contributes to the ultimate result. To investigate
+structured as [Q: q, A: The answer is a], preceding          this, we ablate three major processes, namely
+the input question.                                          analysis proposition, report summarization and
+    5                                                        collaborative consultation. Results in Table 3 show
+     https://learn.microsoft.com/en-us/azure/
+ai-services/openai/                                          that all of these processes are non-trivial. Notably,
+   6
+     We acknowledge that our proposed method requires more   the proposition of M EDAGENTS substantially
+cost compared with CoT or direct prompting. However,
+                                                                 7
+our approach is relatively cost-effective and the improved      A more detailed analysis of CoT’s impact is provided in
+performance potentially leads to better health outcomes.     Appendix A.
+                                                               Clinical College Medical Professional College
+Method               MedQA MedMCQA PubMedQA Anatomy                                                          Avg.
+                                                              knowledge medicine genetics medicine biology
+                                                      Flan-Palm
+Few-shot CoT          60.3     53.6           77.2   66.7     77.0          83.3       75.0          76.5       71.1   71.2
+Few-shot CoT + SC     67.6     57.6           75.2   71.9     80.4          88.9       74.0          83.5       76.3   75.0
+
+                                                       GPT-3.5
+*few-shot setting
+Few-shot              54.7     56.7           67.6   65.9         71.3      59.0       72.0          75.7       73.6   66.3
+Few-shot CoT          55.3     54.7           71.4   48.1         65.7      55.5       57.0          69.5       61.1   59.8
+Few-shot CoT + SC     62.1     58.3           73.4   70.4         76.2      69.8       78.0          79.0       77.2   71.6
+*zero-shot setting
+Zero-shot             54.3     56.3           73.7   61.5         76.2      63.6       74.0          75.4       75.0   67.8
+Zero-shot CoT         44.3     47.3           61.3   63.7         61.9      53.2       66.0          62.1       65.3   58.3
+Zero-shot CoT + SC    61.3     52.5           75.7   71.1         75.1      68.8       76.0          82.3       75.7   70.9
+MedAgents (Ours)      64.1     59.3           72.9   65.2         77.7      69.8       79.0          82.1       78.5   72.1
+
+                                                        GPT-4
+*few-shot setting
+Few-shot              76.6     70.1           73.4   79.3         89.5      75.6       93.0          91.5       91.7   82.3
+Few-shot CoT          73.3     63.2           74.9   75.6         89.9      61.0       79.0          79.8       63.2   73.3
+Few-shot CoT + SC     82.9     73.1           75.6   80.7         90.0      88.2       90.0          95.2       93.0   85.4
+*zero-shot setting
+Zero-shot             73.0     69.0           76.2   78.5         83.3      75.6       90.0          90.0       90.0   80.6
+Zero-shot CoT         61.8     69.0           71.0   82.1         85.2      80.8       92.0          93.5       91.7   80.8
+Zero-shot CoT + SC    74.5     70.1           75.3   80.0         86.3      81.2       93.0          94.8       91.7   83.0
+MedAgents (Ours)      83.7     74.8           76.8   83.5         91.0      87.6       93.0          96.0       94.3   86.7
+
+Table 2: Main results (Acc). SC denotes the self-consistency prompting method. Results in bold are the best
+performances.
+
+    Method                            Accuracy(%)           Dataset            MedQA MedMCQA PubMedQA MMLU
+    Direct Prompting                  49.0                  #Question agents       5          5             4          5
+    CoT Prompting                     55.0                  #Option agents         2          2             2          2
+    w/ MedAgents
+      + Anal                          62.0(↑ 7.0)           Table 5: Optimal number of agents on MedQA,
+      + Anal & Summ                   65.0(↑ 10.0)
+      + Anal & Summ & Cons            67.0(↑ 12.0)          MedMCQA, PubMedQA, and MMLU.
+
+                                                                  Method                  MedQA         MedMCQA
+Table 3: Ablation study for different processes on
+MedQA. Anal: Analysis proposition, Summ: Report                   M EDAGENTS                  63.8          58.9
+                                                                  Remove most relevant        60.5          55.4
+summarization, Cons: Collaborative consultation.
+                                                                  Remove least relevant       66.2          61.5
+                                                                  Remove randomly             62.2          56.3
+   Method                    MedQA     MedMCQA
+   M EDAGENTS (GPT-3.5)       64.1           59.3           Table 6: Domain variation study. The results are based
+   M EDAGENTS (GPT-4)         83.7           74.8
+                                                            on GPT-3.5.
+   MedAlpaca-7B               55.2           45.8
+   BioMedGPT-10B              50.4           42.2
+   BioMedLM-2.7B              50.3            -             processes play a role in further verification and
+   BioBERT (large)            36.7           37.1           revision.
+   SciBERT (large)             -             39.2
+   BERT (large)                -             33.6
+                                                            4.2    Comparison with Open-source Medical
+Table 4: Comparison with open-source medical models.
+                                                                   Models
+                                                            We conduct a comprehensive comparison between
+boosts the performance (i.e., 55.0%→62.0%),                 our proposed M EDAGENTS framework with more
+whereas the subsequent processes achieve rela-              baseline methods, including open-source domain-
+tively slight improvements over the previous one            adapted models such as MedAlpaca-7B (Han
+(i.e., 62.0%→65.0/67.0%). This suggests that                et al., 2023), BioMedGPT-10B (Luo et al., 2023),
+the initial role-playing agents are responsible for         BioMedLM-2.7B (Bolton et al., 2024), BioBERT
+exploring medical knowledge of various levels               (large) (Lee et al., 2020), SciBERT (large) (Beltagy
+and aspects within LLMs, while the following                et al., 2019) and BERT (large). We leverage them
+                                                                                     Method                        MedQA   MedMCQA
+            0.75
+                                                                                        M EDAGENTS
+            0.70                                                                          w/ 6 different domains    64.1     59.3
+
+ Accuracy
+            0.65                                                                          w/ 6 same domains         59.2     58.1
+                                                                                          w/ 5 same domains         57.5     57.3
+            0.60                                                                          w/ 4 same domains         55.9     57.0
+                                                MedQA
+            0.55                                MedMCQA
+                                                PubMedQA                          Table 7: Agent quantity study. The results are based on
+            0.50                                MMLU                              GPT-3.5.
+                   1      2      3          4         5         6     7     8
+                                     #Question agents                             experts based on domain relevance. Due to
+            0.75
+                                                                                  the manual evaluation involved in identifying
+                                                                                  the relevance of agent domains, our additional
+            0.70                                                      MedQA       analysis was conducted on a limited set of 20
+ Accuracy
+                                                                      MedMCQA
+            0.65                                                      PubMedQA    samples. Results in Table 6 depict minor variance
+                                                                      MMLU
+                                                                                  for different sizes of data with random removing,
+            0.60
+                                                                                  reinforcing the notion that large-scale experiment
+            0.55                                                                  performance remains largely robust against the
+                   1.0   1.5   2.0    2.5       3.0       3.5   4.0   4.5   5.0   effect of domain changes.
+                                      #Option agents
+                                                                                  4.5     Agent Quantity Study
+Figure 3: Influence of the number of question and option
+agents on various datasets.                                                       To further explore the effect of agent quantity
+                                                                                  without changes in domain representation, we
+in the early stages of our work for preliminary                                   conduct experiments with k (k = 6) identical-
+attempts. Results in Table 4 demonstrate that                                     domain agents, then with k−1 and k−2, to observe
+the open-source methods fell short of the baseline                                performance shifts. The process of selecting these
+in Table 2, which leads us to focus on the more                                   domains is automated via prompting, and our
+effective methods.                                                                manual inspection confirms the high relevance and
+                                                                                  quality of the selected domains. The experiment is
+4.3           Number of agents                                                    conducted on a dataset of 300 samples.
+As our M EDAGENTS framework involves multiple
+agents that play certain roles to acquire the                                     4.6     Error Analysis
+ultimate answer, we explore how the number                                        Based on our results, we conduct a human
+of collaborating agents influences the overall                                    evaluation to pinpoint the limitations and issues
+performance. We vary the number of question                                       prevalent in our model. We distill these errors
+and option agents while fixing other variables to                                 into four major categories: (i) Lack of Domain
+observe the performance trends on the MedQA                                       Knowledge: the model demonstrates an inadequate
+dataset. Figure 3 and Table 5 illustrate the                                      understanding of the specific medical knowledge
+corresponding trend and the optimal number                                        necessary to provide an accurate response; (ii)
+of different agents. Our key observation lies                                     Mis-retrieval of Domain Knowledge: the model
+in that the performance improves significantly                                    has the necessary domain knowledge but fails to
+with the introduction of any number of expert                                     retrieve or apply it correctly in the given context;
+agents compared to our baseline, thus verifying                                   (iii) Consistency Errors: the model provides
+the consistent contribution of multiple expert                                    differing responses to the same statement. The
+agents. We find that the optimal number of agents                                 inconsistency suggests confusion in the model’s
+is relatively consistent across different datasets,                               understanding or application of the underlying
+pointing to its potential applicability to other                                  knowledge; (iv) CoT Errors: the model may
+datasets beyond those we test on.                                                 form and follow inaccurate rationales, leading to
+                                                                                  incorrect conclusions.
+4.4           Domain Variation Study                                                 To illustrate the error examples intuitively, we
+In order to investigate the influence of the changes                              select four typical samples from the four error
+in agent numbers, we perform additional studies                                   categories, which can be shown in Figure 5:
+where we manipulate agent numbers by selectively                                  (i) The first error is due to a lack of domain
+eliminating the most and least relevant domain                                    knowledge regarding cutaneous larva migrans,
+             Lack of Domain Knowledge                      a variety of perspectives, the collaborative
+             Mis-retrieval of Domain Knowledge
+             Consistency Errors
+                                                           consultation actively refines and rectifies initial
+             CoT Errors                                    analyses, thereby aligning the decision-making
+                                                           process closer to clinical accuracy. This iterative
+                                                           refinement serves as a practical demonstration
+                                                           of our model’s proficiency in rectifying errors,
+                                                           substantiating its interpretability and accuracy in
+                                                           complex medical reasoning tasks.
+
+                                                           5     Related Work
+ Figure 4: Ratio of different categories in error cases.   5.1    LLMs in Medical Domains
+whose symptoms are not purely hypopigmented                Recent years have seen remarkable progress in the
+rash, as well as the fact that skin biopsy is not          application of LLMs (Wu et al., 2023b; Singhal
+an appropriate test method, which results in the           et al., 2023a; Yang et al., 2023), with a particularly
+hallucination phenomenon. (ii) The second error            notable impact on the medical field (Bao et al.,
+is caused by mis-retrieval of domain knowledge,            2023; Nori et al., 2023; Rosoł et al., 2023).
+wherein the fact in green is not relevant to Valsalva      Although LLMs have demonstrated their potential
+maneuver. (iii) The third error is attributed to           in distinct medical applications encompassing
+consistency errors, where the model incorrectly            diagnostics (Singhal et al., 2023a; Han et al., 2023),
+regards 20 mmHg within 6 minutes and 20 mmHg               genetics (Duong and Solomon, 2023; Jin et al.,
+within 3 minutes as the same meaning. (iv) The             2023), pharmacist (Liu et al., 2023), and medical
+fourth error is provoked by incorrect inference            evidence summarization (Tang et al., 2023b,a;
+about the relevance of a fact and option A in CoT.         Shaib et al., 2023), concerns persist when LLMs
+   Furthermore, we analyze the percentage of               encounter clinical inquiries that demand intricate
+different categories by randomly selecting 40 error        medical expertise and decent reasoning abilities
+cases in MedQA and MedMCQA datasets. As is                 (Umapathi et al., 2023; Singhal et al., 2023a). Thus,
+shown in Figure 4, the majority (77%) of the error         it is of crucial importance to further arm LLMs with
+examples are due to confusion about the domain             enhanced clinical reasoning capabilities. Currently,
+knowledge (including the lack and mis-retrieval of         there are two major lines of research on LLMs
+domain knowledge), which illustrates that there            in medical domains, tool-augmented methods and
+still exists a portion of domain knowledge that            instruction-tuning methods.
+is explicitly beyond the intrinsic knowledge of                For tool-augmented approaches, recent studies
+LLMs, leading to a bottleneck of our proposed              rely on external tools to acquire additional
+method. As a result, our analysis sheds light on           information for clinical reasoning. For instance,
+future directions to mitigate the aforementioned           GeneGPT (Jin et al., 2023) guided LLMs to
+drawbacks and further strengthen the model’s               leverage the Web APIs of the National Center for
+proficiency and reliability.                               Biotechnology Information (NCBI) to meet various
+                                                           biomedical information needs. Zakka et al. (2023)
+4.7   Correctional Capabilities and                        proposed Almanac, a framework that is augmented
+      Interpretability                                     with retrieval capabilities for medical guidelines
+In our extensive examination of the M EDAGENTS             and treatment recommendations. Kang et al. (2023)
+framework, we discover the decent correctional             introduced a method named KARD to improve
+capabilities of our framework. Please refer                small LMs on specific domain knowledge by fine-
+to Appendix B and Table B for an in-depth                  tuning small LMs on the rationales generated from
+overview of instances where our approach suc-              LLMs and augmenting small LMs with external
+cessfully amends previous inaccuracies, steering           knowledge from a non-parametric memory.
+the discussion towards more accurate outcomes.                 Current instruction tuning research predom-
+These corrections showcase the M EDAGENTS                  inantly leverages external clinical knowledge
+framework’s strength in collaborative synthesis; it        bases and self-prompted data to obtain instruction
+distills and integrates diverse expert opinions into a     datasets (Tu et al., 2023; Zhang et al., 2023a;
+cohesive and accurate conclusion. By interweaving          Singhal et al., 2023b; Tang et al., 2023c). These
+Category                              Example                                                   Interpretation
+Lack of Domain Knowledge             ...The hypopigmented rash is a classic symptom of About cutaneous larva migrans:
+                                     cutaneous larva migrans. To confirm the diagnosis, 1. symptoms:
+                                     a skin biopsy would be the most appropriate test.        not simply hypopigmented rash
+                                                                                        2. diagnostic method:
+                                                                                              skin biopsy is not preferred
+Mis-retrieval of Domain Knowledge ...The physician instructs the patient to stand from a The patient is asked to merely stand
+                                  supine position while still wearing the stethoscope.   from a supine position. It does not
+                                  It is known as the "Valsalva maneuver" During the involve the Valsalva maneuver.
+                                  Valsalva maneuver, ...
+
+Consistency Errors                   ...Option A states that there is a decrease in systolic Correct statement:
+                                     blood pressure of 20 mmHg within 6 minutes. This is          20mmHg within 3 minutes
+                                     a correct statement, as a drop in systolic blood        Option A:
+                                     pressure of at least 20 mmHg within 3 minutes of             20mmHg within 6 minutes
+                                     standing up is a diagnostic criterion for postural
+                                     hypotension...
+
+CoT Errors                            Q: Deciduous teeth do not show fluorosis because:         placenta can as a barrier for certain
+                                      ...(A) Placenta acts as a barrier: While it's true that   substances such as fluoride, which is
+                                      placenta can act as a barrier for certain substances,     part of the reason why deciduous teeth
+                                      this option is not relevant to the question...            do not show fluorosis...
+
+
+Figure 5: Examples of error cases from MedQA and MedMCQA datasets in four major categories including lack of
+domain knowledge, mis-retrieval of domain knowledge, consistency errors, and CoT errors.
+
+datasets are then employed to fine-tune LLMs                        (SPP) (Wang et al., 2023d) managed to combine
+within the medical field (Singhal et al., 2023b).                   the strengths of multiple minds to improve
+Some of these models utilize a wide array of                        performance by dynamically identifying and
+datasets collected from medical and biomedical                      engaging multiple personas throughout task-
+literature, fine-tuned with specialized or open-                    solving. Camel (Li et al., 2023b) leveraged role-
+ended instruction data (Li et al., 2023a; Singhal                   playing to enable chat agents to communicate with
+et al., 2023b). Others focus on specific areas                      each other for task completion.
+such as traditional Chinese medicine or large-                         Several recent works attempt to incorporate
+scale, diverse medical instruction data to enhance                  adversarial collaboration including debates (Du
+their medical proficiency (Tan et al., 2023; Zhang                  et al., 2023; Xiong et al., 2023) and negotiation
+et al., 2023b). Unlike these methods, our work                      (Fu et al., 2023) among multiple agents to further
+emphasizes harnessing latent medical knowledge                      boost performance. Liang et al. (2023) proposed a
+intrinsic to LLMs and improving reasoning in a                      multi-agent debate framework in which various
+training-free setting.                                              agents put forward their statements in a tit for
+                                                                    tat pattern. Inspired by the multi-disciplinary
+5.2   LLM-based Multi-agent Collaboration                           consultation mechanism which is common and
+The development of LLM-based agents has made                        effective in hospitals, we are thus inspired to apply
+significant progress in the community by endowing                   this mechanism to medical reasoning tasks through
+LLMs with the ability to perceive surroundings and                  LLM-based multi-agent collaboration.
+make decisions individually (Wang et al., 2023a;
+                                                                     6    Conclusion
+Yao et al., 2022; Nakajima, 2023; Xie et al., 2023;
+Zhou et al., 2023). Beyond the initial single-                      We present a novel medical QA framework
+agent mode, the multi-agent pattern has garnered                    that uses role-playing agents for multi-round
+increasing attention recently (Xi et al., 2023; Li                  discussions, offering greater reliability and clarity
+et al., 2023d; Hong et al., 2023) which further                     without prior training. Our method surpasses zero-
+explores the potential of LLM-based agents by                       shot baselines and matches few-shot baselines
+learning from multi-turn feedback and cooperation.                  across nine datasets. Despite successes, human-
+In essence, the key to LLM-based multi-agent                        based evaluations of errors have highlighted areas
+collaboration is the simulation of human activities                 for refinement. Our approach differs from most
+such as role-playing (Wang et al., 2023d; Hong                      existing methods by eliminating the dependency
+et al., 2023) and communication (Wu et al., 2023a;                  on knowledge bases, instead uniquely integrating
+Qian et al., 2023; Li et al., 2023b,c).                             medical knowledge through role-playing agents.
+   For instance, Solo Performance Prompting
+Limitation                                                  Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie
+                                                              Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind
+The proposed M EDAGENTS framework has shown                   Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+promising results, but there are still a few points           Askell, Sandhini Agarwal, Ariel Herbert-Voss,
+                                                              Gretchen Krueger, Tom Henighan, Rewon Child,
+that could be addressed in future studies. First, the         Aditya Ramesh, Daniel M. Ziegler, Jeffrey Wu,
+parameterized knowledge within LLMs may need                  Clemens Winter, Christopher Hesse, Mark Chen, Eric
+updating over time, and thus, continuous efforts              Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess,
+are required to keep the framework up-to-date.                Jack Clark, Christopher Berner, Sam McCandlish,
+                                                              Alec Radford, Ilya Sutskever, and Dario Amodei.
+Second, integrating diverse models at different
+                                                              2020. Language models are few-shot learners. In
+stages of our framework might be an intriguing                Advances in Neural Information Processing Systems
+exploration. Third, the framework may have                    33: Annual Conference on Neural Information
+limited applicability in low-resource languages.              Processing Systems 2020, NeurIPS 2020, December
+Adapting this framework to a wider range of                   6-12, 2020, virtual.
+low-resource languages could meet their specific            Sébastien Bubeck, Varun Chandrasekaran, Ronen Eldan,
+medical needs to some extent.                                 Johannes Gehrke, Eric Horvitz, Ece Kamar, Peter
+                                                              Lee, Yin Tat Lee, Yuanzhi Li, Scott Lundberg,
+Ethics Statement                                              et al. 2023. Sparks of artificial general intelligence:
+                                                              Early experiments with gpt-4. arXiv preprint
+Although our work strictly adheres to well-                   arXiv:2303.12712.
+established benchmarks in the field of medical
+                                                            Weize Chen, Yusheng Su, Jingwei Zuo, Cheng Yang,
+question answering, it is possible that our approach         Chenfei Yuan, Chen Qian, Chi-Min Chan, Yujia Qin,
+introduces potential risks, e.g., some inherent              Yaxi Lu, Ruobing Xie, et al. 2023. Agentverse:
+biases of LLMs, when applying LLM reasoning to               Facilitating multi-agent collaboration and exploring
+critical areas such as medicine.                             emergent behaviors in agents. arXiv preprint
+                                                             arXiv:2308.10848.
+Acknowledgments                                             Aakanksha Chowdhery, Sharan Narang, Jacob Devlin,
+                                                              Maarten Bosma, Gaurav Mishra, Adam Roberts,
+Xiangru Tang and Mark Gerstein are supported by               Paul Barham, Hyung Won Chung, Charles Sutton,
+Schmidt Sciences. Zhuosheng Zhang is supported                Sebastian Gehrmann, et al. 2022. Palm: Scaling
+by CIPSC-SMP-Zhipu.AI Large Model Cross-                      language modeling with pathways. ArXiv preprint,
+Disciplinary Fund.                                            abs/2204.02311.
+
+                                                            Yilun Du, Shuang Li, Antonio Torralba, Joshua B.
+                                                              Tenenbaum, and Igor Mordatch. 2023. Improving
+References                                                    factuality and reasoning in language models through
+Zhijie Bao, Wei Chen, Shengze Xiao, Kuang Ren,                multiagent debate.
+  Jiaao Wu, Cheng Zhong, Jiajie Peng, Xuanjing
+  Huang, and Zhongyu Wei. 2023. Disc-medllm:                Dat Duong and Benjamin D Solomon. 2023. Analysis
+  Bridging general large language models and real-            of large-language model versus human performance
+  world medical consultation.                                 for genetics questions. European Journal of Human
+                                                              Genetics, pages 1–3.
+Iz Beltagy, Kyle Lo, and Arman Cohan. 2019. Scibert:
+   A pretrained language model for scientific text. arXiv   Yao Fu, Hao Peng, Tushar Khot, and Mirella Lapata.
+   preprint arXiv:1903.10676.                                 2023. Improving language model negotiation with
+                                                              self-play and in-context learning from ai feedback.
+Maciej Besta, Nils Blach, Ales Kubicek, Robert
+ Gerstenberger, Lukas Gianinazzi, Joanna Gajda,             Nuno M Guerreiro, Duarte M Alves, Jonas Waldendorf,
+ Tomasz Lehmann, Michal Podstawski, Hubert                    Barry Haddow, Alexandra Birch, Pierre Colombo,
+ Niewiadomski, Piotr Nyczyk, et al. 2023. Graph               and André FT Martins. 2023. Hallucinations in large
+ of thoughts: Solving elaborate problems with large           multilingual translation models. Transactions of the
+ language models. arXiv preprint arXiv:2308.09687.            Association for Computational Linguistics, 11:1500–
+                                                              1517.
+Elliot Bolton, Abhinav Venigalla, Michihiro Yasunaga,
+   David Hall, Betty Xiong, Tony Lee, Roxana                Tianyu Han, Lisa C. Adams, Jens-Michalis Papaioan-
+   Daneshjou, Jonathan Frankle, Percy Liang, Michael          nou, Paul Grundmann, Tom Oberhauser, Alexander
+   Carbin, et al. 2024. Biomedlm: A 2.7 b parameter           LÃűser, Daniel Truhn, and Keno K. Bressem. 2023.
+   language model trained on biomedical text. arXiv           Medalpaca – an open-source collection of medical
+   preprint arXiv:2403.18421.                                 conversational ai models and training data.
+Emily Harris. 2023. Large language models answer            Jinhyuk Lee, Wonjin Yoon, Sungdong Kim, Donghyeon
+  medical questions accurately, but canâĂŹt match            Kim, Sunkyu Kim, Chan Ho So, and Jaewoo Kang.
+  cliniciansâĂŹ knowledge. JAMA.                             2020. Biobert: a pre-trained biomedical language
+                                                               representation model for biomedical text mining.
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou,          Bioinformatics, 36(4):1234–1240.
+  Mantas Mazeika, Dawn Song, and Jacob Steinhardt.          Chunyuan Li, Cliff Wong, Sheng Zhang, Naoto
+  2020.    Measuring massive multitask language               Usuyama, Haotian Liu, Jianwei Yang, Tristan
+  understanding. arXiv preprint arXiv:2009.03300.             Naumann, Hoifung Poon, and Jianfeng Gao. 2023a.
+                                                              Llava-med: Training a large language-and-vision
+Sirui Hong, Xiawu Zheng, Jonathan Chen, Yuheng                assistant for biomedicine in one day. arXiv preprint
+   Cheng, Jinlin Wang, Ceyao Zhang, Zili Wang, Steven         arXiv:2306.00890.
+   Ka Shing Yau, Zijuan Lin, Liyang Zhou, Chenyu Ran,
+   Lingfeng Xiao, and Chenglin Wu. 2023. Metagpt:           Guohao Li, Hasan Abed Al Kader Hammoud, Hani
+   Meta programming for multi-agent collaborative             Itani, Dmitrii Khizbullin, and Bernard Ghanem.
+   framework.                                                 2023b. Camel: Communicative agents for" mind"
+                                                              exploration of large scale language model society.
+Ziwei Ji, Nayeon Lee, Rita Frieske, Tiezheng Yu, Dan          arXiv preprint arXiv:2303.17760.
+  Su, Yan Xu, Etsuko Ishii, Ye Jin Bang, Andrea
+  Madotto, and Pascale Fung. 2023. Survey of                Huao Li, Yu Quan Chong, Simon Stepputtis, Joseph
+  hallucination in natural language generation. ACM           Campbell, Dana Hughes, Michael Lewis, and Katia
+  Computing Surveys, 55(12):1–38.                             Sycara. 2023c. Theory of mind for multi-agent
+                                                              collaboration via large language models. arXiv
+Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng,          preprint arXiv:2310.10701.
+  Hanyi Fang, and Peter Szolovits. 2021. What disease       Yuan Li, Yixuan Zhang, and Lichao Sun. 2023d.
+  does this patient have? a large-scale open domain           Metaagents: Simulating interactions of human
+  question answering dataset from medical exams.              behaviors for llm-based task-oriented coordination
+  Applied Sciences, 11(14):6421.                              via collaborative generative agents.
+Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William W          Tian Liang, Zhiwei He, Wenxiang Jiao, Xing Wang,
+  Cohen, and Xinghua Lu. 2019. Pubmedqa: A dataset            Yan Wang, Rui Wang, Yujiu Yang, Zhaopeng Tu, and
+  for biomedical research question answering. arXiv           Shuming Shi. 2023. Encouraging divergent thinking
+  preprint arXiv:1909.06146.                                  in large language models through multi-agent debate.
+
+Qiao Jin, Yifan Yang, Qingyu Chen, and Zhiyong Lu.          Valentin Liévin, Christoffer Egeberg Hother, and
+  2023. Genegpt: Augmenting large language models             Ole Winther. 2022. Can large language models
+  with domain tools for improved access to biomedical         reason about medical questions? arXiv preprint
+  information. ArXiv.                                         arXiv:2207.08143.
+                                                            Zhengliang Liu, Zihao Wu, Mengxuan Hu, Bokai Zhao,
+Minki Kang, Seanie Lee, Jinheon Baek, Kenji                   Lin Zhao, Tianyi Zhang, Haixing Dai, Xianyan Chen,
+  Kawaguchi, and Sung Ju Hwang. 2023. Knowledge-              Ye Shen, Sheng Li, et al. 2023. Pharmacygpt: The ai
+  augmented reasoning distillation for small language         pharmacist. arXiv preprint arXiv:2307.10432.
+  models in knowledge-intensive tasks. arXiv preprint
+  arXiv:2305.18395.                                         Pan Lu, Baolin Peng, Hao Cheng, Michel Galley, Kai-
+                                                              Wei Chang, Ying Nian Wu, Song-Chun Zhu, and
+Takeshi Kojima, Shixiang Shane Gu, Machel Reid,               Jianfeng Gao. 2023. Chameleon: Plug-and-play
+  Yutaka Matsuo, and Yusuke Iwasawa. 2022. Large              compositional reasoning with large language models.
+  language models are zero-shot reasoners. Advances           arXiv preprint arXiv:2304.09842.
+  in neural information processing systems, 35:22199–
+  22213.                                                    Yizhen Luo, Jiahuan Zhang, Siqi Fan, Kai Yang,
+                                                              Yushuai Wu, Mu Qiao, and Zaiqing Nie. 2023.
+Tiffany H Kung, Morgan Cheatham, Arielle Medenilla,           Biomedgpt: Open multimodal generative pre-trained
+   Czarina Sillos, Lorie De Leon, Camille Elepaño,            transformer for biomedicine.    arXiv preprint
+   Maria Madriaga, Rimel Aggabao, Giezel Diaz-                arXiv:2308.09442.
+   Candido, James Maningo, et al. 2023. Performance         Joshua Maynez, Shashi Narayan, Bernd Bohnet, and
+   of chatgpt on usmle: Potential for ai-assisted medical     Ryan McDonald. 2020.        On faithfulness and
+   education using large language models. PLoS digital        factuality in abstractive summarization. arXiv
+   health, 2(2):e0000198.                                     preprint arXiv:2005.00661.
+Jakub Lála, Odhran O’Donoghue, Aleksandar Sht-              Michael Moor, Oishi Banerjee, Zahra Shakeri Hossein
+  edritski, Sam Cox, Samuel G Rodriques, and                  Abad, Harlan M Krumholz, Jure Leskovec, Eric J
+  Andrew D White. 2023.        Paperqa: Retrieval-            Topol, and Pranav Rajpurkar. 2023. Foundation
+  augmented generative agent for scientific research.         models for generalist medical artificial intelligence.
+  arXiv preprint arXiv:2312.07559.                            Nature, 616(7956):259–265.
+Y Nakajima. 2023. Task-driven autonomous agent            Karan Singhal, Shekoofeh Azizi, Tao Tu, S. Mahdavi,
+  utilizing gpt-4, pinecone, and langchain for              Jason Wei, Hyung Chung, Nathan Scales, Ajay
+  diverse applications. See https://yoheinakajima.          Tanwani, Heather Cole-Lewis, Stephen Pfohl, Perry
+  com/task-driven-autonomous-agent-utilizing-gpt-4-         Payne, Martin Seneviratne, Paul Gamble, Chris
+  pinecone-and-langchain-for-diverse-applications           Kelly, Abubakr Babiker, Nathanael SchÃd’rli,
+  (accessed 18 April 2023).                                 Aakanksha Chowdhery, Philip Mansfield, Dina
+                                                            Demner-Fushman, and Vivek Natarajan. 2023a.
+Harsha Nori, Nicholas King, Scott Mayer McKinney,           Large language models encode clinical knowledge.
+  Dean Carignan, and Eric Horvitz. 2023. Capabilities       Nature, 620:1–9.
+  of gpt-4 on medical challenge problems. arXiv
+  preprint arXiv:2303.13375.                              Karan Singhal, Tao Tu, Juraj Gottweis, Rory Sayres,
+                                                            Ellery Wulczyn, Le Hou, Kevin Clark, Stephen
+OpenAI. 2023. Gpt-4 technical report. ArXiv preprint,       Pfohl, Heather Cole-Lewis, Darlene Neal, et al.
+  abs/2303.08774.                                           2023b. Towards expert-level medical question
+                                                            answering with large language models. arXiv
+Ankit Pal, Logesh Kumar Umapathi, and Malaikannan           preprint arXiv:2305.09617.
+  Sankarasubbu. 2022. Medmcqa: A large-scale multi-
+  subject multi-choice dataset for medical domain         Yang Tan, Mingchen Li, Zijie Huang, Huiqun Yu, and
+  question answering. In Conference on Health,              Guisheng Fan. 2023. Medchatzh: a better medical
+  Inference, and Learning, pages 248–260. PMLR.             adviser learns from better instructions. arXiv preprint
+                                                            arXiv:2309.01114.
+Joon Sung Park, Joseph C. O’Brien, Carrie J. Cai,         Liyan Tang, Zhaoyi Sun, Betina Idnay, Jordan G
+  Meredith Ringel Morris, Percy Liang, and Michael S.       Nestor, Ali Soroush, Pierre A Elias, Ziyang Xu,
+  Bernstein. 2023. Generative agents: Interactive           Ying Ding, Greg Durrett, Justin F Rousseau, et al.
+  simulacra of human behavior. In In the 36th Annual        2023a. Evaluating large language models on medical
+  ACM Symposium on User Interface Software and              evidence summarization. npj Digital Medicine,
+  Technology (UIST ’23), UIST ’23, New York, NY,            6(1):158.
+  USA. Association for Computing Machinery.
+                                                          Xiangru Tang, Arman Cohan, and Mark Gerstein. 2023b.
+Chen Qian, Xin Cong, Cheng Yang, Weize Chen,                Aligning factual consistency for clinical studies
+  Yusheng Su, Juyuan Xu, Zhiyuan Liu, and Maosong           summarization through reinforcement learning. In
+  Sun. 2023. Communicative agents for software              Proceedings of the 5th Clinical Natural Language
+  development. arXiv preprint arXiv:2307.07924.             Processing Workshop, pages 48–58.
+
+Maciej Rosoł, Jakub S G ˛    asior, Jonasz Łaba,          Xiangru Tang, Andrew Tran, Jeffrey Tan, and Mark
+ Kacper Korzeniewski, and Marcel Młyńczak. 2023.           Gerstein. 2023c. Gersteinlab at mediqa-chat 2023:
+ Evaluation of the performance of gpt-3.5 and gpt-4         Clinical note summarization from doctor-patient
+ on the medical final examination. medRxiv, pages           conversations through fine-tuning and in-context
+ 2023–06.                                                   learning. arXiv preprint arXiv:2305.05001.
+
+Teven Le Scao, Angela Fan, Christopher Akiki,             Arun James Thirunavukarasu, Darren Shu Jeng Ting,
+  Ellie Pavlick, Suzana Ilić, Daniel Hesslow, Roman        Kabilan Elangovan, Laura Gutierrez, Ting Fang Tan,
+  Castagné, Alexandra Sasha Luccioni, François Yvon,        and Daniel Shu Wei Ting. 2023. Large language
+  Matthias Gallé, et al. 2022. Bloom: A 176b-               models in medicine. Nature medicine, 29(8):1930–
+  parameter open-access multilingual language model.        1940.
+  ArXiv preprint, abs/2211.05100.                         Shubo Tian, Qiao Jin, Lana Yeganova, Po-Ting
+                                                            Lai, Qingqing Zhu, Xiuying Chen, Yifan Yang,
+Henk G Schmidt and Remy MJP Rikers. 2007.                   Qingyu Chen, Won Kim, Donald C Comeau, et al.
+  How expertise develops in medicine: knowledge             2024. Opportunities and challenges for chatgpt and
+  encapsulation and illness script formation. Medical       large language models in biomedicine and health.
+  education, 41(12):1133–1139.                              Briefings in Bioinformatics, 25(1):bbad493.
+Chantal Shaib, Millicent L Li, Sebastian Joseph, Iain J   Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+  Marshall, Junyi Jessy Li, and Byron C Wallace. 2023.      Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+  Summarizing, simplifying, and synthesizing medical        Baptiste Rozière, Naman Goyal, Eric Hambro,
+  evidence using gpt-3 (with varying success). arXiv        Faisal Azhar, et al. 2023. Llama: Open and
+  preprint arXiv:2305.06299.                                efficient foundation language models. ArXiv preprint,
+                                                            abs/2302.13971.
+Freda Shi, Xinyun Chen, Kanishka Misra, Nathan
+  Scales, David Dohan, Ed H Chi, Nathanael Schärli,       Tao Tu, Shekoofeh Azizi, Danny Driess, Mike
+  and Denny Zhou. 2023. Large language models               Schaekermann, Mohamed Amin, Pi-Chuan Chang,
+  can be easily distracted by irrelevant context. In        Andrew Carroll, Chuck Lau, Ryutaro Tanno, Ira
+  International Conference on Machine Learning,             Ktena, et al. 2023. Towards generalist biomedical ai.
+  pages 31210–31227. PMLR.                                  arXiv preprint arXiv:2307.14334.
+Logesh Kumar Umapathi, Ankit Pal, and Malaikannan            An open platform for language agents in the wild.
+  Sankarasubbu. 2023. Med-halt: Medical domain               arXiv preprint arXiv:2310.10634.
+  hallucination test for large language models. arXiv
+  preprint arXiv:2307.15343.                               Kai Xiong, Xiao Ding, Yixin Cao, Ting Liu, and Bing
+                                                             Qin. 2023. Examining the inter-consistency of large
+Lei Wang, Chen Ma, Xueyang Feng, Zeyu Zhang, Hao             language models: An in-depth analysis via debate.
+  Yang, Jingsen Zhang, Zhiyuan Chen, Jiakai Tang,            arXiv e-prints, pages arXiv–2305.
+  Xu Chen, Yankai Lin, et al. 2023a. A survey on large
+  language model based autonomous agents. arXiv            Yi Yang, Yixuan Tang, and Kar Yan Tam. 2023.
+  preprint arXiv:2308.11432.                                 Investlm: A large language model for investment
+                                                             using financial domain instruction tuning.
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le,
+  Ed Chi, Sharan Narang, Aakanksha Chowdhery, and          Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak
+  Denny Zhou. 2022. Self-consistency improves chain          Shafran, Karthik Narasimhan, and Yuan Cao. 2022.
+  of thought reasoning in language models. arXiv             React: Synergizing reasoning and acting in language
+  preprint arXiv:2203.11171.                                 models. arXiv preprint arXiv:2210.03629.
+
+Yubo Wang, Xueguang Ma, and Wenhu Chen. 2023b.             Cyril Zakka, Akash Chaurasia, Rohan Shad, Alex R
+  Augmenting black-box llms with medical textbooks           Dalal, Jennifer L Kim, Michael Moor, Kevin
+  for clinical question answering. arXiv preprint            Alexander, Euan Ashley, Jack Boyd, Kathleen Boyd,
+  arXiv:2309.02233.                                          et al. 2023. Almanac: Retrieval-augmented language
+                                                             models for clinical medicine. Research Square.
+Zekun Moore Wang, Zhongyuan Peng, Haoran Que,
+  Jiaheng Liu, Wangchunshu Zhou, Yuhan Wu,                 Xiaoman Zhang, Chaoyi Wu, Ziheng Zhao, Weixiong
+  Hongcheng Guo, Ruitong Gan, Zehao Ni, Man                  Lin, Ya Zhang, Yanfeng Wang, and Weidi Xie.
+  Zhang, Zhaoxiang Zhang, Wanli Ouyang, Ke Xu,               2023a. Pmc-vqa: Visual instruction tuning for
+  Wenhu Chen, Jie Fu, and Junran Peng. 2023c.                medical visual question answering. arXiv preprint
+  Rolellm: Benchmarking, eliciting, and enhancing            arXiv:2305.10415.
+  role-playing abilities of large language models. arXiv
+  preprint arXiv: 2310.00746.                              Xinlu Zhang, Chenxin Tian, Xianjun Yang, Lichang
+                                                             Chen, Zekun Li, and Linda Ruth Petzold. 2023b.
+Zhenhailong Wang, Shaoguang Mao, Wenshan Wu, Tao             Alpacare:instruction-tuned large language models for
+  Ge, Furu Wei, and Heng Ji. 2023d. Unleashing               medical application.
+  cognitive synergy in large language models: A
+  task-solving agent through multi-persona self-           Shuyan Zhou, Frank F Xu, Hao Zhu, Xuhui Zhou,
+  collaboration.                                             Robert Lo, Abishek Sridhar, Xianyi Cheng, Yonatan
+                                                             Bisk, Daniel Fried, Uri Alon, et al. 2023. Webarena:
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten             A realistic web environment for building autonomous
+   Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,            agents.
+   et al. 2022. Chain-of-thought prompting elicits
+   reasoning in large language models. Advances in
+   Neural Information Processing Systems, 35:24824–
+   24837.
+Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran
+  Wu, Shaokun Zhang, Erkang Zhu, Beibin Li,
+  Li Jiang, Xiaoyun Zhang, and Chi Wang. 2023a.
+  Autogen: Enabling next-gen llm applications via
+  multi-agent conversation framework. arXiv preprint
+  arXiv:2308.08155.
+Yiquan Wu, Siying Zhou, Yifei Liu, Weiming Lu,
+  Xiaozhong Liu, Yating Zhang, Changlong Sun, Fei
+  Wu, and Kun Kuang. 2023b. Precedent-enhanced
+  legal judgment prediction with llm and domain-
+  model collaboration.
+Zhiheng Xi, Wenxiang Chen, Xin Guo, Wei He, Yiwen
+  Ding, Boyang Hong, Ming Zhang, Junzhe Wang,
+  Senjie Jin, Enyu Zhou, et al. 2023. The rise and
+  potential of large language model based agents: A
+  survey. arXiv preprint arXiv:2309.07864.
+Tianbao Xie, Fan Zhou, Zhoujun Cheng, Peng Shi,
+  Luoxuan Weng, Yitao Liu, Toh Jing Hua, Junning
+  Zhao, Qian Liu, Che Liu, et al. 2023. Openagents:
+A   Analysis on the Addition of CoT
+We provide an intriguing example that reveals
+a seemingly counter-intuitive observation: the
+addition of the CoT in a zero-shot setting led to
+a performance drop compared to the zero-shot one.
+   As demonstrated in the example, for specialist
+domains that demand considerable expert knowl-
+edge such as the medical domain knowledge,
+employing a CoT approach might sometimes lead
+to hallucination (Bubeck et al., 2023; Guerreiro
+et al., 2023; Ji et al., 2023; Maynez et al.,
+2020). Hallucinations refer to instances where
+the language model starts generating inaccurate
+or irrelevant information based on its insufficient
+understanding (Wei et al., 2022; Kojima et al.,
+2022; Shi et al., 2023). Consequently, in these
+instances, the use of the CoT method does not
+improve but hindrances the overall performance.
+   This issue is particularly stated in the medical
+question-answering field by some recent work,
+where it has been demonstrated that the CoT’s
+step-by-step approach is unable to generate correct
+medical answers effectively. For example, the
+results from Liévin et al. (2022) demonstrate that
+CoT improvements are significantly limited.
+   Such failures in medical question-answering
+originate from a lack of domain knowledge (Harris,
+2023; Kung et al., 2023; Tian et al., 2024) instead
+of reasoning rationale. This was also observed in
+our experiments, with a substantial 77% of errors
+related to domain knowledge, compared to a minor
+8% due to CoT (as shown in Figure 4).
+   To address these issues, there has indeed been
+a recent shift toward utilizing RAG (Retrieval-
+Augmented Generation) for domain knowledge
+enhancement (Wang et al., 2023b; Lála et al., 2023)
+in medical QA. Despite these developments, our
+study underscores a novel approach within this
+field: our use of role-playing. Role-playing in
+our M EDAGENTS framework allows the model
+to explicitly reason with accurate knowledge,
+remarkably bypassing the need for RAG.
+                     Table 8: Examples showing the influence of the addition of CoT
+
+
+Question: Which of the following is the large bone found superior to the patella and inferior to the
+ischium? (A) Calcaneus (B) Femur (C) Symphysis pubis (D) Tibia
+Zero-shot Answer: B ✓
+Zero-shot-CoT Answer: D ✗
+Zero-shot-CoT Rationale: The bone found superior to the patella and inferior to the ischium
+is most likely the tibia (✗). Let’s go through the options to confirm. Option A: Calcaneus - The
+calcaneus is the heel bone and is not located in the specified position. Option B: Femur - The femur is
+the thigh bone and is located superior to the patella, but it is not inferior to the ischium (✗). Option
+C: Symphysis pubis - The symphysis pubis is a joint located in the pelvis and is not a bone. Option
+D: Tibia - The tibia is the shin bone and is located superior to the patella and inferior to the ischium.
+This seems to be the correct option. Answer: D
+B   Interpretability: Case Study
+We analyze instances where our proposed
+M EDAGENTS framework manages to correct
+previous errors. Table B illustrates examples
+of our approach to turning previously incorrect
+answers into correct ones. These cases showcase
+the robustness of our M EDAGENTS framework.
+Different medical professionals offer depth and
+breadth in the analysis, transforming it into a
+comprehensive assessment. Furthermore, the
+collaborative consultation refines and corrects the
+initial interpretation, leading us toward the correct
+answer, thus demonstrating the effectiveness of our
+method in correcting errors and ensuring accuracy.
+Table 9: Case studies demonstrating how our proposed M EDAGENTS framework manages to correct previous errors.
+
+
+  Question: A 23-year-old college student experiences monthly chest discomfort, shortness of breath,
+  shakiness, and excessive sweating, likely due to stress. He fears having an episode in public, causing
+  him to avoid leaving home. His medical history is unclear, and the physical exam is normal. Which
+  of the following is the best medication for the long-term management of this patient’s condition? (A)
+  Citalopram (B) Lithium (C) Lorazepam (D) Propranolol (E) Quetiapine
+
+  Experts: Cardiology, Psychiatry, Pulmonology, Endocrinology, Neurology
+
+  Analyses from various experts:
+     Cardiology Expert: ...These symptoms are not typical of a cardiac cause given the patient’s young
+  age and normal physical exam...The best medication for long-term management of anxiety disorders
+  is often selective serotonin reuptake inhibitors (SSRIs) like Citalopram.
+     Psychiatry Expert: ...Although quetiapine is commonly used in the treatment of schizophrenia
+  and bipolar disorder, it is also effective in controlling the symptoms of rare endocrine disorders that
+  present with anxiety-like symptoms.
+     Pulmonology Expert: ...this treatment based on the possibility that the symptoms could be due to
+  a respiratory condition, such as hyperventilation syndrome, which Propranolol is thought to help by
+  reducing the heart rate and perceived shortness of breath.
+     Endocrinology Expert: SSRIs like Citalopram can affect endocrine function by regulating
+  serotonin levels, which in turn can modulate the hypothalamic-pituitary-adrenal (HPA) axis...
+     Neurology Expert: the focus would be on addressing the dysregulated ANS activity that is causing
+  the physical symptoms of stress. The most appropriate medication would likely be Citalopram, an
+  SSRI, which can help improve mood and reduce anxiety...
+     Expert analysis presents a multifaceted view of the problem. Based on the experts’ specialties,
+  their analyses focus on different aspects, leading to the suggestion of two drugs, Citalopram and
+  Propranolol.
+
+  Synthesized Report (v0): ... Based on the suggestions from the experts, the medication should be
+  Citalopram along with Propranolol, which can help alleviate shortness of breath...
+    The first synthesis suggested a combination of Citalopram and Propranolol.
+
+  Vote Result:
+    Cardiology Expert: No
+    Psychiatry Expert: Yes
+    Pulmonology Expert: Yes
+    Endocrinology Expert: Yes
+    Neurology Expert: No
+
+  Synthesized Report (v1): ...the most appropriate medication for the long-term management of this
+  patient’s condition appears to be Citalopram(SSRI).
+    The final report suggested Citalopram as the best medication for the patient’s condition.
+Table 10: Case studies demonstrating how our proposed M EDAGENTS framework manages to correct previous
+errors.
+
+
+  Question: Eustachian tube function is best assessed by: (A) Tympanometry (B) VEMP (C)
+  Rhinomanometry (D) Politzer tests
+
+  Experts: Otolaryngology, Audiology, Radiology, Allergy and Immunology, Pulmonology
+
+  Analyses from various experts:
+     Otolaryngology Expert: ...The focus is on Eustachian tube function, which is essential for
+  equalizing ear pressure and facilitating normal hearing. Several tests are available, but tympanometry
+  is a primary method for assessing function, indicating if there’s a blockage or proper movement of the
+  eardrum.
+     Audiology Expert: ...Tympanometry is correct, VEMP is not related, Rhinomanometry is
+  unrelated, and the Politzer test is appropriate for Eustachian tube assessment.
+     Radiology Expert: ...Proper function of the Eustachian tube is vital for hearing and balance.
+  Tympanometry is one of the methods used to assess this function, by evaluating the compliance of the
+  middle ear.
+     Allergy and Immunology Expert: Assessing Eustachian tube function is crucial for diagnosing
+  related dysfunctions and infections. Tympanometry is a valuable test to determine if the tube is
+  functioning correctly.
+     Pulmonology Expert: ...The assessment of the Eustachian tube function is important for
+  diagnosing ear conditions that could affect breathing. Tympanometry helps evaluate eardrum mobility
+  and middle ear pressure
+     Based on the experts’ specialties, their analyses focus on different aspects, leading to the suggestion
+  of two methods, Tympanometry and Politzer test.
+
+  Synthesized Report (v0): ...Tympanometry is reaffirmed as a method to assess Eustachian tube
+  function, with additional methods like sonotubometry and nasal endoscopy also important. The
+  Politzer test is recognized as another method for such assessments.
+    The first synthesis suggested Tympanometry and Politzer test.
+
+  Vote Result:
+    Otolaryngology Expert: Yes
+    Audiology Expert: Yes
+    Radiology Expert: Yes
+    Allergy and Immunology Expert: Yes
+    Pulmonology Expert: Initially No, then Yes after revision.
+
+  Synthesized Report (v1): ...Tympanometry is a key method among several to assess Eustachian
+  tube function, crucial for diagnosing Eustachian tube dysfunction, infections, and hearing issues....
+    The final report suggested Tympanometry as the best medication for the patient’s condition.
+Table 11: Case studies demonstrating how our proposed M EDAGENTS framework manages to correct previous
+errors.
+
+
+  Question: To prevent desiccation and injury, the embryos of terrestrial vertebrates are encased within
+  a fluid secreted by the? (A) amnion (B) chorion (C) allantois (D) yolk sac
+
+  Experts: Embryology, Physiology, Dermatology, Endocrinology, Reproductive Medicine
+
+  Analyses from various experts:
+     Embryology Expert: ... amnion is the primary structure responsible for secreting amniotic fluid,
+  with the chorion also contributing to this process.
+     Physiology Expert: ...the amniotic sac and amniotic fluid, produced by the amnion, is important
+  in creating a stable and protected environment for the embryo. Besides, its cushioning effect and role
+  in the exchange of nutrients and gases cannot be ignored either.
+     Dermatology Expert: ...the importance of amniotic fluid in fetal development, particularly for the
+  skin...
+     Endocrinology Expert: the question relates to embryological development rather than an
+  endocrinological condition, ... the amniotic sac plays a vital role in providing a protective environment.
+     Reproductive Medicine Expert: ...amniotic fluid is of crucial importance for the normal
+  development and survival of the embryo.
+     Based on the experts’ specialties, their analyses focus on different aspects, leading to the suggestion
+  of two methods, amnion and chorion.
+
+  Synthesized Report (v0): ... Both the amnion and chorion play vital roles in this process.
+    The first synthesis suggested amnion and chorion.
+
+  Vote Result:
+    Embryology Expert: Yes
+    Physiology Expert: Yes
+    Dermatology Expert: No
+    Endocrinology Expert: No
+    Reproductive Medicine Expert: Yes
+
+  Synthesized Report (v1): ... the amnion as the primary source of the amniotic fluid that protects
+  the developing embryos of terrestrial vertebrates, with an understanding of the contributions from
+  other structures like the chorion and the allantois.
+    Dermatology and Endocrinology experts have revised their initial focus to align with the consensus
+  on the role of the amnion in secreting amniotic fluid.
+C   Dataset Information
+MedQA consists of USMLE-style questions with
+four or five possible answers.         MedMCQA
+encompasses four-option multiple-choice questions
+from Indian medical entrance examinations (AIIM-
+S/NEET). MMLU (Massive Multitask Language
+Understanding) covers 57 subjects across various
+disciplines, including STEM, humanities, social
+sciences, and many others.         The scope of
+its assessment stretches from elementary to
+advanced professional levels, evaluating both
+world knowledge and problem-solving capabilities.
+While the subject areas tested are diverse,
+encompassing traditional fields like mathematics
+and history, as well as more specialized areas like
+law and ethics, we deliberately limit our selection
+to the sub-subjects within the medical domain for
+this exercise, following (Singhal et al., 2023a).
+D   Prompt Templates
+Prompt templates involved in the experiments are
+presented in Table 12.
+       Table 12: Prompt templates and role descriptions employed in our M EDAGENTS framework.
+rqd : You are a medical expert who specializes in categorizing a specific medical scenario into specific
+areas of medicine.
+promptqd : You need to complete the following steps: 1. Carefully read the medical scenario presented
+in the question: question. 2. Based on the medical scenario in it, classify the question into five
+different subfields of medicine. 3. You should output in the same format as: Medical Field: | .
+rod : As a medical expert, you possess the ability to discern the two most relevant fields of expertise
+needed to address a multiple-choice question encapsulating a specific medical context.
+promptod : You need to complete the following steps: 1. 1. Carefully read the medical scenario
+presented in the question: question. 2. The available options are: options. Strive to understand
+the fundamental connections between the question and the options. 3. Your core aim should be to
+categorize the options into two distinct subfields of medicine. You should output in the same format
+as: Medical Field: | .
+rqa : You are a medical expert in the domain of question_domain. From your area of specialization,
+you will scrutinize and diagnose the symptoms presented by patients in specific medical scenarios.
+promptqa : Please meticulously examine the medical scenario outlined in this question: question.
+Drawing upon your medical expertise, interpret the condition being depicted. Subsequently, identify
+and highlight the aspects of the issue that you find most alarming or noteworthy.
+roa : You are a medical expert specialized in the op_domain domain. You are adept at comprehending
+the nexus between questions and choices in multiple-choice exams and determining their validity.
+Your task, in particular, is to analyze individual options with your expert medical knowledge and
+evaluate their relevancy and correctness.
+promptoa : Regarding the question: question, we procured the analysis of five experts from diverse
+domains. The evaluation from the question_domain expert suggests: question_analysis. The
+following are the options available: options. Reviewing the question’s analysis from the expert team,
+you’re required to fathom the connection between the options and the question from the perspective
+of your respective domain and scrutinize each option individually to assess whether it is plausible
+or should be eliminated based on reason and logic. Pay close attention to discerning the disparities
+among the different options and rationalize their existence. A handful of these options might seem
+right at first glance but could potentially be misleading in reality.
+rrs : You are a medical assistant who excels at summarizing and synthesizing based on multiple
+experts from various domain experts.
+promptrs : Here are some reports from different medical domain experts. You need to complete the
+following steps: 1. Take careful and comprehensive consideration of the following reports. 2. Extract
+key knowledge from the following reports. 3. Derive the comprehensive and summarized analysis
+based on the knowledge. 4. Your ultimate goal is to derive a refined and synthesized report based on
+the following reports. You should output in exactly the same format as: Key Knowledge:; Total
+Analysis:
+rvote : You are a medical expert specialized in the domain domain.
+promptvote : Here is a medical report: synthesized_report. As a medical expert specialized in
+domain, please carefully read the report and decide whether your opinions are consistent with this
+report. Please respond only with: [YES or NO].
+promptmod : Here is advice from a medical expert specialized in domain: advice. Based on the above
+advice, output the revised analysis in the same format as: Key Knowledge:; Total Analysis:
+promptdm : Here is a synthesized report: syn_report. Based on the above report, select the optimal
+choice to answer the question. Points to note: 1. The analyses provided should guide you towards the
+correct response. 2. Any option containing incorrect information inherently cannot be the correct
+choice. 3. Please respond only with the selected option’s letter, like A, B, C, D, or E, using the
+following format: ”’Option: [Selected Option’s Letter]”’. Remember, it’s the letter we need,
+not the full content of the option.
+E   Multiple Runs
+we have performed multiple runs on a set of 300
+samples for GPT-4 and GPT-3.5 to account for
+variability.
+   The preliminary tests involved the average score
+of 5 repetitions for each sample, and the results
+indicated a decent small variance between runs.
+In summary, the consistency observed in this set
+provides confidence in the stability of our reported
+results.
+
+                                             MedQA      MedMCQA
+ MC framework GPT-3.5 (single try)           64.1       59.3
+ MC framework GPT-3.5 (5 repetitions)        64.3       59.2
+ MC framework GPT-4 (single try)             83.7       74.8
+ MC framework GPT-4 (5 repetitions)          83.5       74.9
+
+Table 13: GPT-4 versus GPT-3.5 based on multiple runs
+of 300 samples.
+

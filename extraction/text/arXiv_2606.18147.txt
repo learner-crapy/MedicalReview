@@ -1,0 +1,1486 @@
+                                                             WEQA: Wearable hEalth Question Answering with
+                                                                Query-Adaptive Agentic Reasoning
+                                                       Yuwei Zhang1 , Tong Xia1,2 , Bianca Emmerich3 , Yu Yvonne Wu4 ,
+                                                        Dimitris Spathis1,5 , Xin Liu5 , Daniel McDuff5 , Cecilia Mascolo1
+                                                  1
+                                                    University of Cambridge, 2 Tsinghua University, 3 University College London,
+                                                                     4
+                                                                       Dartmouth College, 5 Google Research
+                                                                                        yz798@cl.cam.ac.uk
+
+
+                                                                                                             Wearable Health Questions                  Required capability
+                                                               Abstract
+                                                                                                                             Q1. Which hour do I walk
+                                                                                                                             the most this week?
+                                             Language models are remarkably capable at
+
+
+
+
+arXiv:2606.18147v1 [cs.AI] 16 Jun 2026
+                                             medical question answering, in some cases                                       Q2. Did my sleep quality
+                                                                                                                             improve recently?
+                                             surpassing the accuracy of general physicians.
+                                             However, answering questions about wearable                                     Q3. Was I more stressed
+                                                                                                                             than usual yesterday?
+                                             health data remains challenging and understud-
+                                             ied, as these ubiquitous sensors produce contin-                                Q4. Does my cough
+                                                                                                                             pattern look concerning?
+                                             uous, high-dimensional, and longitudinal data,
+                                             which is non-trivial to align with text-centric
+                                             distributions in LLM pretraining. The diver-           Figure 1: Examples of heterogeneous wearable health
+                                             sity of sensor modalities and user intents can-        questions and the computational requirements. The
+                                             not be effectively handled by a fixed reason-          right panel denotes representative computation steps,
+                                             ing workflow or a single pretrained foundation         such as temporal analysis and model prediction.
+                                             model. To address these challenges, we pro-
+                                             pose WEQA, a query-adaptive agent frame-
+                                             work that unifies LLM reasoning with special-
+                                             ized wearable analytical and modeling tools.           conversational health assistance increasingly plau-
+                                             An LLM controller is employed to synthesize            sible (OpenAI, 2026). Language models can be
+                                             execution plans and dynamically route each             used to interpret free-form questions, provide ex-
+                                             query to the appropriate combination of sen-           planations and reasoning, and draw on broad med-
+                                             sor analysis and pretrained models, and per-           ical knowledge acquired during pretraining. To-
+                                             form grounded response auditing with external          gether, these advances present a compelling vision
+                                             knowledge. We also curate a benchmark span-
+                                                                                                    of wearable health question answering (Fig. 1),
+                                             ning four open wearable datasets comprising
+                                             analytic and predictive tasks in three different       where users ask natural-language questions about
+                                             health domains. Experiments show that our              their sensor data and receive personalized, clini-
+                                             framework is 24% more accurate than LLM                cally meaningful responses (Heydari et al., 2025).
+                                             and agentic baselines, and a blinded study with           Nevertheless, reasoning over physiological and
+                                             12 medical experts and 8 users shows substan-
+                                                                                                    behavioral time series is different from text rea-
+                                             tial gains in usefulness and clinical soundness.
+                                                                                                    soning (Langer et al., 2025). Wearable signals are
+                                         1   Introduction                                           continuous, high-dimensional, and inherently tem-
+                                                                                                    poral. Their interpretation depends on subtle wave-
+                                         Smartwatches and other wearable devices are                form morphology, long-range temporal dynamics,
+                                         widely adopted and have transformed passive                and cross-sensor interactions (Fig. 1). E.g., sleep
+                                         and continuous monitoring of activity and                  improvement questions require reasoning over lon-
+                                         health (Cosentino et al., 2024; Xu et al., 2025).          gitudinal behavioral patterns, while blood-pressure-
+                                         Beyond tracking wellness indicators such as sleep,         related questions depend on subtle photoplethys-
+                                         activity, and stress, wearable sensors support early       mogram morphology. Identical aggregate statistics
+                                         detection of conditions including depression, hy-          may correspond to clinically different physiologi-
+                                         pertension, and respiratory diseases (Zhang et al.,        cal states depending on temporal structure and indi-
+                                         2024; Xu et al., 2025) and potentially life saving         vidual variations. Hence, wearable health reason-
+                                         interventions (Shah et al., 2025). Meanwhile, large        ing requires native understanding of physiological
+                                         language models (LLMs) are making ubiquitous               signals rather than textual abstractions.
+
+                                                                                                1
+                              Text-only
+                               LLMs
+                                            LLM           Wearable
+                                        Coding Agents Foundation Models
+                                                                        WEQA       idence and external medical knowledge, while cali-
+ Language Comprehension
+                                                                                   brating risk-sensitive language. Together, WEQA
+       Statistical Analysis                                                        enables a unified framework for wearable health
+     Temporal Reasoning
+      Predictive Inference                                                         question answering across heterogeneous tasks,
+        Adaptive Routing
+           Personalization                                                         sensing modalities, and personalization settings.
+      Safety & Grounding
+                                                                                      To support systematic evaluation, we curate a
+                                                  Strong    Limited    Weak
+                                                                                   benchmark spanning four open wearable datasets
+Table 1: Capability comparison across wearable                                     across cardiovascular, respiratory and mental
+health QA paradigms. Symbols indicate capability                                   health, covering both analytical and predictive
+levels of strong, limited, and weak.                                               tasks. We organize the benchmark into four
+                                                                                   task families: Short-Horizon Analytical QA, Long-
+   Another key challenge is the diversity of wear-                                 Horizon Analytical QA, Predictive Reasoning QA,
+able health questions and the heterogeneous reason-                                and Open-Ended Insight QA. These tasks require
+ing requirements. As Fig. 1 shows, queries span                                    different combinations of analysis, prediction, and
+descriptive analytics, longitudinal trend monitor-                                 clinical calibration. Across tasks, our framework
+ing, personalized mental health assessment, and                                    substantially outperforms LLM-only and existing
+predictive screening from raw signals. These tasks                                 agentic baselines by at least 24%, demonstrating
+require fundamentally different forms of computa-                                  the value of adaptively combining sensor-native
+tion, from lightweight statistical aggregation (Q1)                                modeling with LLM reasoning. We further conduct
+to long-horizon temporal reasoning (Q2), model                                     expert evaluation showing that our framework pro-
+prediction from raw physiological signals (Q3&4),                                  duces more useful and clinically sound responses,
+and personalized evidence synthesis (Q3). Conse-                                   moving beyond benchmark accuracy toward realis-
+quently, wearable health question answering can-                                   tic health-assistance quality. Ablation studies show
+not be effectively supported through a single fixed                                that the gains are not from the wearable toolset
+reasoning workflow or prediction model, but re-                                    alone: removing the query-adaptive workflow leads
+quires adaptive computational pathways tailored                                    to lower accuracy and consistent degradation across
+to the query intent and physiological context.                                     all human-rated dimensions.
+   To this end, we propose WEQA (Wearable                                             Our work makes four main contributions. (1)
+hEalth Question Answering), a query-adaptive                                       Challenges: We identify two core challenges in
+agent framework that combines LLM-based reason-                                    wearable health question answering: bridging com-
+ing with specialized wearable modeling. To over-                                   plex physiological signals with text-centric LLMs,
+come the misalignment between wearable sensor                                      and the heterogeneity of health queries that de-
+data and text-centric LLM pretraining, we develop                                  mands adaptive reasoning workflows. (2) WEQA
+a wearable-health toolset that enables sensor-native                               Framework: We introduce a novel query-adaptive
+understanding directly from raw physiological sig-                                 agent architecture that dynamically routes between
+nals, including temporal, cross-sensor analysis and                                sensor reasoning, adaptive predictive inference,
+specialized predictive modeling, such as machine                                   and grounded response auditing, supported by a
+learning and foundational models. This leverages                                   reusable wearable-health toolset. (3) Benchmark:
+fine-grained physiological dynamics structure that                                 We introduce a new benchmark for evaluating wear-
+are often lost in textual summaries, and powerful                                  able health question answering across diverse an-
+models optimized for wearable health data.                                         alytical and predictive tasks. (4) Evaluation: We
+   To support diverse wearable health question an-                                 demonstrate through automated and human evalua-
+swering, we introduce a Query-Aware Planning                                       tion that WEQA provides a stronger foundation for
+mechanism that uses the LLM as a controller to                                     personalized, grounded, and safety-aware wearable
+synthesize execution plans conditioned on the user                                 health assistance over LLM and agent baselines.
+query and available sensor context. Instead of re-
+lying on a fixed reasoning pipeline or a single pre-                               2   Related work
+trained model (Li et al., 2025; Yu et al., 2025), the
+agent dynamically selects the computation pathway                                  Wearable Health LLMs and Agents. A com-
+from the toolset for each question. We also de-                                    mon approach for wearable health LLMs is to sum-
+sign a Grounded Response Auditing phase that ver-                                  marize sensor data as text and let an LLM rea-
+ifies whether responses are supported by sensor ev-                                son over the prompt (Liu et al., 2023; Kim et al.,
+
+                                                                               2
+                                    Replanning
+                                                  Evidence Construction                                                                                      External Knowledge
+                    Query-Adaptive Planning                                                                                                                  (medical guideline,
+                                                                                                                                                             reference, population facts)
+                                                  Sensor Analytical Reasoning
+                         Interpret query                                                                                      Evidence Summary
+                                                            Short-Term                             Long-Term
+                                                            Data Analysis                          Temporal Reasoning
+                         Identify required data
+                                                                                                   trends                          Local Data                Grounded
+                                                            daily features                                                         Statistics
+                         Select compute pathway                                                    deviations                                                Response Audit
+     User Query                                             local statistics                       correlations
+                         Decide prediction and                                                                                     Longitudinal
+                         retrieval needs                                                                                           trends and                 Check grounding
+                                                                                                                                   correlations
+                         Assess risk level        Adaptive Predictive Inference                                                                               Audit uncertainty
+                                                                                                                                                              communication
+                                                    Predictive Model           Uncertainty-            Personalized                 Preditive
+                                                                                                                                                              Retrieve and consult
+                                                    Selection                  Aware                   Online                       output +
+                                                                                                                                                              external knowledge
+                                                                               Inference               Adaptation                   uncertainty
+    Wearable Data        Execution Plan                                                                                             reasoning                 Calibrate risk-
+                                                                                                                                                              sensitive language
+                         Short-horizon                                                                                             personalization            Propose actions
+                         statistics                                                                                                records                    when needed
+                         Temporal reasoning
+                                                                  Analytical Tool Skillset
+                         Predictive Inference      Data           Stats          Temporal          Trend        Correlation
+                                                  Fetcher       Calculator        Profiler         Fitter        Checker
+                         Online personalized
+                         model adaptation                                                                                                            Personalized Health Response
+                                                                   Prediction Tool Skillset
+                         Risk-aware auditing                                                                                                                 Data grounded analysis
+                                                  Audio     PPG        Stress        HTN Clf      Uncertainty     Few-Shot
+                                                                                                                                Personal History             Model grounded predictions
+                                                   FM       FM        Clf Head        Head         Estimator       Adapter         (optional)                Safety-calibrated wording
+
+
+
+
+Figure 2: WEQA query-adaptive agent framework for wearable health question answering. Given a user query,
+wearable data, and optional personal history, the agent plans a query-specific workflow, gathers evidence through
+sensor analysis and adaptive prediction, and performs grounded safety auditing producing a safety-aware response.
+
+2024; Cosentino et al., 2024). While simple and                                                    get domains, making adaptation to broader health
+flexible, text-based representations discard fine-                                                 queries computationally expensive and difficult to
+grained temporal structure, signal morphology, and                                                 scale. Rather than training a single universal model,
+cross-sensor dynamics that are critical for physi-                                                 WEQA introduces a unified agent framework that
+ological interpretation, limiting performance on                                                   combines LLM reasoning with specialized sensor-
+more complex wearable-health tasks (Zhang et al.,                                                  native analytical tools and pretrained models. Con-
+2025b). Recent agentic LLM systems extend this                                                     ditioned on the user query and sensor context, the
+paradigm through planning, tool use, and multi-                                                    framework dynamically composes the computation
+step reasoning (Merrill et al., 2026; Heydari et al.,                                              pathway required for each question, framing wear-
+2025), enabling grounded responses beyond one-                                                     able health question answering as an adaptive rea-
+shot prompting. However, existing frameworks                                                       soning problem over heterogeneous physiological
+still largely rely on pre-aggregated coarse features                                               evidence rather than a fixed prediction task.
+as input and are limited to statistical analysis. In                                               Adaptive Agentic Frameworks. Recent work on
+contrast, real-world wearable health question an-                                                  adaptive agentic systems explores automated work-
+swering requires sensor-native understanding to-                                                   flow design and modular agent optimization (Hu
+gether with adaptive reasoning workflows that can                                                  et al., 2025; Shang et al., 2025; Zhang et al.,
+generalize across diverse tasks, sensing modalities,                                               2025a). These approaches optimize workflows at
+temporal scopes, and personalization settings.                                                     the dataset or benchmark level through iterative
+                                                                                                   search over training and validation sets. In contrast,
+Wearable Health Foundation Models. Large-                                                          wearable health agents need to adapt computation
+scale pretraining on wearable data has enabled                                                     dynamically at inference time based on the user
+transferable sensor-native representations and im-                                                 query, sensor context, and personalization needs.
+proved performance across diverse health tasks,                                                    Our work addresses this setting through a training-
+including activity recognition, cardiovascular mon-                                                free, query-adaptive framework.
+itoring, respiratory screening, and mental health
+assessment (Zhang et al., 2024; Pillai et al., 2025;                                                3           Method
+Xu et al., 2025; Narayanswamy et al., 2026). Re-
+cent sensor-language models further explore align-                                                 We propose WEQA, a query-adaptive agent frame-
+ing wearable signals with language interfaces for                                                  work for Wearable hEalth Question Answering.
+specific domains such as activity and sleep under-                                                 The framework consists of three stages (Fig. 2):
+standing (Li et al., 2025; Zhang et al., 2025b; Xu                                                 query-aware planning, evidence construction, and
+et al., 2026). Our work addresses a different prob-                                                grounded response auditing.
+lem: general wearable health question answering.                                                    Problem Formulation. Given a user query q, wear-
+Existing wearable foundation models are typically                                                   able sensor data X, and optional personal history
+designed for predefined modalities and fixed tar-                                                   H, the goal is to generate a health response y.
+
+                                                                                              3
+             Did my sleep
+                                                             Stats                                   Trends
+             improve?
+                                                                                                                                Fact
+                                                                                             Y                Second FM
+                COVID-                          Audio FM
+                positive?                                                  Uncertain?                         OPERA-GT
+                                               OPERA-CT                                  N
+                                                                                                                               Screening
+
+                Sleep &
+                activity                Activity Patterns
+                affect my
+                stress?                                          Stress Model
+                                                                                          Stress Detection       Correlation
+                                                                 Personalization                                               Insights
+                                        Sleep Trends
+
+                            Analytics                   ML/FM prediction           Personalization            Uncertainty
+
+
+Figure 3: Examples of query-adaptive reasoning pathways in WEQA for heterogeneous wearable health questions.
+
+   As Figure. 2 shows, WEQA operates in three                                  3.2      Evidence Construction
+stages: (1) query-aware planning, which maps the                               The second stage executes the plan and constructs a
+query to an execution plan a = π(q, X, H); (2) ev-                             sensor-based evidence summary Z. We distinguish
+idence construction, which gathers evidence Z =                                two complementary execution pathways: sensor an-
+Φ(X, H, q, a) through analytical tools and predic-                             alytical reasoning and adaptive predictive inference,
+tive models; and (3) grounded response auditing,                               both orchestrated by the LLM controller. WEQA
+which generates the final response y = g(q, Z, H)                              is equipped with wearable-health tools spanning
+after verifying evidential grounding and enforc-                               statistical analysis, temporal reasoning, stress in-
+ing safety considerations. Here, π denotes the                                 ference, respiratory screening, and cardiovascular
+planner, Φ the evidence construction process, and                              prediction. More details in Appendix B.
+g the auditing module. The adaptive design en-
+ables WEQA to tailor computation to diverse health                             Sensor Analytical Reasoning. For queries that
+queries while maintaining explicit sensor evidence.                            can be answered directly from wearable observa-
+                                                                               tions, the agent executes code and invokes analyt-
+                                                                               ical tools over the relevant sensor streams. De-
+3.1   Query-Aware Planning                                                     pending on the query, it may compute short-term
+                                                                               evidence such as local statistics, windowed vari-
+The first stage converts the user query into a struc-                          ability, and event-level summaries, or long-term
+tured execution plan. The planner is implemented                               evidence such as trends, deviations from base-
+as a prompted LLM controller. Given the query                                  line, temporal persistence, and cross-signal correla-
+q, sensor metadata m, available analytical tools                               tions. We denote the resulting analytical evidence
+and predictive models skillset S, and retrieved ex-                            by zana = ϕana (X, q, a). This pathway supports
+amples e from a history bank, the controller pro-                              descriptive questions such as recent activity sum-
+duces a structured plan a = π(q, m, e, S). Mo-                                 maries, sleep comparisons, heart-rate extrema, and
+tivated by the heterogeneous nature of wearable                                longitudinal trend analysis.
+health queries, the controller first identifies the                            Adaptive Predictive Inference. For queries that
+query objective, required data modalities, temporal                            require inference beyond descriptive analysis, the
+scope, reasoning type, personalization needs, and                              agent invokes specialized predictive models, includ-
+response risk level. It then plans the analysis steps,                         ing task-specific models and wearable foundation
+required tools or models and expected evidence.                                models (with trained classification or regression
+   Planning is also not fixed. After each execution                            heads). Model selection is conditioned on the query
+step t, the controller may revise the plan based on                            type, required modality, input constraints, and ex-
+the accumulated evidence st = {q, at , Zt }, where                             ecution plan. The resulting predictive evidence is
+at is the current plan and Zt is the accumulated                               zpred = ϕpred (X, H, q, a), which includes predic-
+evidence. This enables the agent to handle hetero-                             tion outcomes and uncertainty estimates.
+geneous queries and recover from execution errors                                 The controller performs uncertainty- and
+or missing data. Simple descriptive questions are                              personalization-aware prediction orchestration. If
+routed to lightweight analysis, while higher-risk                              a model returns low-confidence or unstable evi-
+or predictive queries (e.g., hypertension classifica-                          dence, the controller may query additional models
+tion) invoke specialized models, uncertainty-aware                             and compare or combine their outputs. This allows
+verification, and stricter response control.                                   the agent to avoid treating a single uncertain pre-
+
+                                                                           4
+ a
+       Short-Horizon Analysis                      Long-Horizon Analysis
+       Understanding immediate patterns in         Longitudinal reasoning over wearable
+       short-term wearable sensor data             sensor trends and behaviors
+       Example questions (n=250):                  Example questions (n=250):
+       - My total steps yesterday?                 - Trend of sleep quality last week?
+       - My sleep latency last night?              - Correlation of steps and sleep?
+
+
+       Predictive Inference                        Open Ended Insights
+       Predicting health states from complex       Personalized health insights and
+       physiological signals                       wellness-oriented guidance
+       Example questions (n=623):                  Example questions (n=130):
+       - Am I unusually stressed today?            - How am I managing my stress?
+       - When am I likely to recover from covid?   - Does my exercise and recovery match?
+
+
+
+Figure 4: Overview of the proposed wearable health QA benchmark. (a) Four task families with representative
+example questions. (b) Fine-grained subtask taxonomy within each family.
+
+diction as definitive evidence. Personalization is                          task domains, covering everyday wearable moni-
+handled according to the availability of user history.                      toring, mental health monitoring, audio-based dis-
+When self-labeled personal history are available,                           ease screening, and cardiovascular inference from
+the agent performs lightweight few-shot adaptation                          raw biosignals. Unlike prior personal-health bench-
+of the population-level model on the user’s histori-                        marks which primarily evaluate coaching or in-
+cal data; when unlabeled history data is available,                         sight generation over summarized wearable repre-
+it uses history-aware models that interpret observa-                        sentations (Cosentino et al., 2024; Merrill et al.,
+tions relative to the user’s baseline.                                      2026), our benchmark targets adaptive reasoning
+                                                                            over heterogeneous sensor input and task intent,
+3.3   Grounded Response Auditing                                            unifying descriptive analysis, longitudinal interpre-
+This module produces the user-facing response by                            tation, predictive inference from complex signals,
+auditing and synthesizing the evidence summary                              and open-ended evidence synthesis.
+y = g(q, zana , zpred ), which contains calculated
+                                                                            4.1       Tasks and Datasets
+statistics and patterns, predictive outputs with un-
+certainty estimates, and personalization context.                           We organize the benchmark into four task families.
+   Grounded response auditing serves three primary                          Short-Horizon Analytical QA. Tasks requiring
+functions: i) verifying that major claims are sup-                          summarization and comparison of recent wearable
+ported by internal sensor evidence; ii) calibrating                         observations such as sleep, activity, or heart-rate
+uncertainty communication, such that weak evi-                              patterns using short-window reasoning.
+dence or unstable predictions reduce response con-                          Long-Horizon Analytical QA. Tasks requiring
+fidence; and iii) incorporating external medical                            reasoning over longer histories, including trends
+knowledge, when broader clinical context is re-                             and cross-signal relationships across days.
+quired, to contextualize sensor-derived evidence                            Predictive Reasoning QA. Tasks evaluating
+and provide clinically appropriate guidance.                                health-related prediction beyond descriptive analy-
+                                                                            sis, including stress detection, respiratory disease
+4     Benchmark                                                             screening, progression forecasting, hypertension
+                                                                            detection, and blood pressure estimation.
+We construct a benchmark for evaluating realis-
+                                                                            Open-Ended Insight QA. Tasks requiring synthe-
+tic wearable health question answering. Personal
+                                                                            sis of heterogeneous sensor evidence into grounded
+health queries span heterogeneous inputs and re-
+                                                                            health interpretations and insights.
+quire both descriptive analysis and model-based
+inference. We therefore design the benchmark to                             Datasets. We instantiate this taxonomy using four
+cover: (1) both analytical and inference-oriented                           complementary datasets (details in Appendix A).
+questions, (2) reasoning over both short and long                           TILES. A longitudinal wearable sensing dataset
+temporal horizons, (3) tasks that involve complex                           covering everyday physiology and behavior over
+signal-outcome relationships rather than simple nu-                         four months (Mundnich et al., 2020). It supports
+merical computation, and (4) a diverse set of health                        both analytical and predictive tasks (e.g. stress /
+modalities and domain settings.                                             anxiety) using multimodal wearable streams from
+   The benchmark spans four datasets across three                           Fitbit and OMSignal devices.
+
+                                                                        5
+                             Short Analytical        Long Analytical               Predictive Reasoning   Efficiency
+      Method        Gran.
+                             EM ↑    MAE ↓      Numeric ↑   Trend & Corr. ↑     Cls. UAR ↑   Reg. MAE ↓   Tokens ↓
+      Random        –         0.4    5345.6        1.2              36.6           50.0          16.7         –
+      LLM-Text      hourly   6.0      848.0       2.4               62.4           55.7          51.5      112,328
+                    daily    10.0    1,013.0      28.9              54.1           54.5          51.5      72,234
+      LLM-Image     hourly   3.2      526.4       2.4               49.8           56.2          15.1       3,977
+                    daily     1.2     913.6       10.8              50.4           56.7          15.1       4,674
+      ReAct         –        64.8     31.3        56.6              80.9           59.2          15.4      41,902
+      Multi-Agent   –        72.0     157.2       54.2              67.7           55.2          24.9      32,341
+      WEQA          –        95.6      9.2        94.0              95.1           83.9          10.9      10,490
+
+Table 2: Core task performance on the first three task families. Higher is better except for MAE. Best task
+performance is in bold and second best is underlined.
+
+UK COVID-19 and COVID-19 Sounds. Respira-                       Reasoning. LLM-Image uses multimodal LLMs
+tory audio datasets (Coppock et al., 2024; Xia et al.,          with visual sensor representations, including spec-
+2021) containing cough, breathing, and speech                   trograms for audio and lineplots for other time se-
+recordings for COVID-19 screening and progres-                  ries. Short segments are at full resolution and long-
+sion prediction.                                                duration signals are down-sampled for visibility.
+PPG-BP. A photoplethysmography dataset (Liang                   Agentic Architectures. (i) Iterative Agent Rea-
+et al., 2018) for blood pressure estimation and hy-             soning. ReAct performs coding-augmented reason-
+pertension screening, requiring clinically relevant             ing through iterative planning and execution (Mer-
+inference directly from waveform morphology.                    rill et al., 2026). (ii) Multi-Agent Orchestra-
+   Using real-world wearable and physiologi-                    tion. Multi-Agent is a personal health framework
+cal sensing datasets, we synthetically construct                that decomposes health queries across specialized
+question-answer pairs to systematically cover the               agents (Heydari et al., 2025).
+proposed taxonomy. Analytical answers are pro-                  Metrics. For quantitative Short-Horizon and Long-
+grammatically computed from sensor data. Predic-                Horizon Analytical QA, we report answer accu-
+tive answers are derived from dataset labels and                racy (Exact Match) and numerical error (MAE;
+using only the held-out test set not seen by models             MAPE in Appendix D). For Predictive Reasoning
+in the skillset. The benchmark contains 358 users,              QA, we report balanced accuracy for classification
+1123 question-answer pairs, and 6 sensing modali-               and MAE for regression tasks. For Open-Ended
+ties across the 4 datasets. Additional statistics and           Insight QA, we additionally conduct human evalua-
+query examples are provided in Appendix A.                      tion along four dimensions: factual accuracy and
+                                                                grounding to evidence, personalization to user con-
+4.2    Experimental Setup                                       text, usefulness of the generated insight, and clini-
+Baselines. We compare our framework against                     cal plausibility & safety (details in Appendix C).
+representative baseline groups spanning (i) data in-
+put methods and (ii) agentic reasoning frameworks.              5     Results
+Across all methods, Gemini-3.0-Flash (Google,
+                                                                5.1        Quantitative Benchmark Performance
+2025) is used as the default LLM backbone. For ab-
+lations, we compare against a generic coding-agent              Table 2 summarizes results on the first three bench-
+workflow implemented with Claude Code to iso-                   mark task families (detailed breakdown across task
+late the benefit of our workflow design, and replace            and dataset in Appendix D). Across all settings,
+Gemini-3.0-Flash with Qwen3-Max to evaluate ro-                 WEQA outperforms text-only prompting, multi-
+bustness to the backbone LLM. Implementation                    modal prompting, and prior agentic baselines, with
+details are provided in Appendix B.                             the largest gains on tasks requiring temporal reason-
+Data Input Baselines. (i) Direct Prompting.                     ing or predictive inference from continuous signals.
+LLM-Text serializes sensor data into prompts (Kim               Analytical Wearable Reasoning. On Short-
+et al., 2024). The wearable data are down-sampled               Horizon Analytical QA, WEQA achieves 95.6 exact
+to fit within the context window. We cover both                 match with 9.2 MAE, substantially improving over
+hourly and daily representations. (ii) Multimodal               both ReAct-style reasoning (64.8 / 31.3) and multi-
+
+                                                            6
+                         (a) Latency                                 (b) Interaction Complexity        Efficiency. As shown in Table 2, WEQA reduces
+   LLM-Text                                                              Requests
+   (Hourly)                                                     12       Tool Calls                    average token usage to roughly 10k tokens per
+   LLM-Text
+     (Daily)                                                    10
+ LLM-Image                                                                                             query, compared with 31k–42k for existing agent
+                                                Average Count
+   (Hourly)                                                     8
+ LLM-Image                                                                                             baselines, while also achieving the lowest end-
+     (Daily)                                                    6
+     REACT                                                                                             to-end latency (Figure 5). This efficiency comes
+                                                                4
+Multi-Agent
+    WEQA                                                        2                                      from query-adaptive routing: lightweight analyt-
+               0   10        20     30     40
+                                                                0
+                                                                     LLM- LLM- REACT Multi- WEQA
+                                                                                                       ical queries terminate after simple sensor analy-
+                         Avg Latency (s)                             Text Image      Agent
+                                                                                                       sis, while predictive queries are routed directly to
+                                                                                                       specialized wearable models rather than iterative
+Figure 5: Efficiency analysis across wearable health
+QA systems. WEQA achieves lower latency and re-                                                        exploratory code generation or large in-context/
+duced overhead compared to prior agent baselines.                                                      multimodal inputs. By returning only compact ev-
+                  WEQA       React     Multi-Agent                                                     idence summaries to the LLM, WEQA reduces
+                   Experts              Users                                                          prompt payload size, multimodal overhead, and
+         Clinical                                                                                      unnecessary iterative requests and tool calls.
+      Plausibility
+      Usefulness                                                                                       5.2   Human Evaluation of Response Quality
+Personalization                                                                                        Study Setup. To qualitatively evaluate response
+   Correctness/                                                                                        quality, we conduct a blinded human evaluation
+     Grounding                                                                                         involving 12 medical experts (fifth year medical
+                     0               2              4                0                2      4         students) and 8 general users. Participants rated 15
+                                                                                                       randomized system responses on a 5-point Likert
+Figure 6: Human evaluation Results. Medical expert
+(left) and user (right) ratings across four dimensions for                                             scale across four dimensions: (1) correctness and
+three models; higher scores indicate better performance.                                               grounding, (2) personalization, (3) usefulness, and
+                                                                                                       (4) clinical plausibility (experts) / health appropri-
+agent orchestration (72.0 /157.2). Text-only and                                                       ateness (users). We compare against the strongest
+multimodal prompting perform poorly, indicating                                                        agentic baselines and omit prompting-only base-
+that even short-horizon numeric questions require                                                      lines due to consistently poor performance in the
+explicit sensor-grounded computation. The advan-                                                       benchmark. The cases are stratified spanning task
+tage becomes larger on Long-Horizon Analytical                                                         types, datasets and sensing modalities.
+QA, which requires reasoning over trends and cross-                                                    Findings. As shown in Figure 6, WEQA receives
+signal relationships over extended periods (days,                                                      the highest average ratings across dimensions and
+weeks or months). WEQA achieves 94.0 exact                                                             rater groups. Among experts, WEQA achieves
+match on numerical reasoning and 95.1 accuracy                                                         an average score of 3.9 across dimensions, com-
+on trend and correlation questions, substantially ex-                                                  pared with 3.1 for ReAct and 2.9 for Multi-Agent.
+ceeding all baselines. These results all highlight the                                                 The gains are largest for personalization and use-
+importance of planning and sensor-native analysis.                                                     fulness, suggesting that WEQA more effectively
+Predictive Health Reasoning. The largest gains                                                         connects wearable evidence to the user’s individual
+occur on Predictive Reasoning QA. By orchestrat-                                                       context, and presents the interpretation in a practi-
+ing ML- and FM-based classifiers and regressors,                                                       cal form. Qualitative feedback further highlights
+WEQA achieves 83.9 balanced accuracy on predic-                                                        grounding and safety-aware reasoning. Expert pre-
+tive classification tasks, compared with 59.2 for Re-                                                  ferred WEQA’s responses not only for better ac-
+Act and near-chance performance for text-only and                                                      curacy, but also “well clinically grounded off the
+multimodal baselines. On blood pressure regres-                                                        data” and more “user friendly and personalised.”
+sion, WEQA also achieves the best MAE of 10.9,                                                         In safety-sensitive cases, experts emphasized ex-
+outperforming both ReAct (15.4) and multimodal                                                         plicit risk communication, and criticized baselines
+prompting (15.1). These findings support our cen-                                                      for omitting escalation guidance or presenting over-
+tral hypothesis that analytical and coding flexibility                                                 confident conclusions despite limited evidence. De-
+alone is insufficient for personal health QA, and                                                      tailed examples and quotes in Appendix D.
+that strong predictive performance requires invok-                                                        General users assigned slightly higher scores
+ing specialized predictive models in addition to                                                       overall while preserving the same relative system
+language-based reasoning.                                                                              ordering, suggesting that WEQA’s gains translate
+
+                                                                                                   7
+Method                  Acc.     Pers.     Use.     Sound.            Removing grounded response auditing has lit-
+Generic workflow     3.7 / 3.5 3.6 / 3.0 3.7 / 2.8 3.9 / 3.1       tle effect on correctness, but noticeably reduces
+WEQA                 3.9 / 4.3 4.0 / 4.3 4.0 / 4.4 3.8 / 4.2       personalization, usefulness, and clinical plausibil-
+- Auditing           3.9 / 4.0 3.7 / 3.7 3.6 / 3.7 3.6 / 3.8       ity, indicating that the auditing stage primarily im-
+- Adaptive Inference 3.3 / 3.5 3.4 / 3.3 3.1 / 3.7 2.9 / 3.3
+                                                                   proves how evidence and uncertainty are contextu-
+Table 3: Ablation of workflow design. Medical expert               alized and communicated to users. Removing adap-
+/ general user ratings for accuracy, personalization, use-         tive predictive inference workflow (uncertainty and
+fulness, and clinical soundness.                                   personalization awareness) further degrades evalu-
+                                                                   ation in all dimensions, particularly usefulness and
+  LLM      Short. ↑ Long. ↑ Cls. ↑ Reg. ↓ Tokens ↓
+                                                                   clinical plausibility, despite access to the same pre-
+  Gemini     95.6      95.0     83.9     10.9     10,490           dictive models. Together, these findings show that
+  Qwen       97.2      93.4     82.3     11.0     11,820
+                                                                   wearable-health QA benefits not only from strong
+Table 4: Ablation of backbone LLMs within the                      predictive models, but also from adaptive orches-
+WEQA framework. Short. = short-horizon analyti-                    tration, uncertainty-aware reasoning, and personal-
+cal QA, Long. = long-horizon analytical QA, Clf. =                 ization based on user history.
+predictive classification, and Reg. = predictive regres-              These trends are also reflected in qualitative feed-
+sion. Results indicate robustness to the backbone model.           back: weaker variants were described as overly
+                                                                   technical and harder to interpret, whereas WEQA
+consistently into responses perceived as both more                 responses were preferred for clearer contextualiza-
+helpful and more health appropriate. Interestingly,                tion, actionable guidance, and more appropriate
+although experts rated ReAct and Multi-Agent sim-                  uncertainty communication.
+ilarly overall, users rated the latter noticeably lower            Backbone LLM Robustness. We evaluate the
+due to overly generic responses and limited incor-                 robustness of WEQA across different backbone
+poration of sensor-derived evidence and individual-                LLMs by replacing Gemini-3.0-Flash with Qwen3-
+ized context. In contrast, criticisms of ReAct more                Max (Yang et al., 2025) while keeping the remain-
+often concerned verbosity, suggesting a trade-off                  der of the workflow unchanged. As shown in Ta-
+between single-agent depth and multi-agent spe-                    ble 4, both models achieve strong performance,
+cialization in existing wearable-health systems.                   indicating that the gains primarily stem from the
+   Pairwise preferences are also consistent: evalua-               WEQA framework rather than reliance on a spe-
+tors prefer WEQA over ReAct in 72.5% of compar-                    cific proprietary model. Qwen slightly improves
+isons and over Multi-Agent in 78.3%. Inter-rater                   short-horizon analytical accuracy, whereas Gemini
+agreement among expert reviewers was moderate                      provides stronger long-horizon and predictive rea-
+for the 5-point dimensional ratings (weighted Co-                  soning performance, using fewer tokens overall.
+hen’s κ = 0.41), with modest exact agreement on
+individual scores (55%) but high adjacent agree-                   6   Conclusion
+ment (83.6%), indicating that reviewers generally
+converged on similar qualitative judgments.                        Unlike conventional medical QA, wearable health
+                                                                   question answering requires more than language
+5.3   Ablations                                                    reasoning alone. WEQA addresses this through
+Workflow Ablations. Table 3 isolates the con-                      adaptive orchestration of sensor-grounded analysis,
+tribution of WEQA’s workflow components while                      temporal reasoning, predictive modeling, personal-
+keeping the analytical and predictive toolset fixed.               ized model adaptation, and safety-aware response
+Compared with a strong generic agent baseline                      auditing. Across analytical and predictive tasks,
+(Claude Code with the same wearable tools),                        WEQA consistently outperforms LLM and agentic
+WEQA achieves higher personalization and useful-                   baselines. Human evaluations further show that
+ness despite similar correctness and clinical plau-                these gains translate into responses perceived as
+sibility from experts, and is preferred by experts                 more grounded, personalized, actionable, and clin-
+in 85% of responses. Interestingly, users rate the                 ically appropriate. Together, our results suggest
+generic workflow substantially lower on useful-                    that effective wearable-health assistants should be
+ness, personalization and health appropriateness,                  designed as adaptive systems that coordinate spe-
+suggesting that technical correctness alone is insuf-              cialized physiological models and safety-aware rea-
+ficient for effective wearable-health interaction.                 soning over personalized sensor evidence.
+
+                                                               8
+Limitations                                                  IRB approval and followed the corresponding data
+                                                             governance and usage requirements for academic
+Our work has several limitations. First, although            research.
+the benchmark spans multiple sensing modalities
+and health domains, it primarily serves as a proof-          Acknowledgments
+of-concept benchmark using four publicly avail-
+able datasets and may not fully capture the diver-           This work was supported by Nokia Bell Labs
+sity of real-world wearable usage, sensor quality,           through a donation and Y. Z. is additionally sup-
+or clinical populations. Second, the human eval-             ported by the Cambridge Trust Scholarship. We
+uation uses a relatively small stratified subset of          thank the medical experts and general-user raters
+cases due to the cost of manual review. Third,               for their valuable contributions to the evaluation
+while WEQA incorporates uncertainty-aware rea-               process.
+soning and grounded response auditing, the system
+is not intended for clinical diagnosis or emergency
+decision-making, and incorrect or overconfident              References
+predictions remain possible. Finally, the frame-             Harry Coppock, George Nicholson, Ivan Kiskin, Vasi-
+work depends on task-related analytical tools and              liki Koutra, Kieran Baker, Jobie Budd, Richard
+predictive models, and extending to new sensing                Payne, Emma Karoune, David Hurley, Alexander Tit-
+modalities or clinical tasks may require additional            comb, and 1 others. 2024. Audio-based ai classifiers
+                                                               show no evidence of improved covid-19 screening
+model integration and validation. An important                 over simple symptoms checkers. Nature Machine
+direction for future work is enabling the agent to             Intelligence, 6(2):229–242.
+automatically discover, retrieve, and adapt external
+analytical tools and wearable foundation models              Justin Cosentino, Anastasiya Belyaeva, Xin Liu,
+for new tasks and domains.                                     Nicholas A Furlotte, Zhun Yang, Chace Lee, Erik
+                                                               Schenck, Yojan Patel, Jian Cui, Logan Douglas
+                                                               Schneider, and 1 others. 2024. Towards a per-
+Potential Risks and Population Generalization.
+                                                               sonal health large language model. arXiv preprint
+WEQA supports wearable-health question answer-                 arXiv:2406.06474.
+ing and may be applied to health monitoring and
+screening tasks. However, wearable sensing pat-              Ting Dang, Jing Han, Tong Xia, Erika Bondareva, Chloë
+terns and physiological baselines can vary across               Siegele-Brown, Jagmohan Chauhan, Andreas Gram-
+                                                                menos, Dimitris Spathis, Pietro Cicuta, and Cecilia
+populations, devices, and real-world usage condi-               Mascolo. 2023. Conditional neural ode processes
+tions, and the pretrained models integrated within              for individual disease progression forecasting: a case
+WEQA (e.g. OPERA and Papagei) may inherit                       study on covid-19. In Proceedings of the 29th ACM
+biases or dataset-specific limitations from their              SIGKDD conference on knowledge discovery and
+                                                                data mining, pages 3914–3925.
+original training data. Although WEQA incor-
+porates grounded auditing and uncertainty-aware              Google. 2025. A new era of intelligence with Gemini 3.
+reasoning, incorrect predictions or misleading ex-             Google Blog.
+planations remain possible, particularly in safety-
+sensitive settings. WEQA is intended as a research           Shawn Hershey, Sourish Chaudhuri, Daniel PW Ellis,
+                                                               Jort F Gemmeke, Aren Jansen, R Channing Moore,
+framework rather than a clinically validated diag-             Manoj Plakal, Devin Platt, Rif A Saurous, Bryan
+nostic system, and real-world deployment would                 Seybold, and 1 others. 2017. CNN architectures for
+require rigorous validation, fairness evaluation, reg-         large-scale audio classification. In 2017 ieee inter-
+ulatory oversight, and human supervision.                      national conference on acoustics, speech and signal
+                                                               processing (icassp), pages 131–135. IEEE.
+Data Privacy and Ethics. This work relies exclu-
+sively on the secondary analysis of previously col-          A Ali Heydari, Ken Gu, Vidya Srinivas, Hong Yu, Zhi-
+                                                               han Zhang, Yuwei Zhang, Akshay Paruchuri, Qian
+lected wearable and physiological sensing datasets             He, Hamid Palangi, Nova Hammerquist, and 1 others.
+that were publicly available or accessible through             2025. The anatomy of a personal health agent. arXiv
+controlled research-use agreements. All datasets               preprint arXiv:2508.20148.
+were de-identified prior to release and collected un-
+                                                             Shengran Hu, Cong Lu, and Jeff Clune. 2025. Auto-
+der the ethics approvals and consent procedures                mated design of agentic systems. In International
+described in their original studies. Our use of                Conference on Learning Representations, volume
+these datasets was conducted under institutional               2025, pages 21344–21377.
+
+
+                                                         9
+Yubin Kim, Xuhai Xu, Daniel McDuff, Cynthia                    Kamal Shah, Anran Wang, Yiwen Chen, Jitender Mun-
+  Breazeal, and Hae Won Park. 2024. Health-llm:                  jal, Sumeet Chhabra, Anthony Stange, Enxun Wei,
+  Large language models for health prediction via wear-          Tuan Phan, Tracy Giest, Beszel Hawkins, and 1 oth-
+  able sensor data. arXiv preprint arXiv:2401.06866.             ers. 2025. Automated loss of pulse detection on a
+                                                                 consumer smartwatch. Nature, 642(8066):174–181.
+Patrick Langer, Thomas Kaar, Max Rosenblattl,
+  Maxwell A Xu, Winnie Chow, Martin Maritsch,                  Yu Shang, Yu Li, Keyu Zhao, Likai Ma, Jiahe Liu,
+  Robert Jakob, Ning Wang, Juncheng Liu, Aradhana                Fengli Xu, and Yong Li. 2025. Agentsquare: Auto-
+  Verma, and 1 others. 2025. Opentslm: Time-series               matic llm agent search in modular design space. In
+  language models for reasoning over multivariate                International Conference on Learning Representa-
+  medical text-and time-series data. arXiv preprint              tions, volume 2025, pages 3841–3865.
+  arXiv:2510.02410.
+                                                               Abhishek Tiwari, Shrikanth Narayanan, and Tiago H
+Zechen Li, Shohreh Deldari, Linyao Chen, Hao Xue,                Falk. 2019. Stress and anxiety measurement" in-the-
+  and Flora D. Salim. 2025. SensorLLM: Aligning                  wild" using quality-aware multi-scale hrv features.
+  large language models with motion sensors for hu-              In 2019 41st Annual International Conference of the
+  man activity recognition.                                      IEEE Engineering in Medicine and Biology Society
+                                                                 (EMBC), pages 7056–7059. IEEE.
+Yongbo Liang, Zhencheng Chen, Guiyong Liu, and Mo-
+  hamed Elgendi. 2018. A new, short-recorded photo-            Mathilde C van Rossum, Pedro M Alves da Silva, Ying
+  plethysmogram dataset for blood pressure monitoring           Wang, Ewout A Kouwenhoven, and Hermie J Her-
+  in china. Scientific data, 5(1):180020.                       mens. 2023. Missing data imputation techniques for
+                                                                wireless continuous vital signs monitoring. Journal
+Xin Liu, Daniel McDuff, Geza Kovacs, Isaac Galatzer-            of clinical monitoring and computing, 37(5):1387–
+  Levy, Jacob Sunshine, Jiening Zhan, Ming-Zher Poh,            1400.
+  Shun Liao, Paolo Di Achille, and Shwetak Patel.
+  2023. Large language models are few-shot health              Tong Xia, Dimitris Spathis, J Ch, Andreas Grammenos,
+  learners. arXiv preprint arXiv:2305.15525.                     Jing Han, Apinan Hasthanasombat, Erika Bondareva,
+                                                                 Ting Dang, Andres Floto, Pietro Cicuta, and 1 others.
+Mike A Merrill, Akshay Paruchuri, Naghmeh Rezaei,                2021. Covid-19 sounds: a large-scale audio dataset
+  Geza Kovacs, Javier Perez, Yun Liu, Erik Schenck,              for digital respiratory screening. In Thirty-fifth con-
+  Nova Hammerquist, Jake Sunshine, Shyam Tailor,                 ference on neural information processing systems
+  and 1 others. 2026. Transforming wearable data into            datasets and benchmarks track (round 2).
+  personal health insights using large language model          Maxwell A Xu, Girish Narayanswamy, Kumar Ayush,
+  agents. Nature Communications.                                Dimitris Spathis, Shun Liao, Shyam A Tailor, Ahmed
+                                                                Metwally, A Ali Heydari, Yuwei Zhang, Jake Gar-
+Karel Mundnich, Brandon M Booth, Michelle                       rison, and 1 others. 2025. Lsm-2: Learning from
+  l’Hommedieu, Tiantian Feng, Benjamin Girault,                 incomplete wearable sensor data. arXiv preprint
+  Justin L’hommedieu, Mackenzie Wildman, Sophia                 arXiv:2506.05321.
+  Skaaden, Amrutha Nadarajan, Jennifer L Villatte,
+  and 1 others. 2020. Tiles-2018, a longitudinal phys-         Zongzhe Xu, Zitao Shuai, Eideen Mozaffari, Ravi S
+  iologic and behavioral data set of hospital workers.           Aysola, Rajesh Kumar, and Yuzhe Yang. 2026.
+  Scientific Data, 7(1):354.                                     Sleeplm: Natural-language intelligence for human
+                                                                 sleep. arXiv preprint arXiv:2602.23605.
+Girish Narayanswamy, Maxwell A. Xu, A. Ali Heydari,
+  Samy Abdel-Ghaffar, Marius Guerard, Kara Vail-               An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,
+  lancourt, Zhihan Zhang, Jake Garrison, Levi Albu-              Binyuan Hui, Bo Zheng, Bowen Yu, Chang
+  querque, Dimitris Spathis, Hong Yu, Hamid Palangi,             Gao, Chengen Huang, Chenxu Lv, and 1 others.
+  Xuhai "Orson" Xu, David G. T. Barrett, Joseph Breda,           2025. Qwen3 technical report. arXiv preprint
+  Jed McGiffin, Yubin Kim, Yuwei Zhang, Naghmeh                  arXiv:2505.09388.
+  Rezaei, and 21 others. 2026. Towards a general
+  intelligence and interface for wearable health data.         Xiaofan Yu, Lanxiang Hu, Benjamin Reichman, Dy-
+  Preprint, arXiv:2605.22759.                                    lan Chu, Rushil Chandrupatla, Xiyuan Zhang, Larry
+                                                                 Heck, and Tajana Rosing. 2025. Sensorchat: Answer-
+OpenAI.    2026.         Introducing   chatgpt                   ing qualitative and quantitative questions during long-
+  health.          https://openai.com/index/                     term multimodal sensor interactions. arXiv preprint
+  introducing-chatgpt-health/.       Accessed:                   arXiv:2502.02883.
+  2026-04-23.
+                                                               Jiayi Zhang, Jinyu Xiang, Zhaoyang Yu, Fengwei Teng,
+Arvind Pillai, Dimitris Spathis, Fahim Kawsar, and Mo-            Xionghui Chen, Jiaqi Chen, Mingchen Zhuge, Xin
+  hammad Malekzadeh. 2025. Papagei: Open foun-                    Cheng, Sirui Hong, Jinlin Wang, and 1 others. 2025a.
+  dation models for optical physiological signals. In             Aflow: Automating agentic workflow generation. In
+  The Thirteenth International Conference on Learning             International Conference on Learning Representa-
+  Representations.                                                tions, volume 2025, pages 34040–34077.
+
+
+                                                          10
+Yuwei Zhang, Kumar Ayush, Siyuan Qiao, A. Ali                UK       COVID-19. The          UK     COVID-19
+  Heydari, Girish Narayanswamy, Maxwell A. Xu,               dataset (Coppock et al., 2024) was collected
+  Ahmed A. Metwally, Shawn Xu, Jake Garrison,
+                                                             through the UK REACT programme and NHS
+  Xuhai Xu, Tim Althoff, Yun Liu, Pushmeet Kohli,
+  Jiening Zhan, Mark Malhotra, Shwetak Patel, Cecilia        Test and Trace initiative on an opt-in basis.
+  Mascolo, Xin Liu, Daniel McDuff, and Yuzhe Yang.           Participants voluntarily contributed respiratory
+  2025b. Sensorlm: Learning the language of wear-            audio recordings through the “Speak up and help
+  able sensors. In Conference on Neural Information          beat coronavirus” study platform after reviewing
+  Processing Systems (NeurIPS).
+                                                             study information and providing informed consent.
+Yuwei Zhang, Tong Xia, Jing Han, Yu Y Wu, Georgios           The dataset contains cough, breathing, and speech
+  Rizos, Yang Liu, Mohammed Mosuily, Jagmohan                recordings linked with demographic metadata and
+  Chauhan, and Cecilia Mascolo. 2024. Towards open           PCR-confirmed COVID-19 test outcomes.
+  respiratory acoustic foundation models: Pretraining
+  and benchmarking. Advances in Neural Information              The study received approval from the National
+  Processing Systems, 37:27024–27055.                        Statistician’s Data Ethics Advisory Committee and
+                                                             NHS Research Ethics Committees. An open-access
+A     Data                                                   version of the dataset was released under the Open
+                                                             Government Licence v3.0.
+A.1    Dataset Overview
+                                                             COVID-19 Sounds. COVID-19 Sounds (Xia
+TILES-2018. TILES-2018 (Mundnich et al.,
+                                                             et al., 2021) is a crowd-sourced respiratory audio
+2020) is a longitudinal multimodal sensing dataset
+                                                             dataset collected through a web and mobile plat-
+collected from 212 hospital workers at the USC
+                                                             form developed at the University of Cambridge.
+Keck Medical Center over approximately 10 weeks.
+                                                             Participants voluntarily submitted cough, breath-
+The dataset includes wearable, mobile, survey,
+                                                             ing, and speech recordings together with symptom
+and environmental sensing streams, including Fit-
+                                                             and demographic information. The dataset sup-
+bit activity and sleep measurements as well as
+                                                             ports respiratory screening and progression-related
+ECG recordings. It supports both short- and long-
+                                                             prediction tasks using raw audio signals.
+horizon wearable health reasoning tasks, including
+                                                                The study received ethics approval from the Uni-
+behavioral analysis, stress monitoring, and mental-
+                                                             versity of Cambridge. Participants provided in-
+health-related inference.
+                                                             formed consent within the application prior to con-
+   The study was conducted under approval from
+                                                             tribution, and no directly identifiable information
+the USC Health Sciences Campus Institutional Re-
+                                                             was collected. Anonymized data are available for
+view Board (IRB). Participants completed an in-
+                                                             academic research use subject to a Data Transfer
+formed consent process through the TILES mobile
+                                                             Agreement with the University of Cambridge.
+application before enrollment. Reuse is governed
+through a signed Data Usage Agreement.                       Ethics and Data Governance. All datasets used
+                                                             in this work are publicly available or accessible
+PPG-BP. PPG-BP (Liang et al., 2018) is a photo-              through controlled-access agreements intended for
+plethysmography (PPG) dataset collected at Guilin            academic research use. Our use of these datasets
+People’s Hospital in China under standardized ac-            was conducted under institutional IRB approval
+quisition conditions. Fingertip PPG recordings               and followed the corresponding dataset usage and
+were collected alongside cuff-based blood pressure           governance requirements.
+measurements to support blood pressure estimation
+and hypertension screening tasks. The dataset is             A.2   Query Taxonomy and Examples
+particularly useful for evaluating waveform-level
+                                                             To systematically evaluate adaptive wearable health
+physiological reasoning because clinically relevant
+                                                             reasoning, we organize benchmark questions into
+information must be inferred directly from raw sig-
+                                                             five task families spanning analytical reasoning,
+nal morphology.
+                                                             longitudinal analysis, predictive inference, and
+   The study received ethics approval from Guilin            open-ended health understanding. Table 5 provides
+People’s Hospital and Guilin University of Elec-             representative examples from each category.
+tronic Technology. All participants provided writ-
+ten informed consent before participation. The re-           Short-Horizon Analytical QA. These questions
+leased dataset was de-identified prior to publication        require direct computation or aggregation over
+and made publicly available for research use.                short temporal windows, such as daily or hourly
+
+                                                        11
+statistics from wearable signals. Typical tasks in-
+clude retrieving sleep, activity, or heart-rate metrics
+from recent sensor data.
+Long-Horizon Analytical QA. These questions
+require reasoning over temporal trends, correla-
+tions, and behavioral patterns across extended his-
+tories. Examples include trend analysis, variability
+assessment, and cross-signal temporal relationships
+over weeks or months.
+Predictive Reasoning QA. These tasks require
+predictive inference directly from physiological sig-
+nals or derived features. Examples include stress
+prediction from heart-rate variability, hypertension
+estimation from PPG morphology, and respiratory
+disease screening from cough and breathing au-
+dio. Some tasks also require longitudinal predictive
+modeling over historical user trajectories, such as
+integrating recent and longitudinal observations to
+forecast future health outcomes.
+Open-Ended Insight QA. These questions re-
+quire synthesizing multiple sensor streams and
+temporal evidence into natural-language health in-
+sights, recommendations, or summaries. Unlike
+analytical QA, these tasks emphasize explanation,
+contextual reasoning, and personalized interpreta-
+tion.
+
+
+
+
+                                                          12
+     Category                       Example Queries
+     Short-Horizon Analytical QA
+                                    • What was my wake-after-sleep-onset duration yesterday?
+
+                                    • What was my peak hourly step count today?
+
+                                    • What was my average heart rate four days ago?
+
+                                    • During the hour with my maximum heart rate yesterday, how many steps did I
+                                      take on average?
+
+                                    • What was my resting heart rate during sleep last night?
+     Long-Horizon Analytical QA
+                                    • Did my daily maximum heart rate increase or decrease over the last 30 days?
+
+                                    • Is there a correlation between my daily step count and average heart rate over
+                                      the past two weeks?
+
+                                    • What was my highest peak-hour step count over the last month?
+
+                                    • Has my sleep duration become more consistent recently?
+
+                                    • How has my weekly activity level changed compared to last month?
+     Predictive Reasoning QA
+                                    • Based on my HRV data today, am I likely experiencing elevated stress?
+
+                                    • Can you estimate whether I may have hypertension from this PPG waveform?
+
+                                    • Based on my cough recording, am I likely COVID-19 positive?
+
+                                    • Based on my HRV trends over the past week, am I likely to feel stressed today?
+
+                                    • Given my recent cough and breathing recordings, what is my risk of testing
+                                      COVID-19 positive within the next 12 days?
+     Open-Ended Insight QA
+                                    • Can you provide insights into my sleep quality yesterday?
+
+                                    • What can you tell me about my overall health based on my wearable data from
+                                      the past week?
+
+                                    • Are there any unusual patterns in my recent physiological signals?
+
+                                    • How does my activity and sleep behavior compare to my normal baseline?
+
+                                    • What factors may have contributed to my elevated stress this week?
+
+Table 5: Representative query examples from the WEQA benchmark taxonomy. Different categories require
+distinct combinations of sensor analysis, temporal reasoning, predictive inference, personalization, and grounded
+explanation.
+
+
+
+
+                                                        13
+B   Implementation details                                    Toolset. WEQA uses a compact, human-
+                                                              interpretable wearable-health toolset spanning sen-
+System architecture. WEQA is implemented as                   sor summarization, analytical reasoning, personal-
+a three-stage pipeline driven by an LLM controller.           ization, and predictive inference. As summarized in
+At runtime, the controller first produces a struc-            Table 6, the analytical tools support wearable sum-
+tured plan from the query and metadata, then ex-              maries, descriptive statistics, temporal trend anal-
+ecutes tool calls specified in the plan to construct          ysis, cross-signal correlations, and user-specific
+an evidence snapshot, and finally hands the draft             baseline estimation. In addition, WEQA integrates
+answer plus evidence to a response auditor for                specialized predictive models for stress inference,
+grounding and safety edits. The planner and audi-             respiratory screening and forecasting, and blood
+tor are prompt-based LLM calls; all analysis and              pressure estimation from physiological waveforms
+prediction are executed by deterministic tools or             (Table 7). Each tool returns structured outputs and
+pretrained models.                                            metadata (e.g., time span, modality, and confidence
+                                                              where applicable), enabling grounded responses
+LLM backbone and prompting. Unless stated                     and uncertainty-aware reasoning.
+otherwise, we use Gemini-3.0-Flash for planning,
+orchestration, and auditing. The planner prompt               Response auditing. The auditing prompt re-
+enforces a fixed schema so downstream code can                ceives three blocks: user query, draft response, and
+parse and execute steps. We use a compact JSON-               evidence snapshot. It is instructed to remove un-
+like template that the planner must fill, for example:        supported claims, calibrate uncertainty, and keep
+                                                              risk-sensitive health statements cautious. External
+    objective: ...                                            knowledge retrieval is only enabled when the user
+    required_data: ...
+    task_type: ...                                            explicitly asks for interpretation, norms, or safety
+    time_scope: ...                                           implications.
+    need_prediction: ...
+    need_personalization: ...                                 Baselines. All baselines share identical data load-
+    response_risk_level: ...
+    steps:
+                                                              ers and tool interfaces. Direct prompting serial-
+    - tool:      <name>,    args:         <...>,              izes tabular wearable summaries into text with
+    expected_evidence: <...>                                  optional hourly or daily downsampling; for raw
+                                                              signals (audio, PPG) we apply minimal downsam-
+For prediction tasks with alternative models, the             pling to fit context windows. Multimodal prompt-
+prompt encodes an uncertainty band and a second-              ing renders line plots for time-series data and mel-
+opinion rule; the controller requests a fallback              spectrograms for audio, then supplies the images
+model when confidence falls inside the band and               to a multimodal LLM. ReAct uses the same toolset
+explains which output it selected.                            with an iterative thought-action loop and a fixed 20
+                                                              tool-call budget per query. The multi-agent base-
+Planning and plan bank. Before generating a                   line instantiates a data-science agent with a Python
+new plan, the controller checks a plan bank using             tool for numeric analysis, a health-domain expert
+the query. If a prior plan exists, it is reused as the        for interpretation, and a coach agent for synthe-
+default plan; otherwise a new plan is written to              sis; an orchestrator routes queries between agents
+the bank after execution. This keeps plan structure           under a shared tool-call budget.
+consistent across repeated queries without hard-                 We also include a task-aware random reference
+coding task-specific pipelines.                               to contextualize task difficulty. For categorical
+                                                              questions, it samples uniformly from the valid an-
+Evidence construction and serialization. Each                 swer set; for numeric and regression questions,
+step in the plan triggers a tool call with explicit           it samples uniformly from the observed answer
+parameters including date bounds and modality                 values; and for classification tasks, it guesses uni-
+constraints. Tool outputs are normalized into a               formly over labels. This baseline is intended only
+compact evidence snapshot that records: tool name,            as a chance-level reference rather than a competi-
+input arguments, output fields, and (when available)          tive method.
+confidence or uncertainty metadata. This snapshot
+is appended to the prompt for the auditor to ensure           Model Size and Compute. WEQA uses Gemini-
+factual grounding.                                            3.0-Flash as the primary LLM controller for plan-
+
+                                                         14
+              Category                Capability                                    Output (summary)
+              Wearable summaries      Sleep summaries (night or range)              total sleep, stages, efficiency
+              Wearable summaries      Activity summaries (window or range)          steps and activity aggregates
+              Wearable summaries      Heart-rate summaries (window or range)        min/mean/max and variability
+              Wearable summaries      HRV feature extraction                        time/frequency HRV features
+              Analytics               Descriptive statistics                        mean, variance, percentiles
+              Analytics               Trends over time                              slope and direction
+              Analytics               Cross-signal correlation                      r and strength label
+              Personalization         User-specific baseline                        personal feature baselines
+
+Table 6: Overview of the analytical and personalization tools used in WEQA. The toolset supports sensor-native
+summarization, temporal analysis, cross-signal reasoning, and user-specific baseline estimation across wearable
+modalities.
+
+      Model                             Modality            Task                             Notes
+      HRV Stress SVM                                                                         pretrained,
+                                        ECG/HRV             stress
+      (Tiwari et al., 2019)                                                                  population-level
+      HRV Anxiety SVM                                                                        pretrained,
+                                        ECG/HRV             anxiety
+      (Tiwari et al., 2019)                                                                  population-level
+      StressTransformer                 ECG/HRV                                              longitudinal
+                                                            stress prediction
+      (van Rossum et al., 2023)         + history                                            sequence model
+      OPERA-CT / OPERA-GT                                                                    foundation encoder
+                                        respiratory audio   COVID-19 screening
+      (Zhang et al., 2024)                                                                   + classifier
+                                        respiratory audio                                    foundation encoder
+      VGGish (Hershey et al., 2017)
+                                        + history           COVID-19 forecast                + neural ODE
+      + CNDP (Dang et al., 2023)
+                                        + initial label                                      temporal progression model
+      Papagei-P / Papagei-S                                                                  foundation encoder
+                                        PPG                 hypertension classification
+      (Pillai et al., 2025)                                                                  + classifier
+      Papagei-P / Papagei-S                                                                  foundation encoder
+                                        PPG                 systolic/diastolic BP
+      (Pillai et al., 2025)                                                                  + regressor
+
+Table 7: Specialized predictive and foundation models integrated into WEQA. These models support task-specific
+inference over physiological and respiratory signals, including stress prediction, COVID-19 screening and forecast-
+ing, and blood pressure estimation.
+
+
+ning, orchestration, and response auditing. We                   test splits that were never used for pretraining,
+additionally integrate several pretrained wearable               downstream training, personalization, or adapta-
+foundation models and task-specific predictors, in-              tion within WEQA. This design helps ensure that
+cluding OPERA and Papagei variants, whose pa-                    predictive performance reflects the proposed query-
+rameter counts are reported in their original pub-               adaptive orchestration framework rather than leak-
+lications. Since WEQA is an inference-time or-                   age from overlapping evaluation sets. In particu-
+chestration framework, no large-scale model pre-                 lar, WEQA follows the original train/dev/test par-
+training or finetuning was performed. Experiments                titioning protocols defined in the OPERA and Pa-
+were conducted on a single NVIDIA A100 GPU                       pagei benchmark papers, preserving their prede-
+for predictive inference and benchmark evaluation.               fined split integrity and evaluation methodology.
+                                                                 For the TILES stress detection task, we follow (Ti-
+Experimental Setup and Hyperparameters.                          wari et al., 2019; van Rossum et al., 2023) and use
+Since WEQA is a training-free orchestration frame-               a fixed random seed to generate a train/test split,
+work, no large-scale hyperparameter search was                   ensuring reproducibility.
+performed. Predictive models and wearable foun-
+dation models use the pretrained configurations and              C    Human Evaluation Study
+recommended hyperparameters from their original                  To complement automated benchmark metrics, we
+works.                                                           conducted a human evaluation study assessing the
+                                                                 quality, usefulness, and health appropriateness of
+Benchmark Split Integrity. For predictive rea-
+                                                                 generated responses.
+soning tasks associated with pretrained founda-
+tion models (e.g. OPERA and Papagei) all eval-                   Study Design. Participants were shown a series
+uations were conducted on held-out benchmark                     of benchmark-derived case examples constructed
+
+                                                            15
+from the datasets used in WEQA. Each case con-
+sisted of: (1) a user query, (2) a brief summary of
+the relevant wearable or physiological context, and
+(3) two candidate responses generated by different
+systems in blinded and randomized order. Partic-
+ipants evaluated the same randomly selected 15
+cases through an online questionnaire. The evalua-
+tion takes around 60-75 minutes.
+Evaluation Criteria. Each response was rated
+on a 5-point Likert scale across four dimensions:
+
+• Correctness and Grounding: whether the re-
+  sponse accurately reflected the available wear-
+  able evidence and avoided unsupported claims.
+• Personalization: whether the response appropri-
+  ately incorporated individual context or historical
+  information.
+• Usefulness: whether the response was clear, un-
+  derstandable, and practically helpful to the in-
+  tended user.
+• Clinical Plausibility / Health Appropriateness:
+  whether the interpretation and recommendations
+  were medically reasonable, sensible, and safe
+  given the available evidence.
+
+  Participants additionally indicated an overall
+preference between the two responses and could
+optionally flag potentially misleading, unsafe, or
+overconfident outputs.
+Participants and Ethics. Participants included
+both general users and individuals with medical
+or health-related expertise. All participants were
+provided with an information sheet describing the
+study goals, procedures, risks, and data handling
+practices before participation. Written informed
+consent was obtained electronically prior to the
+evaluation. The study used benchmark-derived ex-
+amples from public datasets only; participants were
+not asked to provide personal health data. Medical
+experts received a £10 voucher as compensation
+for their time.
+   Evaluation responses were stored securely and
+analyzed in de-identified form. Participants could
+withdraw from the study before anonymization of
+the collected responses. The study protocol was
+reviewed and approved under institutional ethics
+procedures.
+
+
+
+
+                                                        16
+Purpose of the Study. This study evaluates wearable personal health agents that answer health-
+related questions using wearable and mobile sensing data. We are interested in whether such
+systems can:
+
+   • answer detailed health-related questions,
+
+   • generate useful health insights from wearable data,
+
+   • leverage machine learning and foundation models for clinically plausible health screening.
+
+Why You Have Been Invited. You are invited because you are either:
+
+   • a potential end user who can evaluate the usefulness and clarity of responses, or
+
+   • a medical or health-related expert who can evaluate the plausibility and soundness of
+     responses.
+
+What Participation Involves. If you agree to participate, you will complete an online evaluation
+containing 15 benchmark-derived case examples. For each case, you will see:
+
+   • a short health-related query,
+
+   • a brief summary of relevant wearable or physiological context,
+
+   • two blinded candidate responses generated by different AI systems.
+
+You will then:
+
+   • rate each response on several criteria using a 1–5 scale,
+
+   • indicate which response you prefer overall,
+
+   • optionally provide comments explaining your choice.
+
+The evaluation is expected to take approximately 60–75 minutes.
+Nature of the Materials. The study uses benchmark-derived examples constructed from public
+datasets. You will not be asked to provide personal health data.
+Risks and Discomforts. This study involves minimal risk. Some examples may involve health-
+related symptoms or predictions that some participants may find mildly uncomfortable. You may
+skip any question or stop participation at any time before submitting your responses.
+Benefits. There may be no direct personal benefit to you. However, your feedback may help
+improve AI systems for personal health applications.
+Confidentiality and Data Handling. Your responses will be stored securely and accessed only
+by the research team. Any identifying information collected for recruitment or coordination will
+be stored separately from evaluation responses.
+De-identified or aggregated evaluation results (e.g., ratings and preferences) may be used in
+publications or shared in public research repositories. No direct identifiers such as names or
+email addresses will be released. Optional free-text comments may be edited or removed to
+reduce re-identification risk. No identifiable personal health data will be collected.
+Voluntary Participation and Withdrawal. Participation is voluntary. You may stop at any
+time before submitting your responses without penalty. After submission, you may request
+withdrawal of your data by contacting the research team.
+
+
+
+                                                 17
+Evaluation Instructions
+You will be shown a series of case examples. For each case, you will see:
+
+   • a user query,
+
+   • a short summary of relevant information,
+
+   • two candidate responses generated by different AI systems.
+
+Responses are presented in randomized order. Please evaluate each response independently
+before indicating your overall preference.
+Each case appears in a separate section, and your progress will be saved automatically.
+Evaluation Criteria
+
+  1. Correctness and Grounding
+     Does the response accurately reflect the available information and appropriately ground its
+     claims in wearable data?
+     Consider whether the response is factually accurate, evidence-supported, and avoids unsup-
+     ported assumptions.
+
+  2. Personalization
+     Does the response appropriately account for the individual’s context or history?
+     Consider whether the response feels tailored to the individual and their situation.
+
+  3. Usefulness
+     Is the response clear, understandable, and practically useful?
+     Consider whether it helps the user understand their situation or determine possible next
+     steps.
+
+  4. Clinical Plausibility / Health Appropriateness
+    For expert reviewers: Is the response medically reasonable, clinically sensible, and safe
+    given the available information?
+    For general users: Does the response seem sensible, appropriate, and safe from a health
+    perspective?
+
+  5. Preference
+     Which response do you prefer overall?
+     A tie option may be used if there is no meaningful difference, but please use it sparingly.
+
+If a response appears overly confident, misleading, or unsupported by the provided information,
+please reflect this in your ratings and optional comments.
+You are encouraged to leave optional comments highlighting particularly strong or weak aspects
+of the responses.
+
+
+
+
+                                                18
+D     Additional results                                    numerical outputs. For example, in a trend-analysis
+                                                            case involving declining activity levels, reviewers
+D.1    Benchmark Result Breakdown                           noted that the baseline responses were either overly
+The section provides a more detailed breakdown              technical or insufficiently interpretable, whereas
+of performance across the analytical and predic-            WEQA provided clinically grounded explanations
+tive reasoning task families introduced in the main         and clearer user-facing interpretation:
+results table.
+   Table 8 first decomposes analytical reasoning                 “Response B gave good implications
+performance into short and long analytical tasks.                which were well clinically grounded off
+Short analytical tasks evaluate direct numerical es-             the data. Also more user friendly and
+timation accuracy using MAPE and MAE, while                      personalised.”
+long analytical tasks evaluate higher-level aggre-
+                                                               Similarly, in sleep-efficiency analysis tasks, re-
+gate reasoning, trend understanding, and correla-
+                                                            viewers highlighted that WEQA not only answered
+tion reasoning over longitudinal physiological sig-
+                                                            the numerical question but also contextualized vari-
+nals. Across nearly all metrics, our method sub-
+                                                            ability and longitudinal sleep consistency:
+stantially outperforms prior prompting-based and
+multi-agent baselines, achieving the strongest ag-               “Response B acknowledges variation in
+gregate reasoning accuracy while maintaining the                 sleep efficiency whilst answering the
+lowest estimation error.                                         user question... The user may have asked
+   Table 9 further breaks down predictive reasoning              this question as a prompt for some advice
+performance across downstream health prediction                  about sleep.”
+tasks, including mental health prediction, audio-
+based COVID-19 detection, PPG-based hyperten-                  These examples suggest that explicit evidence
+sion detection, mental health prediction with unla-         synthesis and contextual interpretation improve per-
+beled longitudinal history, and COVID-19 progres-           ceived usefulness beyond simple descriptive report-
+sion forecasting. The results show that our frame-          ing.
+work consistently improves performance across all
+task categories, with especially large gains on lon-        Safety-Aware Predictive Reasoning. A major
+gitudinal forecasting and multimodal physiological          advantage of the full WEQA system was safer han-
+prediction tasks.                                           dling of uncertain medical predictions. In COVID-
+   Finally, Table 10 reports the average token              19 screening tasks, reviewers consistently criticized
+consumption for each analytical and predictive              baseline and ablated responses for presenting pre-
+reasoning task family. While several baseline               dictions too definitively:
+approaches require extremely large context win-
+                                                                 “Response B is confidently saying a pos-
+dows—particularly for longitudinal and multi-
+                                                                 itive cough test means they are willing
+modal tasks—our approach achieves substantially
+                                                                 to say COVID-19 positive which is not
+lower token usage while simultaneously improv-
+                                                                 the case – needs PCR or rapid antigen to
+ing reasoning performance. This highlights the
+                                                                 make definitive diagnosis.”
+efficiency advantages of the proposed framework,
+especially in long-horizon health reasoning settings           In contrast, reviewers preferred WEQA when
+where token cost and scalability become critical.           it explicitly communicated uncertainty, clarified
+                                                            limitations of wearable-based inference, and rec-
+D.2    Human Evaluation Case Studies
+                                                            ommended appropriate clinical follow-up:
+Beyond aggregate preference scores, the human
+evaluation revealed several recurring strengths of               “Response A is more explicit in the lim-
+WEQA relative to both baseline systems and ab-                   itations of the technology and need for
+lated variants.                                                  clinical assessment.”
+
+Grounded Interpretation Beyond Raw Statis-                     Similar patterns appeared in hypertension screen-
+tics. In longitudinal analytical tasks, reviewers           ing tasks using PPG signals. Reviewers repeat-
+frequently preferred WEQA because it contextual-            edly favored WEQA when it framed predictions as
+ized wearable statistics rather than only reporting         screening evidence rather than definitive diagnosis:
+
+                                                       19
+                                    Short Analytical                                    Long Analytical
+ Method       Input       Gran.
+                                    MAPE ↓ MAE ↓ Agg. MAE ↓ Agg. MAPE ↓ Agg. Acc. ↑ Trend Acc. ↑ Corr. Acc. ↑
+ LLM-Text  tabular        hourly     145.7     848.0         15,431.6          225.4            2.4            80.7          44.1
+           tabular        daily     1,363.1   1,013.0        1,274.5           212.0           28.9            81.9          26.2
+ LLM-Image image          hourly     125.2     526.4          4,424.3           56.2            2.4            63.9          35.7
+           image          daily      174.2     913.6         5,149.6            68.0           10.8            66.3          34.5
+ ReAct       –            –           20.5     31.3          17,625.6          508.5           54.2            74.7          60.7
+ Multi-Agent –            –          249.3    157.2           127.5            14.5            56.6            89.2          72.6
+ WEQA         –           –           4.3          9.2         2.31             0.94           94.0            98.8          91.5
+
+Table 8: Breakdown of analytical reasoning performance across short and long analytical task families. Lower is
+better for MAPE, MAE, Aggregate MAE, and Aggregate MAPE; higher is better for Aggregate Acc., Trend Acc.,
+and Correlation Acc. Best results are shown in bold.
+
+                                                                   Predictive Reasoning Tasks (%)
+     Method           Gran.
+                                   Mental Health         Audio-COVID      PPG-HTN      Mental Health + Hist.    COVID-Prog
+     Random           –                50.0                 50.0             61.0              50.0                   69.0
+     LLM-Text         hourly           56.5                 48.0             50.3              51.0                   72.5
+                      daily            55.5                 48.0             50.3              46.0                   72.5
+     LLM-Image        hourly           54.5                 59.0             57.2              41.0                   69.2
+                      daily            55.0                 59.0             57.2              43.0                   69.2
+     ReAct            –                56.5                 51.0             73.0              48.0                   67.5
+     Multi-Agent*     –                 –                   46.5              –                61.2                   58.2
+     WEQA             –                86.0                 74.0             84.4              89.0                   85.9
+
+Table 9: Breakdown of predictive reasoning performance across health classification tasks. Audio-COVID denotes
+audio-based COVID-19 detection, PPG-HTN denotes PPG-based hypertension detection, and Mental Health + Hist.
+denotes mental health prediction with unlabeled longitudinal history. Results are reported as task balanced accuracy
+(%). Best results are shown in bold. *Multi-agent baseline fail to give answer in many cases, so we only report the
+cases where it succeeds in making a prediction.
+
+
+     “Model A underlines PPG is only a                                      “Response B gives more context behind
+     screening tool and recommends confir-                                  this and acknowledges how the agent
+     matory testing.”                                                       came to this conclusion with other data.”
+
+  These findings support the importance of the                            These observations suggest that personalization
+grounded response auditing stage for risk-sensitive                     mechanisms contribute substantially to perceived
+wearable-health assistance.                                             plausibility and usefulness in wearable-health rea-
+                                                                        soning.
+Personalization and Baseline Awareness. Re-
+viewers also preferred WEQA when responses in-                          Limitations and Reviewer Feedback. The hu-
+corporated user-specific baselines and longitudinal                     man evaluation also revealed several recurring lim-
+history rather than relying on population-level inter-                  itations. Some reviewers felt that WEQA occa-
+pretations alone. In stress reasoning tasks, several                    sionally provided more detail than necessary for
+reviewers criticized baseline systems for ignoring                      simple factual questions, while others noted that
+individual physiological variability:                                   certain responses could still appear overly confident
+                                                                        despite uncertainty disclaimers. In addition, re-
+     “Response A neglects to take into ac-                              viewers sometimes preferred shorter responses for
+     count variation in people’s baselines.”                            straightforward analytical queries. These findings
+                                                                        suggest an important future direction in adaptive
+  In contrast, WEQA responses were preferred                            response calibration and personalization of expla-
+when they explicitly compared current physiologi-                       nation depth.
+cal measurements against historical trends and ex-
+plained deviations relative to personal baselines:
+
+                                                                   20
+Table 10: Breakdown of average token consumption across analytical and predictive reasoning tasks. Short
+Analytical and Long Analytical correspond to the analytical reasoning task families from the main benchmark table.
+For predictive reasoning, Audio-COVID denotes audio-based COVID-19 detection, PPG-HTN denotes PPG-based
+hypertension detection, Mental Health + Hist. denotes mental health prediction with unlabeled longitudinal history,
+and COVID-Prog denotes COVID-19 progression forecasting. Values denote average tokens consumed per query.
+
+                        Analytical                                 Predictive Reasoning
+ Method       Gran.
+                       Short   Long     Mental Health Audio-COVID PPG-HTN Mental Health + Hist. COVID-Prog
+ LLM-Text  hourly 29,040 46,679           149,335       467,224       45,348              187,399        457,017
+           daily  2,514 11,205            20,579        467,224       45,348              24,746         457,017
+ LLM-Image hourly 2,426 6,896              2,960         2,768         1,552               2,321          3,440
+           daily  2,007 9,447              2,870         2,768        1,552                2,213          3,440
+ ReAct       –         8,031 10,176       25,279        136,473       189,885             23,085         162,778
+ Multi-Agent –        31,420 42,040       49,394         7,162         16,568             18,915          17,400
+ WEQA         –       9,380    15,195      8,842          4,791        7,281               8,713          4,857
+
+
+
+
+                                                       21
+Case Study: Longitudinal Activity Trend Analysis
+Query. Did my daily peak one-hour step count increase, decrease, or stay the same over the last 14 days (ending
+yesterday)?
+Ground Truth. The underlying wearable data shows a statistically significant decrease in peak one-hour step count
+over the observation period.
+Compared Systems.
+
+   • Response A: ReAct
+
+   • Response B: WEQA
+
+Response A (ReAct).
+
+     To determine the trend in your daily peak one-hour step count over the last 14 days (ending 2018-05-19),
+     I analyzed the available step count data from 2018-05-06 to 2018-05-14.
+     The daily peak one-hour step counts were: 1279, 1337, 1369, 808, 1493, 1158, 956, 794, and 1333 steps.
+     Using linear regression: Slope: -31.48
+     Standard deviation: 242.36
+     Total change: -283.35
+     Since the total change exceeded the standard deviation threshold, your daily peak one-hour step count
+     decreased.
+     Final Answer: decrease
+
+Response B (WEQA).
+
+     To analyze the trend of your daily peak one-hour step count, I reviewed your activity data for the 14-day
+     period ending May 19, 2018. Data was available for 9 valid days.
+     Trend Analysis: Direction: Decrease
+     Slope: -58.92 steps/day
+     Total Change: -530.25 steps
+     Standard Deviation: 254.76 steps
+     Since the magnitude of the total change exceeds the standard deviation, this indicates a significant
+     decrease.
+     Tips & Implications: A decrease in peak hourly steps may reflect a change in your routine or reduced
+     activity intensity. If your goal is maintaining cardiovascular fitness, consider incorporating a dedicated
+     period of walking or exercise each day.
+     Final Answer: decrease
+
+Reviewer Observation. Reviewers preferred WEQA because it combined correct statistical reasoning with clearer
+interpretation and actionable health context.
+
+     “Response B gave good implications which were well clinically grounded off the data. Also more user
+     friendly and personalised.”
+
+
+
+
+                                                        22
+Case Study: Uncertainty and Risk Communication in Blood Pressure Inference
+Query. Based on my PPG data, can you give me a concise explanation of my likely blood-pressure profile?
+Ground Truth. True systolic blood pressure: 178 mmHg, true diastolic blood pressure: 86 mmHg. The user has
+hypertension.
+Compared Systems.
+
+   • Response A: WEQA
+
+   • Response B: Multi-Agent Baseline
+
+Response A (WEQA).
+
+      Estimated Systolic Blood Pressure: 136.3 mmHg
+      Estimated Diastolic Blood Pressure: 73.7 mmHg
+      Classification: Hypertension (74% model confidence)
+      Important Considerations: These results are estimates derived from optical PPG signals and are not a
+      clinical diagnosis. It is recommended to verify these readings using a validated upper-arm blood pressure
+      cuff. If you consistently observe readings in this range, please consult a healthcare professional.
+      Final Answer: Predicted hypertension profile with elevated systolic pressure.
+
+Response B (Multi-Agent Baseline).
+
+      Your PPG data indicates a blood pressure profile that consistently falls within the Normal range.
+      Systolic Pressure: Generally stable, with readings typically ranging between 110 and 120 mmHg.
+      Diastolic Pressure: Consistently within the 70 to 80 mmHg range.
+      This profile suggests a low risk for blood pressure-related issues at this time.
+      Final Answer: Normal
+
+Reviewer Observation. Reviewers preferred WEQA because, despite imperfect regression estimates, it correctly
+identified hypertension risk, communicated model uncertainty, and recommended clinical follow-up. In contrast, the
+baseline response was criticized for presenting an overconfident and clinically misleading conclusion despite severely
+elevated ground-truth systolic pressure.
+
+     “Response B is overconfident and incorrect given the severity of the systolic blood pressure.”
+
+     “178 systolic is near the clinically concerning threshold, but the response reassures the user that everything
+     is normal.”
+
+Why WEQA Performed Better. WEQA combines predictive modeling with uncertainty-aware auditing and risk-
+sensitive response generation. Even when regression estimates are imperfect, the system contextualizes model
+limitations, avoids false reassurance, and provides appropriate escalation guidance in safety-sensitive situations.
+
+
+
+
+                                                          23
+Case Study: Safety-Aware COVID-19 Screening
+Query. Based on my cough audio data today, can you predict if I am COVID-19 positive?
+Ground Truth. The participant was COVID-19 positive.
+Compared Systems.
+
+   • Response A: WEQA
+
+   • Response B: WEQA w/o Grounded Safety Auditing
+
+Response A (WEQA).
+
+      I analyzed your cough audio data today using two deep-learning models.
+      The primary model (operaCT) produced an uncertain probability of 0.47. Because this fell within the
+      uncertainty range, a second model (operaGT) was used and produced a more confident probability of
+      0.79.
+      Based on the more confident prediction, the system indicates a positive result.
+      Important Note: This prediction is based on acoustic patterns and is not a clinical diagnosis. AI screening
+      tools can make errors. You should confirm this result with a PCR or rapid antigen test and consult a
+      healthcare professional.
+      Final Answer: COVID-19 positive
+
+Response B (WEQA w/o Grounded Safety Auditing).
+
+      I used the COVID-19 audio inference tool to analyze your cough data today. The initial analysis yielded
+      an uncertain result with probability 0.47. A second analysis using operaGT produced a probability of
+      0.79 for a positive status.
+      Because the second model is more confident, I am favoring that prediction.
+      Final Answer: COVID-19 positive
+
+Reviewer Observation. Although both systems predicted the correct label, reviewers consistently preferred WEQA
+because it explicitly communicated uncertainty and clarified the limitations of wearable-based screening.
+
+     “Response A is more explicit in the limitations of the technology and need for clinical assessment.”
+
+Reviewers criticized the alternative response for sounding overly definitive:
+
+     “Response B is confidently saying a positive cough test means they are willing to say COVID-19 positive
+     which is not the case – needs PCR or rapid antigen to make definitive diagnosis.”
+
+
+
+
+                                                         24
+Case Study: Personalized Stress Prediction from HRV
+Query. Based on my HRV data today and in the past week, can you predict if I am likely to feel stressed today? Am I
+under low stress or high stress?
+Ground Truth. The participant was experiencing high stress.
+Compared Systems.
+
+    • Response A: Multi-Agent
+
+    • Response B: WEQA
+
+Response A (Multi-Agent).
+
+      To predict your stress level for today, June 11, 2018, we compared your Heart Rate Variability (HRV)
+      data from today against your average from the past week.
+      Your mean HRV for today was approximately 79.76 ms, while your average for the preceding week was
+      80.12 ms. While today’s HRV is technically lower, the difference is very slight and within your normal
+      range.
+      Because your HRV has remained consistent with your recent baseline, you are likely to experience low
+      stress levels today.
+      Final Answer: low stress
+
+Response B (WEQA).
+
+      To assess your potential stress levels for today, June 11, 2018, I analyzed your HRV data using two
+      predictive approaches.
+      Personalized Model: This model was adapted to your individual baseline and indicates a high likelihood
+      of stress with probability 92%.
+      Temporal History Model: This model evaluated your HRV trends over the past seven days and also
+      suggests a high likelihood of stress with probability 90%.
+      Agreement between the personalized and temporal-history models increases confidence in the prediction.
+      However, these results are based on physiological patterns and are not a clinical diagnosis.
+      Actionable Tip: Since your data suggests elevated physiological strain today, you may benefit from
+      prioritizing recovery breaks, deep breathing exercises, or workload adjustment.
+      Final Answer: high stress
+
+Reviewer Observation. Reviewers preferred WEQA because it incorporated both personal baseline adaptation and
+longitudinal temporal reasoning, rather than relying only on simple deviation-from-average heuristics.
+
+     “Response A neglects to take into account variation in people’s baselines.”
+
+     “Response B gives more context behind this and acknowledges how the agent came to this conclusion
+     with other data.”
+
+Why WEQA Performed Better. WEQA dynamically combined personalized predictive modeling with temporal-
+history reasoning, allowing the system to identify elevated stress despite relatively stable average HRV values.
+Reviewers also preferred the explicit explanation of evidence sources and the inclusion of actionable but safety-aware
+recommendations.
+
+
+
+
+                                                         25
+Case Study: Hypertension Screening from PPG Signals
+Query. Based on my PPG data, do I have hypertension?
+Ground Truth. The participant had hypertension, with systolic blood pressure of 149 mmHg and diastolic blood
+pressure of 92 mmHg.
+Compared Systems.
+
+    • Response A: ReAct
+
+    • Response B: WEQA
+
+Response A (ReAct).
+
+      Based on the analysis of your PPG data, it is unlikely that you have hypertension.
+      The analysis focused on the K-factor, representing the relative area under the pulse waveform. Your
+      calculated K-factors were approximately 0.41, 0.34, and 0.39, with a mean value of 0.38, which remains
+      within the normal range.
+      Please note that PPG-based analysis is a screening method and cannot replace a clinical diagnosis.
+      Hypertension is formally diagnosed using a blood pressure cuff.
+      Final Answer: No
+
+Response B (WEQA).
+
+      I processed your PPG data using predictive models to estimate your blood pressure and hypertension risk.
+      The primary model predicts hypertension with probability 78.2%. The associated blood pressure estimate
+      is 131.5 / 74.2 mmHg.
+      Because the systolic pressure fell into a range requiring further verification, a second-opinion model was
+      consulted. This model estimated your blood pressure at 134.6 / 74.3 mmHg.
+      Both models indicate elevated systolic pressure. While these predictions are consistent, PPG-based
+      estimates can vary based on sensor placement and movement. You should verify these readings using a
+      validated blood pressure cuff and consult a healthcare professional.
+      Final Answer: hypertension
+
+Reviewer Observation. Reviewers preferred WEQA because it combined stronger predictive inference with more
+appropriate uncertainty communication and clinical framing.
+
+     “Model A underlines PPG is only a screening tool and recommends confirmatory testing.”
+
+Why WEQA Performed Better. WEQA dynamically combined multiple predictive models and uncertainty-aware
+reasoning instead of relying on a single handcrafted waveform heuristic. In addition, the grounded response auditing
+stage framed the prediction appropriately as screening evidence rather than definitive diagnosis, improving perceived
+clinical plausibility and safety.
+
+
+
+
+                                                         26
+
